@@ -1,0 +1,19 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  build:
+    uses: ./.github/workflows/_build.yml
+    with:
+      publish_mode: artifact
+      artifact_name: reblue-${{ github.sha }}
+    secrets: inherit

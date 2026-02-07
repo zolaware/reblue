@@ -1,0 +1,119 @@
+name: Build reblue
+
+on:
+  workflow_call:
+    inputs:
+      publish_mode:
+        description: "'artifact' for CI workflow-artifact, 'release' for GitHub release"
+        required: true
+        type: string
+      artifact_name:
+        description: "Artifact name when publish_mode is 'artifact'"
+        required: false
+        type: string
+        default: ""
+
+env:
+  REXSDK_TAG: v0.7.5
+  REXSDK_ASSET: rexglue-sdk-win-amd64.zip
+  ASSETS_REPO: zolaware/reblue-assets
+  ASSET_PATH: default.xex
+  ASSET_CACHE_KEY: codegen-assets-v1
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install LLVM, CMake, Ninja
+        run: choco install llvm cmake ninja -y
+
+      - name: Set up sccache
+        uses: hendrikmuhs/ccache-action@v1.2.22
+        with:
+          variant: sccache
+          key: win-amd64
+
+      - name: Download ReXGlue SDK (${{ env.REXSDK_TAG }})
+        shell: pwsh
+        run: |
+          $url = "https://github.com/rexglue/rexglue-sdk/releases/download/${{ env.REXSDK_TAG }}/${{ env.REXSDK_ASSET }}"
+          Invoke-WebRequest -Uri $url -OutFile sdk.zip
+          Expand-Archive -Path sdk.zip -DestinationPath sdk
+
+      - name: Cache required assets for codegen
+        id: asset-cache
+        uses: actions/cache@v5
+        with:
+          path: assets/${{ env.ASSET_PATH }}
+          key: ${{ env.ASSET_CACHE_KEY }}
+
+      - name: Fetch required assets for codegen
+        if: steps.asset-cache.outputs.cache-hit != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.ASSETS_TOKEN }}
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path assets | Out-Null
+          gh api -H "Accept: application/vnd.github.raw" `
+            "repos/${{ env.ASSETS_REPO }}/contents/${{ env.ASSET_PATH }}" `
+            > "assets/${{ env.ASSET_PATH }}"
+          $size = (Get-Item "assets/${{ env.ASSET_PATH }}").Length
+          Write-Host "Fetched ${{ env.ASSET_PATH }} ($size bytes)"
+          if ($size -lt 1048576) {
+            throw "Fetched asset is smaller than 1 MiB - fetch likely failed"
+          }
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          $sdk = Join-Path $PWD "sdk/win-amd64"
+          cmake --preset win-amd64-release "-DCMAKE_PREFIX_PATH=$sdk" "-DCMAKE_C_COMPILER_LAUNCHER=sccache" "-DCMAKE_CXX_COMPILER_LAUNCHER=sccache"
+
+      - name: Codegen
+        run: cmake --build --preset win-amd64-release --target reblue_codegen
+
+      - name: Reconfigure (pick up generated/sources.cmake)
+        shell: pwsh
+        run: |
+          $sdk = Join-Path $PWD "sdk/win-amd64"
+          cmake --preset win-amd64-release "-DCMAKE_PREFIX_PATH=$sdk" "-DCMAKE_C_COMPILER_LAUNCHER=sccache" "-DCMAKE_CXX_COMPILER_LAUNCHER=sccache"
+
+      - name: Build
+        run: cmake --build --preset win-amd64-release -j
+
+      - name: sccache stats
+        if: always()
+        shell: bash
+        run: sccache --show-stats || true
+
+      - name: Upload workflow artifact
+        if: inputs.publish_mode == 'artifact'
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: out/build/win-amd64-release/reblue.exe
+          if-no-files-found: error
+
+      - name: Stage release assets
+        if: inputs.publish_mode == 'release'
+        shell: pwsh
+        run: |
+          $out = "release-assets"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          $buildDir = "out/build/win-amd64-release"
+          Copy-Item "$buildDir/reblue.exe" $out
+          Get-ChildItem "$buildDir" -Filter *.pdb -ErrorAction SilentlyContinue |
+            ForEach-Object { Copy-Item $_.FullName $out }
+
+      - name: Create GitHub Release
+        if: inputs.publish_mode == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

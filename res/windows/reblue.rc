@@ -1,0 +1,48 @@
+#include <winver.h>
+
+#ifndef REBLUE_VER_MAJOR
+#define REBLUE_VER_MAJOR 0
+#endif
+#ifndef REBLUE_VER_MINOR
+#define REBLUE_VER_MINOR 0
+#endif
+#ifndef REBLUE_VER_PATCH
+#define REBLUE_VER_PATCH 0
+#endif
+
+#define REBLUE_STR_(x) #x
+#define REBLUE_STR(x) REBLUE_STR_(x)
+#define REBLUE_VER_STRING \
+    REBLUE_STR(REBLUE_VER_MAJOR) "." \
+    REBLUE_STR(REBLUE_VER_MINOR) "." \
+    REBLUE_STR(REBLUE_VER_PATCH)
+
+MAINICON ICON "../reblue.ico"
+
+VS_VERSION_INFO VERSIONINFO
+  FILEVERSION     REBLUE_VER_MAJOR,REBLUE_VER_MINOR,REBLUE_VER_PATCH,0
+  PRODUCTVERSION  REBLUE_VER_MAJOR,REBLUE_VER_MINOR,REBLUE_VER_PATCH,0
+  FILEFLAGSMASK   0x3FL
+  FILEFLAGS       0x0L
+  FILEOS          0x40004L
+  FILETYPE        0x1L
+  FILESUBTYPE     0x0L
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904B0"
+    BEGIN
+      VALUE "CompanyName",      "zolaware"
+      VALUE "FileDescription",  "re:Blue"
+      VALUE "FileVersion",      REBLUE_VER_STRING
+      VALUE "InternalName",     "reblue"
+      VALUE "OriginalFilename", "reblue.exe"
+      VALUE "ProductName",      "re:Blue"
+      VALUE "ProductVersion",   REBLUE_VER_STRING
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x0409, 0x04B0
+  END
+END

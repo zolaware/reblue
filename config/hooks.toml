@@ -1,0 +1,125 @@
+[rexcrt]
+# File I/O
+CreateFileA        = 0x8248B780
+ReadFile           = 0x8248CBF8
+WriteFile          = 0x8248B500
+SetFilePointer     = 0x8248B3B8
+GetFileSize        = 0x8248CDA8
+GetFileSizeEx      = 0x8248E688
+SetEndOfFile       = 0x8248B310
+FlushFileBuffers   = 0x826E1D98
+DeleteFileA        = 0x8248B6C8
+CloseHandle        = 0x8248B2D8
+FindFirstFileA     = 0x8248DC60
+FindNextFileA      = 0x8248DCF0
+CreateDirectoryA   = 0x8248D678
+MoveFileA          = 0x8248BE98
+SetFileAttributesA = 0x8248D598
+
+# Heap
+RtlAllocateHeap    = 0x824694A0
+RtlFreeHeap        = 0x82469D88
+RtlSizeHeap        = 0x82468738
+RtlReAllocateHeap  = 0x8246A070
+
+# Memory
+memcpy             = 0x826BF770
+memmove            = 0x826C0480
+memset             = 0x826BFcF0
+memchr             = 0x826C27F0
+XMemCpy            = 0x8248BAD0
+XMemSet128         = 0x8248B968
+memset_vmx         = 0x8248D228
+memcpy_s           = 0x826BED98
+memmove_s          = 0x826BEE70
+
+# String
+strncmp            = 0x826BF4F0
+strncpy            = 0x826C0D98
+strchr             = 0x826C1860
+strstr             = 0x826C1D60
+strrchr            = 0x826C1DE0
+strtok             = 0x826C1740
+_stricmp           = 0x826C5620
+strcpy_s           = 0x826C7A70
+lstrlenA           = 0x8248D570
+lstrcpyA           = 0x8248D4D0
+lstrcpynA          = 0x8248D4F0
+lstrcatA           = 0x8248D538
+lstrcmpiA          = 0x8248D440
+
+
+[[midasm_hook]]
+address = 0x82132D68
+name = "bdWireframeHook"
+registers = ["r11"]
+after_instruction = false
+jump_address_on_true = 0x82132D6C
+
+# --- Camera bounding box (bd_camera_bbox) ---
+[[midasm_hook]]
+address = 0x821340B0
+name = "bdCameraBBoxHook"
+registers = ["r11"]
+after_instruction = false
+jump_address_on_true = 0x821340B4
+
+[[midasm_hook]]
+address = 0x820CE730
+name = "bdPostConfigInitHook"
+registers = []
+after_instruction = true
+
+# --- Per-frame keyboard bridge for debug input ---
+[[midasm_hook]]
+address = 0x82126B04
+name = "bdKeyboardPollHook"
+registers = []
+after_instruction = false
+
+# === Native frame timing ===
+
+# Force vsync interval 0 (frame limiter handles pacing)
+[[midasm_hook]]
+address = 0x8246AB68
+name = "bdVsyncFlipRateHook"
+registers = ["r10"]
+after_instruction = false
+jump_address_on_true = 0x8246AB6C
+
+# Native frame limiter: sole timing authority (30fps gate)
+[[midasm_hook]]
+address = 0x82132F08
+name = "bdRenderFrameLimiterHook"
+registers = []
+after_instruction = false
+
+# === Multi-DVD removal ===
+
+# Skip storing detected disc number (stw r31, 0x174(r3) at 0x820CEAA8).
+# Leaves file manager disc = 0 so all disc-change checks see "no disc" and skip.
+[[midasm_hook]]
+address = 0x820CEAA8
+name = "bdSkipDiscNumberStore"
+registers = []
+after_instruction = false
+jump_address_on_true = 0x820CEAAC
+
+# === Mod Manager: title menu integration ===
+
+# Navigation bounds: force New Game+ always on, add Mods entry (maxItems = 4).
+# Fires after engine sets r30 to 2 or 3 (maxItems). We override to 4.
+[[midasm_hook]]
+address = 0x820CA654
+name = "bdTitleNavBoundsHook"
+registers = ["r30", "r31"]
+after_instruction = false
+
+# A-button dispatch: intercept "Mods" cursor index before engine dispatch.
+# Sets deferred creation flag, pushes TitleTask to state 4 (CHILD_RUNNING).
+[[midasm_hook]]
+address = 0x820CA6C4
+name = "bdTitleModsDispatchHook"
+registers = ["r31", "r11"]
+after_instruction = false
+jump_address_on_true = 0x820CA7C8
