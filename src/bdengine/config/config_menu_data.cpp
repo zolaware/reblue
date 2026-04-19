@@ -9,7 +9,7 @@
  */
 #include "bdengine/config/config_menu_data.h"
 #include "bdengine/config/config_layout.h"
-#include "bdengine/platform/file_dialogue.h"
+#include "ui/file_dialog.h"
 #include "bdengine/common/logging.h"
 #include "bdengine/resources/mark_config_dds.h"
 #include "bdengine/mods/vfs.h"
@@ -281,9 +281,10 @@ static bool InstallModFromZip(const std::filesystem::path &zip_path,
 }
 
 bool InstallMod() {
-  auto selected = bd::OpenFileDialogue(L"Select Mod (zip or mod.toml)",
-                                       L"Mod files (*.zip, mod.toml)",
-                                       L"*.zip;mod.toml");
+  static constexpr reblue::ui::FileFilter kModFilters[] = {
+      {L"Mod files (*.zip, mod.toml)", L"*.zip;mod.toml"},
+  };
+  auto selected = reblue::ui::ShowOpenFileDialog(L"Select Mod (zip or mod.toml)", kModFilters);
   if (!selected) {
     BD_INFO("[config] install cancelled");
     return false;
@@ -304,7 +305,7 @@ bool InstallMod() {
 }
 
 bool InstallDlc() {
-  auto selected = bd::OpenFileDialogue(L"Select DLC Package");
+  auto selected = reblue::ui::ShowOpenFileDialog(L"Select DLC Package");
   if (!selected) {
     BD_INFO("[dlc] install cancelled");
     return false;
