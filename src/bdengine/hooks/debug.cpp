@@ -25,9 +25,9 @@ REXCVAR_DEFINE_BOOL(bd_camera_bbox, false, "Blue Dragon",
                     "Enable camera bounding box debug display");
 REXCVAR_DEFINE_BOOL(bd_debug_menu, false, "Blue Dragon",
                     "Enable debug menu boot, tools, and labels");
-REXCVAR_DEFINE_BOOL(bd_mindows, true, "Blue Dragon",
+REXCVAR_DEFINE_BOOL(bd_mindows, false, "Blue Dragon",
                     "Enable Mindows config overlay (F11 to toggle visibility)");
-REXCVAR_DEFINE_BOOL(bd_hcfile_log, true, "Blue Dragon",
+REXCVAR_DEFINE_BOOL(bd_hcfile_log, false, "Blue Dragon",
                     "Log file accesses to console (hcfile trace)");
 
 namespace bd {
