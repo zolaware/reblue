@@ -1,0 +1,215 @@
+name: Dev nightly CI
+
+# Builds the reblue `development` branch against the latest rexglue-sdk
+# nightly release whenever either side advances.
+#
+# Triggers:
+#   * push  to `development`         - new reblue commits
+#   * cron  daily at 07:00 UTC       - catches new rexglue-sdk nightlies
+#                                      (nightlies publish at 06:00 UTC)
+#   * workflow_dispatch              - manual
+#
+# Dedup: each successful build uploads an artifact named
+# `reblue-dev-<dev_short_sha>-<sdk_tag>`. On each run the `resolve` job
+# inspects the most recent successful run's artifacts; if the same combo
+# was already built, the run is skipped.
+#
+# Note: GitHub only fires `schedule` for workflows present on the
+# default branch. This file must be merged to `main` before the daily
+# cron trigger becomes active. `push` and `workflow_dispatch` work from
+# any branch that contains it.
+
+on:
+  push:
+    branches: [development]
+  schedule:
+    - cron: "0 7 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: dev-nightly-ci
+  cancel-in-progress: true
+
+env:
+  SDK_REPO: rexglue/rexglue-sdk
+  NIGHTLY_TAG_PREFIX: nightly-
+  DEV_BRANCH: development
+  ASSETS_REPO: zolaware/reblue-assets
+  ASSET_PATH: default.xex
+  ASSET_CACHE_KEY: codegen-assets-v1
+  BUILD_PRESET: win-amd64-release
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.decide.outputs.should_build }}
+      dev_sha: ${{ steps.decide.outputs.dev_sha }}
+      dev_short: ${{ steps.decide.outputs.dev_short }}
+      sdk_tag: ${{ steps.decide.outputs.sdk_tag }}
+      artifact_name: ${{ steps.decide.outputs.artifact_name }}
+    steps:
+      - name: Checkout development
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.DEV_BRANCH }}
+          fetch-depth: 1
+
+      - name: Resolve latest nightly and decide
+        id: decide
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          dev_sha=$(git rev-parse HEAD)
+          dev_short="${dev_sha:0:8}"
+
+          sdk_tag=$(gh release list --repo "${SDK_REPO}" --limit 100 \
+            --json tagName,isPrerelease,createdAt \
+            | jq -r --arg prefix "${NIGHTLY_TAG_PREFIX}" \
+                '[.[] | select(.isPrerelease)
+                      | select(.tagName | startswith($prefix))]
+                  | sort_by(.createdAt) | last | .tagName // ""')
+          if [ -z "${sdk_tag}" ]; then
+            echo "::error::No nightly release found under ${SDK_REPO}"
+            exit 1
+          fi
+
+          artifact_name="reblue-dev-${dev_short}-${sdk_tag}"
+
+          echo "dev_sha=${dev_sha}"              >> "$GITHUB_OUTPUT"
+          echo "dev_short=${dev_short}"          >> "$GITHUB_OUTPUT"
+          echo "sdk_tag=${sdk_tag}"              >> "$GITHUB_OUTPUT"
+          echo "artifact_name=${artifact_name}"  >> "$GITHUB_OUTPUT"
+
+          echo "Candidate combo: ${artifact_name}"
+          echo "  dev sha : ${dev_sha}"
+          echo "  sdk tag : ${sdk_tag}"
+
+          last_run_id=$(gh run list --repo "${{ github.repository }}" \
+            --workflow dev-nightly-ci.yml \
+            --status success --limit 1 \
+            --json databaseId --jq '.[0].databaseId // ""')
+
+          if [ -z "${last_run_id}" ]; then
+            echo "No prior successful run; building."
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          last_artifact=$(gh api \
+            "repos/${{ github.repository }}/actions/runs/${last_run_id}/artifacts?per_page=100" \
+            --jq '[.artifacts[] | select(.expired == false)
+                                | select(.name | startswith("reblue-dev-"))]
+                   | .[0].name // ""')
+
+          if [ "${last_artifact}" = "${artifact_name}" ]; then
+            echo "Already built ${artifact_name} in run ${last_run_id}; skipping."
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Previous build: ${last_artifact:-<none>}; new combo differs; building."
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: resolve
+    if: needs.resolve.outputs.should_build == 'true'
+    runs-on: windows-latest
+    steps:
+      - name: Checkout development @ ${{ needs.resolve.outputs.dev_short }}
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.resolve.outputs.dev_sha }}
+
+      - name: Install LLVM, CMake, Ninja
+        run: choco install llvm cmake ninja -y
+
+      - name: Set up sccache
+        uses: hendrikmuhs/ccache-action@v1.2.22
+        with:
+          variant: sccache
+          key: dev-win-amd64
+
+      - name: Download ReXGlue SDK nightly (${{ needs.resolve.outputs.sdk_tag }})
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $tag = "${{ needs.resolve.outputs.sdk_tag }}"
+          New-Item -ItemType Directory -Force -Path sdk-dl | Out-Null
+          gh release download $tag --repo "$env:SDK_REPO" --pattern "*win-amd64*.zip" --dir sdk-dl
+          $sdkZip = Get-ChildItem -Path sdk-dl -Filter "*win-amd64*.zip" | Select-Object -First 1
+          if (-not $sdkZip) {
+            throw "No win-amd64 asset downloaded for tag $tag"
+          }
+          Write-Host "Downloaded $($sdkZip.Name) ($($sdkZip.Length) bytes)"
+          Expand-Archive -Path $sdkZip.FullName -DestinationPath sdk
+          if (-not (Test-Path "sdk/win-amd64")) {
+            throw "Extracted SDK archive did not contain win-amd64/"
+          }
+
+      - name: Cache required assets for codegen
+        id: asset-cache
+        uses: actions/cache@v5
+        with:
+          path: assets/${{ env.ASSET_PATH }}
+          key: ${{ env.ASSET_CACHE_KEY }}
+
+      - name: Fetch required assets for codegen
+        if: steps.asset-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.ASSETS_TOKEN }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force -Path assets | Out-Null
+          gh api -H "Accept: application/vnd.github.raw" `
+            "repos/${{ env.ASSETS_REPO }}/contents/${{ env.ASSET_PATH }}" `
+            > "assets/${{ env.ASSET_PATH }}"
+          $size = (Get-Item "assets/${{ env.ASSET_PATH }}").Length
+          Write-Host "Fetched ${{ env.ASSET_PATH }} ($size bytes)"
+          if ($size -lt 1048576) {
+            throw "Fetched asset is smaller than 1 MiB - fetch likely failed"
+          }
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          $sdk = Join-Path $PWD "sdk/win-amd64"
+          cmake --preset ${{ env.BUILD_PRESET }} `
+            "-DCMAKE_PREFIX_PATH=$sdk" `
+            "-DCMAKE_C_COMPILER_LAUNCHER=sccache" `
+            "-DCMAKE_CXX_COMPILER_LAUNCHER=sccache"
+
+      - name: Codegen
+        run: cmake --build --preset ${{ env.BUILD_PRESET }} --target reblue_codegen
+
+      - name: Reconfigure (pick up generated/sources.cmake)
+        shell: pwsh
+        run: |
+          $sdk = Join-Path $PWD "sdk/win-amd64"
+          cmake --preset ${{ env.BUILD_PRESET }} `
+            "-DCMAKE_PREFIX_PATH=$sdk" `
+            "-DCMAKE_C_COMPILER_LAUNCHER=sccache" `
+            "-DCMAKE_CXX_COMPILER_LAUNCHER=sccache"
+
+      - name: Build
+        run: cmake --build --preset ${{ env.BUILD_PRESET }} -j
+
+      - name: sccache stats
+        if: always()
+        shell: bash
+        run: sccache --show-stats || true
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ needs.resolve.outputs.artifact_name }}
+          path: out/build/${{ env.BUILD_PRESET }}/reblue.exe
+          if-no-files-found: error
