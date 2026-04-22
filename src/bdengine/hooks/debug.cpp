@@ -10,15 +10,33 @@
 #include "bdengine/common/logging.h"
 #include "bdengine/platform/keyboard_bridge.h"
 
-#include <rex/types.h>
 #include <rex/cvar.h>
+#include <rex/hook.h>
 #include <rex/memory/utils.h>
 #include <rex/ppc.h>
 #include <rex/ppc/function.h>
+#include <rex/system/format.h>
 #include <rex/system/kernel_state.h>
+#include <rex/system/thread_state.h>
+#include <rex/types.h>
 #include <rex/ui/keybinds.h>
 
-// CVars
+#include <cctype>
+#include <string>
+#include <string_view>
+
+extern "C" {
+__declspec(dllimport) int __stdcall MultiByteToWideChar(
+    unsigned int CodePage, unsigned long dwFlags,
+    const char* lpMultiByteStr, int cbMultiByte,
+    wchar_t* lpWideCharStr, int cchWideChar);
+__declspec(dllimport) int __stdcall WideCharToMultiByte(
+    unsigned int CodePage, unsigned long dwFlags,
+    const wchar_t* lpWideCharStr, int cchWideChar,
+    char* lpMultiByteStr, int cbMultiByte,
+    const char* lpDefaultChar, int* lpUsedDefaultChar);
+}
+
 REXCVAR_DEFINE_BOOL(bd_wireframe, false, "Blue Dragon",
                     "Enable wireframe rendering");
 REXCVAR_DEFINE_BOOL(bd_camera_bbox, false, "Blue Dragon",
@@ -29,6 +47,10 @@ REXCVAR_DEFINE_BOOL(bd_mindows, false, "Blue Dragon",
                     "Enable Mindows config overlay (F11 to toggle visibility)");
 REXCVAR_DEFINE_BOOL(bd_hcfile_log, false, "Blue Dragon",
                     "Log file accesses to console (hcfile trace)");
+REXCVAR_DEFINE_BOOL(bd_dbgprint, false, "Blue Dragon",
+                    "Print DbgPrint output to host log");
+REXCVAR_DEFINE_BOOL(bd_dbgprint_sjis, true, "Blue Dragon",
+                    "Convert Shift-JIS (CP932) bytes in DbgPrint output to UTF-8");
 
 namespace bd {
 
@@ -130,25 +152,74 @@ bool bdCameraBBoxHook(PPCRegister &r11) {
 }
 
 /**
- * @brief Debug printf capture. Midasm at 0x82273420, after vsnprintf formats
- *        the string into a stack buffer. r3 points to the formatted string.
- */
-void bdDebugPrintfCapture(mapped_string fmt, mapped_string arg2) {
-    if(fmt.value().empty())
-        return;
-    if(fmt.value()[0] == '\n')
-        return;
-
-    BD_INFO("[dbg] {}", fmt.value());
-  return;
-}
-
-/**
  * @brief File access trace; replaces bdLogFileAccess (0x82270B60).
- *        Redirects guest console output to the host logger.
  */
 void bdLogFileAccessHook(mapped_string filepath) {
   if (REXCVAR_GET(bd_hcfile_log))
     BD_DEBUG("[hcfile] {}", filepath.value());
 }
 PPC_HOOK(bdLogFileAccess, bdLogFileAccessHook);
+
+namespace {
+
+std::string SjisToUtf8(std::string_view sjis) {
+  if (sjis.empty())
+    return {};
+  int wlen = MultiByteToWideChar(932, 0, sjis.data(), (int)sjis.size(),
+                                 nullptr, 0);
+  if (wlen <= 0)
+    return std::string(sjis);
+  std::wstring wbuf((size_t)wlen, L'\0');
+  MultiByteToWideChar(932, 0, sjis.data(), (int)sjis.size(), wbuf.data(),
+                      wlen);
+  int ulen = WideCharToMultiByte(65001, 0, wbuf.data(), wlen, nullptr, 0,
+                                 nullptr, nullptr);
+  if (ulen <= 0)
+    return std::string(sjis);
+  std::string out((size_t)ulen, '\0');
+  WideCharToMultiByte(65001, 0, wbuf.data(), wlen, out.data(), ulen, nullptr,
+                      nullptr);
+  return out;
+}
+
+}  // namespace
+
+/**
+ * @brief DbgPrint_v at 0x820D1998 (retail stub: `li r3,1; blr`).
+ *        Also used as a no-op callback default in vtables/data tables; the
+ *        range check skips those before touching the format engine.
+ */
+u32 bdDebugPrintHook(mapped_string fmt) {
+  if (!REXCVAR_GET(bd_dbgprint))
+    return 1;
+
+  u32 fmt_addr = fmt.guest_address();
+  if (fmt_addr < 0x82000000u || fmt_addr >= 0xC0000000u)
+    return 1;
+
+  auto& ctx = *rex::runtime::current_ppc_context();
+  auto* base = REX_KERNEL_MEMORY()->virtual_membase();
+
+  rex::system::format::StackArgList args(ctx, base, 1);
+  rex::system::format::StringFormatData data(
+      reinterpret_cast<const u8*>(fmt.host_address()));
+
+  int32_t count = rex::system::format::format_core(base, data, args,
+                                                   /*wide=*/false);
+  if (count <= 0)
+    return 1;
+
+  auto str = data.str();
+  while (!str.empty() &&
+         std::isspace(static_cast<unsigned char>(str.back())))
+    str.pop_back();
+  if (str.empty())
+    return 1;
+
+  if (REXCVAR_GET(bd_dbgprint_sjis))
+    str = SjisToUtf8(str);
+
+  BD_INFO("[dbg] {}", str);
+  return 1;
+}
+PPC_HOOK(rex_DebugPrint, bdDebugPrintHook);
