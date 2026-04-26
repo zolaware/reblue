@@ -1,4 +1,5 @@
 [functions]
+0x8210F1D8 = { name = "mgMS__helper_F1D8" }
 0x820C03A0 = { name = "SequenceHolder_SequenceUnitBase_ctor", size = 0x80 }
 0x820C0428 = { name = "SequenceHolder_SequenceUnit_ctor", size = 0x7C }
 0x820C04A8 = { name = "SequenceUnit_vf01_InvokeFactory", size = 0x68 }
