@@ -1,7 +1,8 @@
 name: Dev nightly CI
 
 # Builds the reblue `development` branch against the latest rexglue-sdk
-# nightly release whenever either side advances.
+# nightly release, then publishes the result as a prerelease whenever
+# either side advances.
 #
 # Triggers:
 #   * push  to `development`         - new reblue commits
@@ -9,15 +10,20 @@ name: Dev nightly CI
 #                                      (nightlies publish at 06:00 UTC)
 #   * workflow_dispatch              - manual
 #
-# Dedup: each successful build uploads an artifact named
-# `reblue-dev-<dev_short_sha>-<sdk_tag>`. On each run the `resolve` job
-# inspects the most recent successful run's artifacts; if the same combo
-# was already built, the run is skipped.
+# Release scheme:
+#   tag   = nightly-v<version>-d<dev_short>-s<sdk_short>
+#   title = reblue v<version> dev nightly
+#   asset = reblue-<version>-dev-<dev_short>-<sdk_short>-win-amd64.zip
+# <version> is parsed from `project(reblue VERSION ...)` in CMakeLists.txt.
+# The tag is stable per dev+sdk combo, so reruns of the same combo are
+# idempotent (the `resolve` job notices the tag already exists and skips).
 #
-# Note: GitHub only fires `schedule` for workflows present on the
-# default branch. This file must be merged to `main` before the daily
-# cron trigger becomes active. `push` and `workflow_dispatch` work from
-# any branch that contains it.
+# Retention: the 10 most recent nightlies are kept; older ones are pruned.
+#
+# Note: GitHub only fires `schedule` for workflows present on the default
+# branch. This file must be merged to `main` before the daily cron trigger
+# becomes active. `push` and `workflow_dispatch` work from any branch that
+# contains it.
 
 on:
   push:
@@ -27,7 +33,7 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  contents: read
+  contents: write
   actions: read
 
 concurrency:
@@ -36,7 +42,9 @@ concurrency:
 
 env:
   SDK_REPO: rexglue/rexglue-sdk
-  NIGHTLY_TAG_PREFIX: nightly-
+  SDK_NIGHTLY_PREFIX: nightly-
+  REBLUE_NIGHTLY_PREFIX: nightly-v
+  REBLUE_NIGHTLY_RETENTION: 10
   DEV_BRANCH: development
   ASSETS_REPO: zolaware/reblue-assets
   ASSET_PATH: default.xex
@@ -47,11 +55,15 @@ jobs:
   resolve:
     runs-on: ubuntu-latest
     outputs:
-      should_build: ${{ steps.decide.outputs.should_build }}
-      dev_sha: ${{ steps.decide.outputs.dev_sha }}
-      dev_short: ${{ steps.decide.outputs.dev_short }}
-      sdk_tag: ${{ steps.decide.outputs.sdk_tag }}
-      artifact_name: ${{ steps.decide.outputs.artifact_name }}
+      should_build:     ${{ steps.decide.outputs.should_build }}
+      dev_sha:          ${{ steps.decide.outputs.dev_sha }}
+      dev_short:        ${{ steps.decide.outputs.dev_short }}
+      sdk_tag:          ${{ steps.decide.outputs.sdk_tag }}
+      sdk_short:        ${{ steps.decide.outputs.sdk_short }}
+      version:          ${{ steps.decide.outputs.version }}
+      tag_name:         ${{ steps.decide.outputs.tag_name }}
+      asset_name:       ${{ steps.decide.outputs.asset_name }}
+      prev_nightly_sha: ${{ steps.decide.outputs.prev_nightly_sha }}
     steps:
       - name: Checkout development
         uses: actions/checkout@v6
@@ -59,7 +71,7 @@ jobs:
           ref: ${{ env.DEV_BRANCH }}
           fetch-depth: 1
 
-      - name: Resolve latest nightly and decide
+      - name: Resolve combo and decide
         id: decide
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -69,9 +81,15 @@ jobs:
           dev_sha=$(git rev-parse HEAD)
           dev_short="${dev_sha:0:8}"
 
+          version=$(sed -nE 's/^project\(reblue VERSION ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' CMakeLists.txt | head -n1)
+          if [ -z "${version}" ]; then
+            echo "::error::Could not parse project version from CMakeLists.txt"
+            exit 1
+          fi
+
           sdk_tag=$(gh release list --repo "${SDK_REPO}" --limit 100 \
             --json tagName,isPrerelease,createdAt \
-            | jq -r --arg prefix "${NIGHTLY_TAG_PREFIX}" \
+            | jq -r --arg prefix "${SDK_NIGHTLY_PREFIX}" \
                 '[.[] | select(.isPrerelease)
                       | select(.tagName | startswith($prefix))]
                   | sort_by(.createdAt) | last | .tagName // ""')
@@ -80,39 +98,53 @@ jobs:
             exit 1
           fi
 
-          artifact_name="reblue-dev-${dev_short}-${sdk_tag}"
-
-          echo "dev_sha=${dev_sha}"              >> "$GITHUB_OUTPUT"
-          echo "dev_short=${dev_short}"          >> "$GITHUB_OUTPUT"
-          echo "sdk_tag=${sdk_tag}"              >> "$GITHUB_OUTPUT"
-          echo "artifact_name=${artifact_name}"  >> "$GITHUB_OUTPUT"
-
-          echo "Candidate combo: ${artifact_name}"
-          echo "  dev sha : ${dev_sha}"
-          echo "  sdk tag : ${sdk_tag}"
-
-          last_run_id=$(gh run list --repo "${{ github.repository }}" \
-            --workflow dev-nightly-ci.yml \
-            --status success --limit 1 \
-            --json databaseId --jq '.[0].databaseId // ""')
-
-          if [ -z "${last_run_id}" ]; then
-            echo "No prior successful run; building."
-            echo "should_build=true" >> "$GITHUB_OUTPUT"
-            exit 0
+          sdk_short=$(printf '%s' "${sdk_tag}" | sed -nE 's/^nightly-[0-9]{8}-([0-9a-f]+)$/\1/p')
+          sdk_short="${sdk_short:0:8}"
+          if [ -z "${sdk_short}" ]; then
+            echo "::error::Could not parse sha from SDK tag ${sdk_tag}"
+            exit 1
           fi
 
-          last_artifact=$(gh api \
-            "repos/${{ github.repository }}/actions/runs/${last_run_id}/artifacts?per_page=100" \
-            --jq '[.artifacts[] | select(.expired == false)
-                                | select(.name | startswith("reblue-dev-"))]
-                   | .[0].name // ""')
+          tag_name="${REBLUE_NIGHTLY_PREFIX}${version}-d${dev_short}-s${sdk_short}"
+          asset_name="reblue-${version}-dev-${dev_short}-${sdk_short}-win-amd64.zip"
 
-          if [ "${last_artifact}" = "${artifact_name}" ]; then
-            echo "Already built ${artifact_name} in run ${last_run_id}; skipping."
+          {
+            echo "dev_sha=${dev_sha}"
+            echo "dev_short=${dev_short}"
+            echo "sdk_tag=${sdk_tag}"
+            echo "sdk_short=${sdk_short}"
+            echo "version=${version}"
+            echo "tag_name=${tag_name}"
+            echo "asset_name=${asset_name}"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Candidate nightly:"
+          echo "  version : ${version}"
+          echo "  dev     : ${dev_sha}"
+          echo "  sdk     : ${sdk_tag}"
+          echo "  tag     : ${tag_name}"
+          echo "  asset   : ${asset_name}"
+
+          prev_tag=$(gh release list --repo "${{ github.repository }}" --limit 100 \
+            --json tagName,isPrerelease,createdAt \
+            | jq -r --arg prefix "${REBLUE_NIGHTLY_PREFIX}" \
+                '[.[] | select(.isPrerelease)
+                      | select(.tagName | startswith($prefix))]
+                  | sort_by(.createdAt) | last | .tagName // ""')
+          if [ -n "${prev_tag}" ]; then
+            prev_nightly_sha=$(gh release view "${prev_tag}" \
+              --repo "${{ github.repository }}" \
+              --json targetCommitish -q .targetCommitish 2>/dev/null || echo "")
+          else
+            prev_nightly_sha=""
+          fi
+          echo "prev_nightly_sha=${prev_nightly_sha}" >> "$GITHUB_OUTPUT"
+
+          if gh release view "${tag_name}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Release ${tag_name} already exists; skipping build."
             echo "should_build=false" >> "$GITHUB_OUTPUT"
           else
-            echo "Previous build: ${last_artifact:-<none>}; new combo differs; building."
+            echo "Release ${tag_name} does not exist; building."
             echo "should_build=true" >> "$GITHUB_OUTPUT"
           fi
 
@@ -207,9 +239,97 @@ jobs:
         shell: bash
         run: sccache --show-stats || true
 
-      - name: Upload build artifact
+      - name: Package release asset
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $buildDir = "out/build/${{ env.BUILD_PRESET }}"
+          $staging  = "release-staging"
+          $payload  = Join-Path $staging "payload"
+          New-Item -ItemType Directory -Force -Path $payload | Out-Null
+          Copy-Item "$buildDir/reblue.exe" $payload
+          Get-ChildItem "$buildDir" -Filter *.pdb -ErrorAction SilentlyContinue |
+            ForEach-Object { Copy-Item $_.FullName $payload }
+          $zipPath = Join-Path $staging "${{ needs.resolve.outputs.asset_name }}"
+          Compress-Archive -Path "$payload/*" -DestinationPath $zipPath -Force
+          Remove-Item -Recurse -Force $payload
+
+      - name: Upload build asset
         uses: actions/upload-artifact@v6
         with:
-          name: ${{ needs.resolve.outputs.artifact_name }}
-          path: out/build/${{ env.BUILD_PRESET }}/reblue.exe
+          name: dev-nightly-asset
+          path: release-staging/*.zip
           if-no-files-found: error
+
+  publish:
+    needs: [resolve, build]
+    if: needs.resolve.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout development @ ${{ needs.resolve.outputs.dev_short }}
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.resolve.outputs.dev_sha }}
+          fetch-depth: 0
+
+      - name: Download build asset
+        uses: actions/download-artifact@v8
+        with:
+          name: dev-nightly-asset
+          path: artifacts
+
+      - name: Compose release notes
+        env:
+          DEV_SHA:  ${{ needs.resolve.outputs.dev_sha }}
+          PREV_SHA: ${{ needs.resolve.outputs.prev_nightly_sha }}
+          SDK_TAG:  ${{ needs.resolve.outputs.sdk_tag }}
+        run: |
+          set -euo pipefail
+          if [ -n "${PREV_SHA}" ] && git cat-file -e "${PREV_SHA}^{commit}" 2>/dev/null; then
+            commits=$(git log --no-merges --pretty='format:- %s (%h)' "${PREV_SHA}..${DEV_SHA}")
+            header="Changes since previous dev nightly (\`${PREV_SHA:0:8}\`):"
+          else
+            commits=$(git log --no-merges --pretty='format:- %s (%h)' -20 "${DEV_SHA}")
+            header="Latest commits on \`${DEV_BRANCH}\`:"
+          fi
+          if [ -z "${commits}" ]; then
+            commits="- (no new commits)"
+          fi
+          {
+            printf 'Built against [rexglue-sdk `%s`](https://github.com/%s/releases/tag/%s).\n\n' \
+              "${SDK_TAG}" "${SDK_REPO}" "${SDK_TAG}"
+            printf '%s\n\n%s\n' "${header}" "${commits}"
+          } > notes.md
+          echo "--- notes.md ---"
+          cat notes.md
+
+      - name: Publish prerelease
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.resolve.outputs.tag_name }}
+          name: reblue v${{ needs.resolve.outputs.version }} dev nightly
+          body_path: notes.md
+          prerelease: true
+          target_commitish: ${{ needs.resolve.outputs.dev_sha }}
+          files: artifacts/*.zip
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prune old nightlies
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release list --repo "${{ github.repository }}" --limit 200 \
+            --json tagName,isPrerelease,createdAt \
+            | jq -r --arg prefix "${REBLUE_NIGHTLY_PREFIX}" \
+                    --argjson keep "${REBLUE_NIGHTLY_RETENTION}" \
+                '[.[] | select(.isPrerelease)
+                      | select(.tagName | startswith($prefix))]
+                  | sort_by(.createdAt) | reverse | .[$keep:] | .[].tagName' \
+            | while IFS= read -r tag; do
+                [ -z "${tag}" ] && continue
+                echo "Pruning ${tag}"
+                gh release delete "${tag}" --repo "${{ github.repository }}" --yes --cleanup-tag
+              done
