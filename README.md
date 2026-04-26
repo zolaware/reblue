@@ -34,6 +34,7 @@ Coming soon.
 Huge thanks to everyone who's put time into this. re:Blue wouldn't be where it is without you.
 
 * **[rcold](https://github.com/RC0ld)**, who has done an absurd amount for this project. He tests every build, catches things I miss, and knows Blue Dragon's internals better than anyone I've talked to. A lot of re:Blue looks the way it does because of him, and I can't thank him enough.
+* **InfernoZotza** and **[ZolaKluke](https://github.com/ZolaKluke)** - for testing and being huge supporters during the early development of this project. This project would not be where it is without their contributions.
 * The **[ReXGlue SDK](https://github.com/rexglue/rexglue-sdk)** team, for the toolchain this project is built on.
 * The wider **Xbox 360 emulation scene**. A lot of the hardest problems were solved by them long before this project started.
 
