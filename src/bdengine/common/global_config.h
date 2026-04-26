@@ -55,7 +55,14 @@ struct GlobalConfig {
     // Mindows config overlay.
     be_u32 debugMindows;         // +0x2B0  [DebugMindows], enables Mindows text rendering
 
-    u8 _pad2B4[0x4C];                 // +0x2B4
+    // Debug input toggles, exposed in Mindows under CONFIG/DEBUG/Input.
+    // bdGameSettingsInit defaults both to 1; bdDiscContentLoad zeros them when
+    // debugMindows == 0. We force them to 0 in ApplyDebugConfig so devmode
+    // gets the overlay without the gameplay-altering pad/keyboard debug paths.
+    be_u32 debugInputKey;        // +0x2B4  Mindows "Key"
+    be_u32 debugInputPad;        // +0x2B8  Mindows "Pad"
+
+    u8 _pad2BC[0x44];                  // +0x2BC
 
     // Debug rendering.
     be_u32 debugLabels;          // +0x300  g_bDebugLabels
@@ -71,6 +78,8 @@ static_assert(offsetof(GlobalConfig, userMenu)        == 0x11C);
 static_assert(offsetof(GlobalConfig, toolMenu)        == 0x120);
 static_assert(offsetof(GlobalConfig, toolEntryBits)   == 0x124);
 static_assert(offsetof(GlobalConfig, debugMindows)    == 0x2B0);
+static_assert(offsetof(GlobalConfig, debugInputKey)   == 0x2B4);
+static_assert(offsetof(GlobalConfig, debugInputPad)   == 0x2B8);
 static_assert(offsetof(GlobalConfig, debugLabels)     == 0x300);
 static_assert(offsetof(GlobalConfig, gameSpeed)       == 0x30C);
 
