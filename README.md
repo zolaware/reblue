@@ -110,13 +110,13 @@ Everything below is new to re:Blue. All of it is configurable in game, from the 
     - Unlock All Classes: Sets all nine class bits on every roster member
     
 - Items
-    - Give All Items plus nine category grants — Heal (27), Usable (51), Spellbooks (72), Arm (35), Finger (30), Ear (29), Neck (30), Chest (36), Valuables (62).
+    - Give All Items plus nine category grants: Heal (27), Usable (51), Spellbooks (72), Arm (35), Finger (30), Ear (29), Neck (30), Chest (36), Valuables (62).
 
     - Categories come from the shipped designer sheet, baked into a lookup table. Grants are additive (skip what you hold, fill free slots), give 1 each, and skip the 65 ids the sheet marks abolished — your "Worthless Junk". Infinite Items separately holds every occupied slot at 99.
 
 - Encyclopedia
-    - Achievements 100% — awards the full catalog (51) through the game's own unlock path.
-    - Reset Achievements — re-locks everything; confirmed to take effect live.
+    - Achievements 100%: awards the full catalog (51) through the game's own unlock path.
+    - Reset Achievements: re-locks everything; confirmed to take effect live.
     
 - Debug
     - Use ` in game and input game_cheat_diag on for to see active cheat debug in cli 
