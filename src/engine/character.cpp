@@ -231,7 +231,7 @@ bool PlayableCharacter::CanLead() const {
   return !HasStatus(CharaStatus::kPetrify);
 }
 
-bool PlayableCharacter::SetHP(u32 v) {
+bool Character::SetHP(u32 v) {
   if (!ea_)
     return false;
   const u32 max = MaxHP();
@@ -240,13 +240,75 @@ bool PlayableCharacter::SetHP(u32 v) {
       max > 0 ? std::min(v, max) : v);
 }
 
-bool PlayableCharacter::SetMP(u32 v) {
+bool Character::SetMP(u32 v) {
   if (!ea_)
     return false;
   const u32 max = MaxMP();
   return bd::mem::try_store<u32>(
       ea_ + ParamField(offsetof(CharaBattleParams_t, curMP)),
       max > 0 ? std::min(v, max) : v);
+}
+
+bool Character::SetStatusFlags(u32 v) {
+  if (!ea_) return false;
+  return bd::mem::try_store<u32>(
+      ea_ + ParamField(offsetof(CharaBattleParams_t, statusFlags)), v);
+}
+
+bool Character::SetStatusResist(CharaResist which, u32 v) {
+  const u32 i = static_cast<u32>(which);
+  if (!ea_ || i >= kCharaResistCount) return false;
+  // One byte per status, so there is nothing to byte-swap. This goes through
+  // try_at rather than try_store, whose be<T> wrapper has no single-byte form:
+  // rex spells be_u8 as a plain u8 and never instantiates be<u8>.
+  auto *p = bd::mem::try_at<u8>(
+      ea_ + ParamField(offsetof(CharaBattleParams_t, statusResist) + i));
+  if (!p) return false;
+  *p = static_cast<u8>(std::min<u32>(v, 255));
+  return true;
+}
+
+bool Character::SetParalyzeTurns(u32 v) {
+  if (!ea_) return false;
+  return bd::mem::try_store<u32>(
+      ea_ + ParamField(offsetof(CharaBattleParams_t, paralyzeTurns)), v);
+}
+
+bool Character::SetStunTurns(u32 v) {
+  if (!ea_) return false;
+  return bd::mem::try_store<u32>(
+      ea_ + ParamField(offsetof(CharaBattleParams_t, stunTurns)), v);
+}
+
+bool PlayableCharacter::SetExp(u32 v) {
+  if (!ea_) return false;
+  return bd::mem::try_store<u32>(ea_ + CharaField(offsetof(PlayerChara_t, exp)), v);
+}
+
+bool PlayableCharacter::SetUnlockedClasses(u32 mask) {
+  if (!ea_) return false;
+  return bd::mem::try_store<u32>(
+      ea_ + CharaField(offsetof(PlayerChara_t, unlockedClasses)), mask);
+}
+
+bool PlayableCharacter::SetClassSP(CharaClass c, u32 v) {
+  if (!ea_ || static_cast<u32>(c) >= kCharaClassCount) return false;
+  return bd::mem::try_store<u32>(
+      ea_ + ClassField(c, offsetof(CharaClassRecord_t, sp)), v);
+}
+
+u32 PlayableCharacter::StatBonus(PermanentBonus which) const {
+  const u32 i = static_cast<u32>(which);
+  if (i >= kPermanentBonusCount) return 0;
+  return mem::try_field<u32>(
+      ea_, CharaField(offsetof(PlayerChara_t, permanentBonus) + i * sizeof(be_u32)));
+}
+
+bool PlayableCharacter::SetStatBonus(PermanentBonus which, u32 v) {
+  const u32 i = static_cast<u32>(which);
+  if (!ea_ || i >= kPermanentBonusCount) return false;
+  return bd::mem::try_store<u32>(
+      ea_ + CharaField(offsetof(PlayerChara_t, permanentBonus) + i * sizeof(be_u32)), v);
 }
 
 u32 Enemy::TypeId() const {

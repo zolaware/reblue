@@ -328,6 +328,7 @@ void ReblueApp::OnPostInitLogging() {
   bd::vfs::Settings::Get().Init();
   bd::ui::Settings::Get().Init();
   bd::engine::Settings::Get().Init();
+  bd::engine::Cheats::Get().Init();
   bd::engine::GameOptions::Get().Init();
 
   bd::engine::Achievements::Init();

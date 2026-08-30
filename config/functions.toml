@@ -1130,6 +1130,7 @@
 0x823AE678 = { name = "bdPartySetLeader", size = 0x450 }
 0x823B2270 = { name = "Player_RecalcParams" }
 0x823B2A08 = { name = "Player_CalcBattleParams" }
+0x823B3CD0 = { name = "Player_AddExp" }
 0x823B3618 = { name = "Player_ApplyPassiveEffect" }
 0x823B6528 = { name = "AnimeData_method_6528", size = 0x218 }
 0x823B6F68 = { name = "Player_TickStatusEffects" }

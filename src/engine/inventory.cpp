@@ -80,6 +80,18 @@ bool Inventory::SetGold(u32 v) {
   return bd::mem::try_store<u32>(base + kInv_Gold, std::min(v, kInv_GoldMax));
 }
 
+u32 Inventory::Medals() const {
+  const u32 base = Base();
+  return base ? bd::mem::try_load<u32>(base + kInv_Medals) : 0;
+}
+
+bool Inventory::SetMedals(u32 v) {
+  const u32 base = Base();
+  if (!base)
+    return false;
+  return bd::mem::try_store<u32>(base + kInv_Medals, std::min(v, kMedalsMax));
+}
+
 size_t Inventory::SlotCount() const { return kInv_Count; }
 
 Item Inventory::At(size_t slot) const { return SlotAt(Base(), slot); }

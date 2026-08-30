@@ -27,6 +27,11 @@ public:
   u32 Gold() const;
   bool SetGold(u32 v); // clamps to 99999999
 
+  // Ancient medals: the separate currency the ruins inns and healers take.
+  u32 Medals() const;
+  bool SetMedals(u32 v); // clamps to 9999, as bdScriptOpMedalChange does
+  static constexpr u32 kMedalsMax = 9999;
+
   size_t SlotCount() const; // fixed at 512, empty slots included
   Item At(size_t slot) const;
   bool SetAt(size_t slot, u32 item_id, u32 count); // count clamps to 99

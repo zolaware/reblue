@@ -22,10 +22,11 @@ enum class SettingsPage : int {
   Graphics = 2,
   Audio = 3,
   Controls = 4,
-  Keybinds = 5,
+  Cheats = 5,
+  Keybinds = 6,
 };
-inline constexpr int kSettingsPageCount = 6;
-inline constexpr int kSettingsSectionCount = 5; // pages shown in the sidebar
+inline constexpr int kSettingsPageCount = 7;
+inline constexpr int kSettingsSectionCount = 6; // pages shown in the sidebar
 
 // How a row is rendered and driven.
 enum class RowUi : int {

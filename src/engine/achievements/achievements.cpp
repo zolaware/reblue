@@ -7,15 +7,20 @@
  */
 #include "engine/achievements/achievements.h"
 
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <string_view>
 
 #include <rex/embedded_metadata.h>
 #include <rex/system/achievements.h>
+#include <rex/system/kernel_state.h>
 
 #include "embedded.h"
 #include "core/logging.h"
+#include "engine/cheats.h"
 #include "engine/events.h"
+#include "platform/reboot.h"
 #include "engine/field.h"
 #include "engine/inventory.h"
 
@@ -99,6 +104,95 @@ void Unlock(u32 id) {
   a->done = true;
   rex::system::UnlockAchievement(a->info.id);
 }
+
+} // namespace
+
+u32 Achievements::UnlockAll() {
+  Register();
+
+  // The whole catalog, not just the rows in s_achievements. That array holds
+  // only re:Blue's own additions; the kernel manager also carries the title's
+  // XDBF achievements, and it is the manager the viewer enumerates. Awarding
+  // just the custom ones left almost every row still locked on screen.
+  auto *ks = rex::system::kernel_state();
+  if (!ks) {
+    BD_CHEAT_DIAG("[cheat-diag] unlock_achievements: no kernel state");
+    return 0;
+  }
+  auto &mgr = ks->achievements();
+
+  u32 awarded = 0;
+  u32 total = 0;
+  for (const auto &a : mgr.ListAchievements()) {
+    ++total;
+    if (mgr.IsUnlocked(a.id))
+      continue;
+    rex::system::UnlockAchievement(a.id);
+    ++awarded;
+  }
+
+  // Re-sync our own done flags off the store, so a condition that fires later
+  // does not try to award something the store already holds.
+  for (auto &a : s_achievements)
+    a.done = rex::system::IsAchievementUnlocked(a.info.id);
+
+  BD_CHEAT_DIAG("[cheat-diag] unlock_achievements: {} awarded, {} in catalog",
+          awarded, total);
+  return awarded;
+}
+
+u32 Achievements::LockAll() {
+  auto *ks = rex::system::kernel_state();
+  if (!ks) {
+    BD_CHEAT_DIAG("[cheat-diag] reset_achievements: no kernel state");
+    return 0;
+  }
+  auto &mgr = ks->achievements();
+
+  u32 before = 0;
+  for (const auto &a : mgr.ListAchievements())
+    if (mgr.IsUnlocked(a.id))
+      ++before;
+
+  // The store is <profile>/achievements/<titleid>.toml. The title id is not
+  // known here, so every .toml in that directory is reset -- and only exactly
+  // ".toml", so the hand-made .toml.backup_* copies beside it are left alone.
+  std::error_code ec;
+  const auto dir = bd::platform::ConfigFilePath().parent_path() / "achievements";
+  u32 files = 0;
+  for (const auto &e : std::filesystem::directory_iterator(dir, ec)) {
+    if (!e.is_regular_file(ec) || e.path().extension() != ".toml")
+      continue;
+    std::ofstream out(e.path(), std::ios::trunc);
+    if (!out)
+      continue;
+    out << "# Achievement unlock state - managed by ReXGlue runtime\n";
+    ++files;
+  }
+  if (ec || files == 0) {
+    BD_CHEAT_DIAG("[cheat-diag] reset_achievements: no store found under {}",
+            dir.string());
+    return before;
+  }
+
+  mgr.LoadUnlockState();
+
+  u32 after = 0;
+  for (const auto &a : mgr.ListAchievements())
+    if (mgr.IsUnlocked(a.id))
+      ++after;
+
+  for (auto &a : s_achievements)
+    a.done = rex::system::IsAchievementUnlocked(a.info.id);
+
+  BD_CHEAT_DIAG("[cheat-diag] reset_achievements: {} were unlocked, {} file(s) "
+          "cleared, {} still unlocked in memory{}",
+          before, files, after,
+          after ? " [reload merged; restart to see it]" : "");
+  return after;
+}
+
+namespace {
 
 // The two predicates that describe a state rather than an edge. Both are
 // evaluated on SaveLoaded, catching a save loaded already holding enough gold

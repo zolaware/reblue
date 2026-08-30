@@ -76,6 +76,9 @@ static_assert(offsetof(ScriptManTask_t, combinedNum) == 0x70);
 
 // ItemSaveData [deref of addr::kItemSaveData]
 inline constexpr u32 kInv_Gold = 0x1000; // gold, clamp 0..99999999
+// Ancient medals, the ruins-only second currency, in the word beside gold.
+// bdScriptOpMedalChange is the script opcode that writes it and clamps there.
+inline constexpr u32 kInv_Medals = 0x1004; // medals, clamp 0..9999
 
 // ---- recorded from RE, no consumer yet ----
 //

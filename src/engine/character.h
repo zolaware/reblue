@@ -82,6 +82,16 @@ public:
   u32 ParalyzeTurns() const;
   u32 StunTurns() const;
 
+  // Mirror the in-engine writes with their clamps. These sit on Character
+  // rather than PlayableCharacter because every field they touch is in the
+  // Chara base an enemy shares.
+  bool SetHP(u32 v);
+  bool SetMP(u32 v);
+  bool SetStatusFlags(u32 v);
+  bool SetStatusResist(CharaResist which, u32 v);
+  bool SetParalyzeTurns(u32 v);
+  bool SetStunTurns(u32 v);
+
   // A handle over an arbitrary node EA, for tooling that enumerates subjects
   // itself rather than receiving them from Party, Roster or Battle.
   static Character FromAddress(u32 ea) { return Character(ea); }
@@ -113,10 +123,15 @@ public:
   // party walk when it picks a replacement leader.
   bool CanLead() const;
 
-  // Mirror the in-engine writes with their clamps. False when the node does not
-  // resolve or the store fails.
-  bool SetHP(u32 v);
-  bool SetMP(u32 v);
+  bool SetExp(u32 v);
+  bool SetUnlockedClasses(u32 mask);
+  bool SetClassSP(CharaClass c, u32 v);
+
+  // Player_CalcBattleParams adds one of these to each derived stat after it
+  // recomputes, so a write here survives the recompute that would clobber a
+  // direct write to the stat itself.
+  u32 StatBonus(PermanentBonus which) const;
+  bool SetStatBonus(PermanentBonus which, u32 v);
 
   // As Character::FromAddress, for callers that already know the node is a
   // party member rather than an enemy.

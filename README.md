@@ -86,6 +86,41 @@ Everything below is new to re:Blue. All of it is configurable in game, from the 
 - UI language and voice language chosen separately
 
 
+### Cheats
+
+- In Battle
+    - Invincibility: Refills HP each logic step for living members. A single blow big enough to kill from full still kills; a KO'd member stays down (topping HP over a set KO bit would leave the two disagreeing)
+    - Infinite MP: Same for MP
+    - Status Immunity: Pins all 11 resistances to the immune threshold and clears anything already applied — resistance only stops the next application
+    - One-Hit Kill: Holds living enemies at 1 HP, not 0, so the game's own death path still runs and awards the battle
+    
+- Power — Off / 2x / 5x / 10x
+    - Attack, Magic Attack, Defence, Magic Defence, Agility — five independent multipliers, plus Permanent Stat Bonus (Off / +999 / +9999) writing the seven permanentBonus slots.
+
+    - Applied inside a hook on Player_CalcBattleParams, scaling the block the guest just wrote — so they take effect at the next stat recompute (battle start or equipment change), not mid-battle.
+
+- Progression
+
+    - EXP per Fight: Off / 2x / 3x / 5x Calls the game's own Player_AddExp, so levels resolve immediately, multi-level included
+    - SP per Fight: Off / 2x / 3x / 5x Still a direct write — expect class ranks to lag a battle
+    - Gold per Fight: Off / 2x / 3x / 5x Snapshot at battle start, top up the remainder at the end
+    - Medals per Fight: Snapshot at battle start, top up the remainder at the end
+    - Infinite Gold: Pinned at 99,999,999 — the game's own clamps
+    - Infinite Medals: Pinned at 9,999 — the game's own clamps
+    - Unlock All Classes: Sets all nine class bits on every roster member
+    
+- Items
+    - Give All Items plus nine category grants — Heal (27), Usable (51), Spellbooks (72), Arm (35), Finger (30), Ear (29), Neck (30), Chest (36), Valuables (62).
+
+    - Categories come from the shipped designer sheet, baked into a lookup table. Grants are additive (skip what you hold, fill free slots), give 1 each, and skip the 65 ids the sheet marks abolished — your "Worthless Junk". Infinite Items separately holds every occupied slot at 99.
+
+- Encyclopedia
+    - Achievements 100% — awards the full catalog (51) through the game's own unlock path.
+    - Reset Achievements — re-locks everything; confirmed to take effect live.
+    
+- Debug
+    - Use ` in game and input game_cheat_diag on for to see active cheat debug in cli 
+
 ### Mods and DLC
 
 - Built-in mod manager

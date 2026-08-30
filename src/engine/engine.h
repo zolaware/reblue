@@ -9,6 +9,7 @@
 
 #include "engine/achievements/achievements.h"
 #include "engine/action_map.h"
+#include "engine/cheats.h"
 #include "engine/d2anime/d2anime.h"
 #include "engine/effect_names.h"
 #include "engine/events.h"

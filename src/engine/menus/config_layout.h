@@ -370,8 +370,9 @@ public:
   static constexpr const char *kSectionKeys[] = {
       "settings.page.gameplay", "settings.page.display",
       "settings.page.graphics", "settings.page.audio",
-      "settings.page.controls", "menu.header.mods",
-      "menu.header.dlc",        "menu.header.achievements"};
+      "settings.page.controls", "settings.page.cheats",
+      "menu.header.mods",       "menu.header.dlc",
+      "menu.header.achievements"};
   // Every section the title screen offers. A surface that shows fewer takes a
   // prefix of this, so the settings pages come first.
   static constexpr int kSectionCount =
@@ -380,7 +381,7 @@ public:
   // Guest names of the per-page settings menus, indexed by SettingsPage.
   static constexpr const char *kSettingsListNames[kSettingsSectionCount] = {
       "GameplayList", "DisplayList", "GraphicsList", "AudioList",
-      "ControlsList"};
+      "ControlsList", "CheatsList"};
 
   static constexpr int kSectionMenuH =
       kSectionCount * kSectionRowH + (kSectionCount - 1) * kSectionRowGap;
