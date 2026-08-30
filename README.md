@@ -88,38 +88,50 @@ Everything below is new to re:Blue. All of it is configurable in game, from the 
 
 ### Cheats
 
-- In Battle
-    - Invincibility: Refills HP each logic step for living members. A single blow big enough to kill from full still kills; a KO'd member stays down (topping HP over a set KO bit would leave the two disagreeing)
-    - Infinite MP: Same for MP
-    - Status Immunity: Pins all 11 resistances to the immune threshold and clears anything already applied — resistance only stops the next application
-    - One-Hit Kill: Holds living enemies at 1 HP, not 0, so the game's own death path still runs and awards the battle
-    
-- Power — Off / 2x / 5x / 10x
-    - Attack, Magic Attack, Defence, Magic Defence, Agility — five independent multipliers, plus Permanent Stat Bonus (Off / +999 / +9999) writing the seven permanentBonus slots.
+A full Cheats page in the config menu, reachable from the title screen or the camp menu. Every setting is live — no restart, no save editing — and each one persists per profile.
 
-    - Applied inside a hook on Player_CalcBattleParams, scaling the block the guest just wrote — so they take effect at the next stat recompute (battle start or equipment change), not mid-battle.
+**In Battle**
 
-- Progression
+- Invincibility: the party is topped back up continuously, so ordinary fights stop being a threat. A single hit big enough to kill from full HP will still land, and anyone already knocked out stays down
+- Infinite MP: cast freely; MP refills as fast as you spend it
+- Status Immunity: poison, sleep, petrify and the rest simply stop landing, and anything already on your party is cleared
+- One-Hit Kill: enemies are held at 1 HP, so the next hit that connects finishes them. Battles still resolve normally, so you keep the EXP, gold and drops
 
-    - EXP per Fight: Off / 2x / 3x / 5x Calls the game's own Player_AddExp, so levels resolve immediately, multi-level included
-    - SP per Fight: Off / 2x / 3x / 5x Still a direct write — expect class ranks to lag a battle
-    - Gold per Fight: Off / 2x / 3x / 5x Snapshot at battle start, top up the remainder at the end
-    - Medals per Fight: Snapshot at battle start, top up the remainder at the end
-    - Infinite Gold: Pinned at 99,999,999 — the game's own clamps
-    - Infinite Medals: Pinned at 9,999 — the game's own clamps
-    - Unlock All Classes: Sets all nine class bits on every roster member
-    
-- Items
-    - Give All Items plus nine category grants: Heal (27), Usable (51), Spellbooks (72), Arm (35), Finger (30), Ear (29), Neck (30), Chest (36), Valuables (62).
+**Power** — Off / 2x / 5x / 10x
 
-    - Categories come from the shipped designer sheet, baked into a lookup table. Grants are additive (skip what you hold, fill free slots), give 1 each, and skip the 65 ids the sheet marks abolished — your "Worthless Junk". Infinite Items separately holds every occupied slot at 99.
+- Attack, Magic Attack, Defence, Magic Defence and Agility: each multiplied independently, so you can turn up exactly what you want
+- Permanent Stat Bonus: Off / +999 / +9999 added across the board, for when a
+  multiplier isn't blunt enough
 
-- Encyclopedia
-    - Achievements 100%: awards the full catalog (51) through the game's own unlock path.
-    - Reset Achievements: re-locks everything; confirmed to take effect live.
-    
-- Debug
-    - Use ` in game and input game_cheat_diag on for to see active cheat debug in cli 
+Multipliers take effect from the next battle or equipment change.
+
+**Progression**
+
+- EXP per Fight: Off / 2x / 3x / 5x. Levels arrive on the battle that earned them, including several at once
+- SP per Fight: Off / 2x / 3x / 5x. Class ranks may not catch up until the following battle
+- Gold per Fight: Off / 2x / 3x / 5x
+- Medals per Fight: Off / 2x / 3x / 5x, for the ruins-only currency
+- Infinite Gold: held at 99,999,999
+- Infinite Medals: held at 9,999
+- Unlock All Classes: all nine jobs open on every party member, reserves included
+
+**Items**
+
+- Give All Items: one of everything the game defines, in a single press
+- Nine targeted grants when you want less than everything: Heal (27), Usable (51), Spellbooks (72), Arm (35), Finger (30), Ear (29), Neck (30), Chest (36) and Valuables (62)
+- Infinite Items: every stack you carry stays full, so nothing is spent by using or selling it
+
+Grants add to what you already hold rather than replacing it, hand you one of each, and skip the unused entries that show up in game as Worthless Junk.
+
+**Encyclopedia**
+
+- Achievements 100%: awards the entire catalogue, all 51
+- Reset Achievements: locks them all again, if you'd rather earn them
+
+**Debug**
+
+- Console: press `` ` `` to open it, then `game_cheat_diag on` to log a line whenever a cheat acts. Off by default. Every cheat also has a console command
+  — `game_cheats` lists the current state of all of them
 
 ### Mods and DLC
 
