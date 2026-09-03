@@ -42,16 +42,17 @@ public:
 
   enum class ApplyStage {
     kIdle,    // nothing asked for
-    kWorking, // downloading, verifying, unpacking
+    kWorking, // downloading, verifying, preparing
     kDone,    // finished, with Applied naming the outcome
   };
 
   enum class ApplyResult {
-    kStaged,         // verified and ready, installs on the next launch
+    kStaged,         // verified and ready, takes effect after restart
     kNoUpdate,       // no manifest yet, or it names no build for this platform
     kDownloadFailed, // network/HTTP failure
     kHashMismatch,   // downloaded bytes do not match the manifest's sha256
     kUnpackFailed,   // corrupt archive or wrong contents
+    kInstallFailed,  // payload is invalid or could not replace the application
   };
 
   // Arms the channel watch. The first check is the title prompt's BeginCheck.
@@ -76,21 +77,16 @@ public:
   // Whether this platform can install what the apply downloads. False means
   // the check still runs and still logs, but nothing offers the user an
   // update it would then fail to apply.
-  static constexpr bool CanApply() {
-#if defined(_WIN32) || defined(__APPLE__)
-    return true;
-#else
-    return false;
-#endif
-  }
+  static bool CanApply();
 
   // The manifest the last successful check read, whatever it said about
   // versions.
   std::optional<AppManifest> Current() const;
 
-  // Downloads the build this platform's manifest entry names, verifies it and
-  // unpacks it to <install>/.update, on a detached thread. Returns
-  // immediately, and InstallStagedUpdate puts it in place on the next launch.
+  // Downloads the build this platform's manifest entry names and verifies it,
+  // on a detached thread. Windows and macOS unpack it to <install>/.update for
+  // InstallStagedUpdate to put in place on the next launch. Linux renames the
+  // downloaded AppImage over the running one, so the restart alone applies it.
   // The progress and the outcome are read back below rather than handed to a
   // callback, so nothing that raised this has to outlive it.
   void BeginApply(const std::filesystem::path &install_root);
@@ -134,8 +130,8 @@ private:
 // under the install root. Either every file swaps or none does.
 bool InstallStagedUpdate(const std::filesystem::path &install_root);
 
-// Deletes the predecessors a previous InstallStagedUpdate renamed out of the
-// way, and retries on a later launch whatever is still locked.
+// Deletes predecessors retained during the previous successful install, and
+// retries on a later launch whatever is still locked.
 void ClearReplacedFiles(const std::filesystem::path &install_root);
 
 } // namespace bd::platform

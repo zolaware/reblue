@@ -477,7 +477,9 @@ void ReblueApp::OnConfigurePaths(rex::PathConfig &paths) {
   }
 #endif
 
-#if defined(_WIN32) || defined(__APPLE__)
+#if !defined(_WIN32) && !defined(__APPLE__)
+  bd::platform::ClearReplacedFiles(install_root_);
+#else
   // A build-dir exe run against this install is not part of it, so swapping
   // release binaries in under it would strand the debugger on the wrong image.
   // The mac bundle lives wherever the user dragged it, so there is no folder.
