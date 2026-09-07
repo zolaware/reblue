@@ -28,7 +28,43 @@ enum class AspectMode : i32 {
 // which is this across that ratio. bd_fov_offset moves off it, and 0 keeps it.
 inline constexpr i32 kAuthoredFOVDegrees = 46;
 
-// Cost-ranked bundles over the five quality settings. Medium is exactly the
+enum class PostQuality : i32 {
+  Low = 0,
+  Medium = 1,
+  High = 2,
+};
+
+enum class ReflectionQuality : i32 {
+  Off = 0,
+  Low = 1,
+  High = 2,
+};
+
+constexpr const char *ToString(PostQuality quality) {
+  switch (quality) {
+  case PostQuality::Low:
+    return "opt.preset.low";
+  case PostQuality::Medium:
+    return "opt.preset.medium";
+  case PostQuality::High:
+    return "opt.preset.high";
+  }
+  return "";
+}
+
+constexpr const char *ToString(ReflectionQuality quality) {
+  switch (quality) {
+  case ReflectionQuality::Off:
+    return "opt.off";
+  case ReflectionQuality::Low:
+    return "opt.preset.low";
+  case ReflectionQuality::High:
+    return "opt.preset.high";
+  }
+  return "";
+}
+
+// Cost-ranked bundles over the eight quality settings. Medium is exactly the
 // shipped defaults, so a fresh install reads Medium rather than Custom.
 enum class QualityPreset : u32 {
   Low = 0,
@@ -120,6 +156,19 @@ public:
   i32 MSAA() const { return msaa_; }
   bool SetMSAA(i32 v);
 
+  i32 RenderScale() const { return renderScale_; }
+  bool SetRenderScale(i32 v);
+
+  gpu::PostQuality PostQuality() const {
+    return static_cast<gpu::PostQuality>(postQuality_);
+  }
+  bool SetPostQuality(i32 v);
+
+  gpu::ReflectionQuality ReflectionQuality() const {
+    return static_cast<gpu::ReflectionQuality>(reflectionQuality_);
+  }
+  bool SetReflectionQuality(i32 v);
+
   // The preset the five quality settings currently match, or Custom.
   gpu::QualityPreset QualityPreset() const;
   bool SetQualityPreset(gpu::QualityPreset preset);
@@ -146,10 +195,16 @@ private:
   void AdoptSceneColorR11G11B10();
   void AdoptSuperSampling();
   void AdoptMSAA();
+  void AdoptRenderScale();
+  void AdoptPostQuality();
+  void AdoptReflectionQuality();
 
   i32 anisotropy_ = 16;
   i32 superSampling_ = 1;
   i32 msaa_ = 4;
+  i32 renderScale_ = 100;
+  i32 postQuality_ = static_cast<i32>(PostQuality::Medium);
+  i32 reflectionQuality_ = static_cast<i32>(ReflectionQuality::Low);
   bool ntscFilter_ = false;
   f64 dofStrength_ = 1.0;
   i32 shadowDimension_ = 4096;

@@ -73,12 +73,9 @@ bool AuthoredFraming() {
 }
 
 bool ScaleDesignDims(f64 &w, f64 &h) {
-  u32 fit_w, fit_h;
-  if (!Output::LatchedFit(fit_w, fit_h))
-    return false;
   if (w > kDesignCanvasWidth || h > kDesignCanvasHeight)
     return false;
-  const f64 s = fit_h / static_cast<f64>(kDesignCanvasHeight);
+  const f64 s = Output::RenderDensity();
   if (s <= 1.0)
     return false;
   w *= s;
@@ -177,18 +174,12 @@ void bdFreeDfsViewTextureSizeHook(PPCRegister &r11) {
 }
 
 void bdIssEventDimHook(PPCRegister &r10, PPCRegister &r11) {
-  u32 w, h;
-  if (!Output::LatchedFit(w, h))
+  f64 w = r11.u32;
+  f64 h = r10.u32;
+  if (!ScaleDesignDims(w, h))
     return;
-  const u32 origW = r11.u32;
-  const u32 origH = r10.u32;
-  if (origW > kDesignCanvasWidth || origH > kDesignCanvasHeight)
-    return;
-  const double s = h / static_cast<double>(kDesignCanvasHeight);
-  if (s > 1.0) {
-    r11.u32 = static_cast<u32>(origW * s);
-    r10.u32 = static_cast<u32>(origH * s);
-  }
+  r11.u32 = static_cast<u32>(w);
+  r10.u32 = static_cast<u32>(h);
 }
 
 // This site takes its aspect from the view's own width over height, so the

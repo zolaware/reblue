@@ -137,3 +137,9 @@ name = "bdNtscFilterNoiseDisableHook"
 registers = []
 after_instruction = false
 jump_address_on_true = 0x822191A0
+
+[[midasm_hook]]
+address = 0x82217600
+name = "bdDOFIntermediateScaleHook"
+registers = ["r28", "r26"]
+after_instruction = false

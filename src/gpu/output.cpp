@@ -52,6 +52,24 @@ bool Output::LatchedFit(u32 &w, u32 &h) {
   return true;
 }
 
+double Output::RenderDensity() {
+  u32 w = 0;
+  u32 h = 0;
+  if (!LatchedFit(w, h))
+    return 1.0;
+  const double density =
+      h * (Settings::Get().RenderScale() / 100.0) / kDesignCanvasHeight;
+  return std::max(1.0, density);
+}
+
+double Output::RenderFraction() {
+  u32 w = 0;
+  u32 h = 0;
+  if (!LatchedFit(w, h) || !h)
+    return 1.0;
+  return std::min(1.0, RenderDensity() * kDesignCanvasHeight / h);
+}
+
 double Output::ConfiguredAspect() {
   switch (static_cast<AspectMode>(Settings::Get().AspectRatio())) {
   case AspectMode::Standard:

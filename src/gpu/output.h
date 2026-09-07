@@ -35,6 +35,9 @@ public:
   // is upscaled at present.
   static bool LatchedFit(u32 &w, u32 &h);
 
+  static double RenderDensity();
+  static double RenderFraction();
+
   // The ratio bd_aspect_ratio asks for, or 0 to take whatever the window is.
   static double ConfiguredAspect();
 

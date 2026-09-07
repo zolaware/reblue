@@ -17,6 +17,7 @@
 #include <rex/ui/flags.h>
 
 #include "core/logging.h"
+#include "gpu/gpu.h"
 
 REXCVAR_DEFINE_INT32(config_version, 0, "reblue",
                      "Config schema version this file was last written by")
@@ -25,13 +26,21 @@ REXCVAR_DEFINE_INT32(config_version, 0, "reblue",
 namespace bd {
 namespace {
 
-constexpr i32 kConfigVersion = 1;
+constexpr i32 kConfigVersion = 2;
 
 struct Step {
   i32 version;
   const char *what;
   void (*Apply)();
 };
+
+bool ConfigWasLoaded() {
+  for (const rex::cvar::FlagEntry &flag : rex::cvar::GetRegistry()) {
+    if (flag.source == rex::cvar::Source::kConfig)
+      return true;
+  }
+  return false;
+}
 
 void SplitWindowSizeFromResolution() {
   if (rex::cvar::HasNonDefaultValue("resolution") ||
@@ -45,8 +54,20 @@ void SplitWindowSizeFromResolution() {
                            std::to_string(w) + "x" + std::to_string(h));
 }
 
-constexpr Step kSteps[] = {{1, "window size split from render resolution",
-                            SplitWindowSizeFromResolution}};
+void PreserveUngatedPostAndReflections() {
+  rex::cvar::SetFlagByName(
+      "bd_post_quality",
+      std::to_string(static_cast<i32>(gpu::PostQuality::High)));
+  rex::cvar::SetFlagByName(
+      "bd_reflection_quality",
+      std::to_string(static_cast<i32>(gpu::ReflectionQuality::High)));
+}
+
+constexpr Step kSteps[] = {
+    {1, "window size split from render resolution",
+     SplitWindowSizeFromResolution},
+    {2, "post and reflection cost held at what it was",
+     PreserveUngatedPostAndReflections}};
 
 } // namespace
 
@@ -54,11 +75,13 @@ void SettingsMigration::Apply() {
   const i32 from = REXCVAR_GET(config_version);
   if (from >= kConfigVersion)
     return;
-  for (const Step &step : kSteps) {
-    if (step.version <= from)
-      continue;
-    step.Apply();
-    BD_INFO("[config] migrated to v{}: {}", step.version, step.what);
+  if (ConfigWasLoaded()) {
+    for (const Step &step : kSteps) {
+      if (step.version <= from)
+        continue;
+      step.Apply();
+      BD_INFO("[config] migrated to v{}: {}", step.version, step.what);
+    }
   }
   rex::cvar::SetFlagByName("config_version", std::to_string(kConfigVersion));
 }

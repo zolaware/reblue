@@ -217,6 +217,30 @@ constexpr i32 kAnisotropyOn = 16;
 constexpr SettingOption kAniso[] = {
     {.text = "On", .num = kAnisotropyOn, .key = "opt.on"},
     {.text = "Off", .num = 0, .key = "opt.off"}};
+constexpr SettingOption kRenderScale[] = {
+    {.text = "50%", .num = 50},  {.text = "60%", .num = 60},
+    {.text = "75%", .num = 75},  {.text = "85%", .num = 85},
+    {.text = "100%", .num = 100}};
+constexpr SettingOption kPostQuality[] = {
+    {.text = "Low",
+     .num = static_cast<double>(static_cast<i32>(gpu::PostQuality::Low)),
+     .key = gpu::ToString(gpu::PostQuality::Low)},
+    {.text = "Medium",
+     .num = static_cast<double>(static_cast<i32>(gpu::PostQuality::Medium)),
+     .key = gpu::ToString(gpu::PostQuality::Medium)},
+    {.text = "High",
+     .num = static_cast<double>(static_cast<i32>(gpu::PostQuality::High)),
+     .key = gpu::ToString(gpu::PostQuality::High)}};
+constexpr SettingOption kReflectionQuality[] = {
+    {.text = "Off",
+     .num = static_cast<double>(static_cast<i32>(gpu::ReflectionQuality::Off)),
+     .key = gpu::ToString(gpu::ReflectionQuality::Off)},
+    {.text = "Low",
+     .num = static_cast<double>(static_cast<i32>(gpu::ReflectionQuality::Low)),
+     .key = gpu::ToString(gpu::ReflectionQuality::Low)},
+    {.text = "High",
+     .num = static_cast<double>(static_cast<i32>(gpu::ReflectionQuality::High)),
+     .key = gpu::ToString(gpu::ReflectionQuality::High)}};
 constexpr SettingOption kShadowQuality[] = {
     {.text = "1x", .num = 1.0, .num2 = 1024},
     {.text = "2x", .num = 2.0, .num2 = 2048},
@@ -632,6 +656,22 @@ constexpr SettingRow kGraphicsSettings[] = {
      .options = kSuperSampling,
      .count = OptCount(kSuperSampling),
      .restart = true},
+    {.label = "settings.graphics.render_scale.label",
+     .group = "menu.header.detail",
+     .binding = {.get =
+                     [] {
+                       return static_cast<double>(
+                           gpu::Settings::Get().RenderScale());
+                     },
+                 .set =
+                     [](double v) {
+                       return gpu::Settings::Get().SetRenderScale(
+                           static_cast<i32>(v));
+                     }},
+     .options = kRenderScale,
+     .count = OptCount(kRenderScale),
+     .restart = true,
+     .sliderUi = true},
     {.label = "settings.graphics.anisotropic.label",
      .group = "menu.header.detail",
      .binding = {.get =
@@ -657,6 +697,38 @@ constexpr SettingRow kGraphicsSettings[] = {
                      }},
      .options = kShadowQuality,
      .count = OptCount(kShadowQuality),
+     .restart = true,
+     .sliderUi = true},
+    {.label = "settings.graphics.reflections.label",
+     .group = "menu.header.detail",
+     .binding = {.get =
+                     [] {
+                       return static_cast<double>(static_cast<i32>(
+                           gpu::Settings::Get().ReflectionQuality()));
+                     },
+                 .set =
+                     [](double v) {
+                       return gpu::Settings::Get().SetReflectionQuality(
+                           static_cast<i32>(v));
+                     }},
+     .options = kReflectionQuality,
+     .count = OptCount(kReflectionQuality),
+     .restart = true,
+     .sliderUi = true},
+    {.label = "settings.graphics.post_processing.label",
+     .group = "menu.header.detail",
+     .binding = {.get =
+                     [] {
+                       return static_cast<double>(static_cast<i32>(
+                           gpu::Settings::Get().PostQuality()));
+                     },
+                 .set =
+                     [](double v) {
+                       return gpu::Settings::Get().SetPostQuality(
+                           static_cast<i32>(v));
+                     }},
+     .options = kPostQuality,
+     .count = OptCount(kPostQuality),
      .restart = true,
      .sliderUi = true},
     // Counted in percent, so the row reads as how much of the effect is left
