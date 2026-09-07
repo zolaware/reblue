@@ -48,6 +48,8 @@ constexpr u32 kVisualRenderScreenHOff = 0x1A3C;
 
 // The close-up view's own W/H, both f32 on its 'this'.
 constexpr u32 kCloseUpViewWidthOff = 0x1D0;
+constexpr u32 kViewTextureWOff = 0x38;
+constexpr u32 kViewTextureHOff = 0x3C;
 
 // SAFE/RATE under the Mindows RENDER>DEBUG tree, the f32 scale of the guide box
 // the renderer draws when SAFE/DISP is on. Stock 0.9 is the CRT overscan margin,
@@ -68,6 +70,20 @@ constexpr u32 kViewportHeightEA = 0x82DE891C;
 // battle action steps rather than an .evt scene.
 bool AuthoredFraming() {
   return bd::engine::EventScenePlaying() || bd::engine::Battle().IsActive();
+}
+
+bool ScaleDesignDims(f64 &w, f64 &h) {
+  u32 fit_w, fit_h;
+  if (!Output::LatchedFit(fit_w, fit_h))
+    return false;
+  if (w > kDesignCanvasWidth || h > kDesignCanvasHeight)
+    return false;
+  const f64 s = fit_h / static_cast<f64>(kDesignCanvasHeight);
+  if (s <= 1.0)
+    return false;
+  w *= s;
+  h *= s;
+  return true;
 }
 
 } // namespace
@@ -147,24 +163,17 @@ void bdProjectionAspectHook(PPCRegister &fov_half, PPCRegister &aspect) {
     fov_half.f64 = std::atan(std::tan(fov_half.f64) * tan_scale);
 }
 
-// Every camera sub-view (FreeDfsTask close-ups, the talk portrait, the camp
-// viewer) reaches bdCameraViewSetScreenSize with design canvas render dims in
-// f1/f2, so its view texture and scene surfaces upscale at output res. The
-// display dims ride f3/f4 untouched, so placement and the tasks' aspect math
-// stay authored. Dims above the canvas are already output-space and pass
-// through, which also keeps a re-fed scaled size from compounding. Uniform,
-// height-based since bd_aspect_ratio widens only the width.
-void bdOutputResViewScaleHook(PPCRegister &f1, PPCRegister &f2) {
-  u32 w, h;
-  if (!Output::LatchedFit(w, h))
+void bdOutputResViewScaleHook(PPCRegister &w, PPCRegister &h) {
+  ScaleDesignDims(w.f64, h.f64);
+}
+
+void bdFreeDfsViewTextureSizeHook(PPCRegister &r11) {
+  f64 w = bd::mem::load<float>(r11.u32 + kViewTextureWOff);
+  f64 h = bd::mem::load<float>(r11.u32 + kViewTextureHOff);
+  if (!ScaleDesignDims(w, h))
     return;
-  if (f1.f64 > kDesignCanvasWidth || f2.f64 > kDesignCanvasHeight)
-    return;
-  const double s = h / static_cast<double>(kDesignCanvasHeight);
-  if (s > 1.0) {
-    f1.f64 *= s;
-    f2.f64 *= s;
-  }
+  bd::mem::store<float>(r11.u32 + kViewTextureWOff, static_cast<float>(w));
+  bd::mem::store<float>(r11.u32 + kViewTextureHOff, static_cast<float>(h));
 }
 
 void bdIssEventDimHook(PPCRegister &r10, PPCRegister &r11) {

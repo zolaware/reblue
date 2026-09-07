@@ -39,6 +39,7 @@
 #include "core/perf.h"
 #include "core/profiling.h"
 #include "core/settings.h"
+#include "core/settings_migration.h"
 #include "core/settings_model.h"
 #include "core/shutdown.h"
 #include "core/threading.h"
@@ -319,6 +320,7 @@ ReblueApp::~ReblueApp() = default;
 // Runs as soon as the SDK opens the log file, so which build produced the lines
 // below it is always the first thing in the log.
 void ReblueApp::OnPostInitLogging() {
+  bd::SettingsMigration::Apply();
   // Every Settings object adopts the config file and the command line here.
   // OnPostInitLogging is the first consumer hook after rex::cvar::LoadConfig,
   // so every later hook can read a setting through its object.

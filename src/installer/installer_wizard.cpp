@@ -539,6 +539,7 @@ void InstallerWizard::DrawOptions() {
     DrawSettingRow(SettingsPage::Display,
                    "settings.display.display_mode.label");
     DrawSettingRow(SettingsPage::Display, "settings.display.resolution.label");
+    DrawSettingRow(SettingsPage::Display, "settings.display.window_size.label");
     DrawSettingRow(SettingsPage::Display,
                    "settings.display.aspect_ratio.label");
     ImGui::EndTable();

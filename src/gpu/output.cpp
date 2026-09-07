@@ -13,8 +13,7 @@
 #include <algorithm>
 #include <cmath>
 
-#include <rex/cvar.h>
-#include <rex/ui/flags.h>
+#include <rex/graphics/video_mode_util.h>
 
 #include "gpu/device.h"
 #include "gpu/settings.h"
@@ -25,10 +24,10 @@ bool Output::LatchedFit(u32 &w, u32 &h) {
   static u32 latched_w = 0;
   static u32 latched_h = 0;
   if (latched_w == 0) {
-    // The requested render size in every display mode, not just windowed.
-    // 0, or a partial pair, means follow the swapchain.
-    const i32 cfg_w = REXCVAR_GET(window_width);
-    const i32 cfg_h = REXCVAR_GET(window_height);
+    i32 cfg_w = 0;
+    i32 cfg_h = 0;
+    rex::graphics::video_mode_util::TryGetResolutionPresetFromCVar(cfg_w,
+                                                                   cfg_h);
     u32 sw = 0;
     u32 sh = 0;
     if (cfg_w > 0 && cfg_h > 0) {

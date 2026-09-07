@@ -58,19 +58,23 @@ name = "bdViewProjectionAspectHook"
 registers = ["r31", "f1", "f30"]
 after_instruction = true
 
-# Camera sub-views are sized in design canvas units by every
-# bdCameraViewSetScreenSize caller (FreeDfsTask close-ups, the talk portrait
-# via issEvent__Update, Camp__MainTask__vf03), so hook the callee entry rather
-# than each call site. f1/f2 = render dims, f3/f4 = display dims; only f1/f2
-# are scaled, so placement, the tasks' cached copies, and the r31+0x1D0
-# full-frame check in bdViewProjectionAspectHook all keep authored values. The
-# view texture takes the create-time render dims and Visual__UnitNormal__vf03
-# sizes the scene surfaces from that texture, so one scale reaches the chain.
 [[midasm_hook]]
-address = 0x82134DE0
+address = 0x82134E34
 name = "bdOutputResViewScaleHook"
 registers = ["f1", "f2"]
 after_instruction = false
+
+[[midasm_hook]]
+address = 0x82134E74
+name = "bdOutputResViewScaleHook"
+registers = ["f31", "f30"]
+after_instruction = false
+
+[[midasm_hook]]
+address = 0x8228C084
+name = "bdFreeDfsViewTextureSizeHook"
+registers = ["r11"]
+after_instruction = true
 
 [[midasm_hook]]
 address = 0x823F76E4

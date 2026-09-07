@@ -115,6 +115,8 @@ bool MnkEnabled() { return rex::cvar::GetFlagByName("mnk_mode") == "true"; }
 
 bool MouseEnabled() { return rex::cvar::GetFlagByName("mnk_mouse") == "true"; }
 
+bool Windowed() { return rex::cvar::GetFlagByName("fullscreen") != "true"; }
+
 // Bind values are comma-separated alternatives. Slot 0 is the primary key,
 // slot 1 the alternate. Anything past that is preserved by the driver but not
 // editable from the menu.
@@ -701,6 +703,7 @@ bool SettingsDisabled(SettingsPage page, int index) {
   const SettingRow &s = At(page, index);
   return (s.restart && s_disableRestart) || (s.kbGated && !MnkEnabled()) ||
          (s.mouseGated && !(MnkEnabled() && MouseEnabled())) ||
+         (s.windowedGated && !Windowed()) ||
          (s.special == SettingSpecial::Monitor && SingleDisplay());
 }
 

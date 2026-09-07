@@ -87,6 +87,10 @@ std::string BuildInfoTxt(const ReportContext &ctx) {
   o += std::format("backend:     {}\n", bd::gpu::Video::GetBackendInfo());
   o += std::format("swapchain:   {} x {}\n", bd::gpu::Video::OutputWidth(),
                    bd::gpu::Video::OutputHeight());
+  u32 render_w = 0, render_h = 0;
+  bd::gpu::Output::LatchedFit(render_w, render_h);
+  o += std::format("render:      {} x {}  (resolution '{}')\n", render_w,
+                   render_h, rex::cvar::GetFlagByName("resolution"));
   o += std::format("window:      {} x {}\n", ctx.window_width,
                    ctx.window_height);
   o += std::format("window_cfg:  {} x {}\n",

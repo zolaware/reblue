@@ -33,6 +33,16 @@ namespace {
 constexpr u32 kVisualRenderEA = 0x82DC9848;
 constexpr u32 kVisualRenderRateOff = 0x1BC4;
 constexpr u32 kScreenUVScaleReg = 50;
+constexpr u32 kSsScatterBlurEA = 0x82DF4344;
+constexpr u32 kBloomTargetScale = 2;
+
+void ScaleBlurTapStep(PPCRegister &w, PPCRegister &h, f64 grown) {
+  const f64 s = bd::gpu::SceneRenderScale() * grown;
+  if (s <= 1.0)
+    return;
+  w.f64 /= s;
+  h.f64 /= s;
+}
 } // namespace
 
 namespace bd::gpu {
@@ -50,10 +60,6 @@ f32 SceneRenderScale() {
   return rate > 0.0f ? rate : 1.0f;
 }
 
-u32 SceneRenderFactor() {
-  return std::max(1u, static_cast<u32>(SceneRenderScale() + 0.5f));
-}
-
 } // namespace bd::gpu
 
 void bdSceneFSAASeedHook(PPCRegister &r11) {
@@ -68,36 +74,21 @@ void bdSceneRenderScaleHook(PPCRegister &r31) {
       static_cast<f32>(bd::gpu::Settings::Get().SuperSampling()));
 }
 
-namespace {
-
-void ScaleIntermediateDims(PPCRegister &width, PPCRegister &height) {
-  const u32 factor = bd::gpu::SceneRenderFactor();
-  width.u32 /= factor;
-  height.u32 /= factor;
-}
-
-} // namespace
-
-void bdDofIntermediateScaleHook(PPCRegister &r28, PPCRegister &r26) {
-  ScaleIntermediateDims(r28, r26);
-}
-
-void bdBloomIntermediateScaleHook(PPCRegister &r4, PPCRegister &r5) {
-  ScaleIntermediateDims(r4, r5);
-}
-
 void bdReflectionResolutionScaleHook(PPCRegister &r31) {
-  u32 render_w = 0;
-  u32 render_h = 0;
-  if (!bd::gpu::Output::LatchedFit(render_w, render_h))
+  u32 fit_w = 0;
+  u32 fit_h = 0;
+  if (!bd::gpu::Output::LatchedFit(fit_w, fit_h))
     return;
   auto *info = bd::mem::at<bd::gpu::PlaneReflectInfo>(r31.u32);
   if (!info)
     return;
 
-  const double sx = render_w / static_cast<double>(bd::gpu::kDesignCanvasWidth);
+  const f64 rate = bd::gpu::SceneRenderScale();
+  const f64 density = fit_h / static_cast<f64>(bd::gpu::kDesignCanvasHeight);
+  const u32 scene_w = static_cast<u32>(fit_w * rate) & ~31u;
   const u32 stock = static_cast<u32>(info->width);
-  const u32 width = static_cast<u32>(stock * sx + 0.5);
+  const u32 width = std::min(
+      static_cast<u32>(stock * density * rate + 0.5) & ~31u, scene_w);
   if (width > stock)
     info->width = width;
 
@@ -144,6 +135,21 @@ void bdDOFStrengthScaleHook(PPCRegister &r11) {
   auto *y = bd::mem::at<be_f32>(r11.u32 + 4);
   if (y)
     *y = static_cast<f32>(static_cast<f32>(*y) * std::sqrt(strength));
+}
+
+void bdGaussianBlurTapStepHook(PPCRegister &f0, PPCRegister &f13,
+                               PPCRegister &r28) {
+  if (r28.u32 != kSsScatterBlurEA)
+    ScaleBlurTapStep(f0, f13, 1.0);
+}
+
+void bdBloomBlurTapStepHook(PPCRegister &f0, PPCRegister &f13) {
+  ScaleBlurTapStep(f0, f13, kBloomTargetScale);
+}
+
+void bdBloomTargetSizeHook(PPCRegister &r4, PPCRegister &r5) {
+  r4.u32 *= kBloomTargetScale;
+  r5.u32 *= kBloomTargetScale;
 }
 
 // r3 is a shader constant flush descriptor: flags @0 (bit1 = pixel shader

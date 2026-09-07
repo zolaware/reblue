@@ -13,7 +13,10 @@
 #include "core/settings.h"
 
 #include <iterator>
+#include <string>
 
+#include <rex/cvar.h>
+#include <rex/graphics/video_mode_util.h>
 #include <rex/types.h>
 
 #include "audio/audio.h"
@@ -41,13 +44,38 @@ bool RubyHidden() { return i18n::CurrentLocale() != engine::kLocaleJP; }
 // bd_boot.ini's [Voice] list gives it something to choose between.
 bool VoiceLanguageHidden() { return engine::Language().VoiceCount() < 2; }
 
+double RenderResolutionNum() {
+  i32 w = 0, h = 0;
+  return rex::graphics::video_mode_util::TryGetResolutionPresetFromCVar(w, h)
+             ? static_cast<double>(w)
+             : 0.0;
+}
+
+bool SetRenderResolution(const char *preset) {
+  i32 w = 0, h = 0;
+  if (!preset || !*preset ||
+      !rex::graphics::video_mode_util::TryParseResolutionPreset(preset, w, h)) {
+    rex::cvar::ResetToDefault("resolution");
+    rex::cvar::ResetToDefault("video_mode_width");
+    rex::cvar::ResetToDefault("video_mode_height");
+    return true;
+  }
+  return rex::cvar::SetFlagByName("resolution", preset) &&
+         rex::cvar::SetFlagByName("video_mode_width", std::to_string(w)) &&
+         rex::cvar::SetFlagByName("video_mode_height", std::to_string(h));
+}
+
 constexpr SettingOption kDisplayMode[] = {
     {.text = "Windowed", .num = 0, .value = "false", .key = "opt.windowed"},
     {.text = "Fullscreen", .num = 1, .value = "true", .key = "opt.fullscreen"}};
-// The render size in every display mode: windowed it is also the window size,
-// fullscreen the present blit scales it to the display. 0 follows the
-// swapchain.
 constexpr SettingOption kResolution[] = {
+    {.text = "Auto", .num = 0, .value = "", .key = "opt.auto"},
+    {.text = "1280x720", .num = 1280, .value = "1280x720"},
+    {.text = "1600x900", .num = 1600, .value = "1600x900"},
+    {.text = "1920x1080", .num = 1920, .value = "1920x1080"},
+    {.text = "2560x1440", .num = 2560, .value = "2560x1440"},
+    {.text = "3840x2160", .num = 3840, .value = "3840x2160"}};
+constexpr SettingOption kWindowSize[] = {
     {.text = "Auto", .num = 0, .value = "0", .value2 = "0", .key = "opt.auto"},
     {.text = "1280x720", .num = 1280, .value = "1280", .value2 = "720"},
     {.text = "1600x900", .num = 1600, .value = "1600", .value2 = "900"},
@@ -446,11 +474,19 @@ constexpr SettingRow kDisplaySettings[] = {
      .special = SettingSpecial::Monitor},
     {.label = "settings.display.resolution.label",
      .group = "menu.header.window",
-     .binding = {.cvar = "window_width", .cvar2 = "window_height"},
+     .binding = {.get = RenderResolutionNum, .setText = SetRenderResolution},
      .options = kResolution,
      .count = OptCount(kResolution),
      .restart = true,
      .sliderUi = true},
+    {.label = "settings.display.window_size.label",
+     .group = "menu.header.window",
+     .binding = {.cvar = "window_width", .cvar2 = "window_height"},
+     .options = kWindowSize,
+     .count = OptCount(kWindowSize),
+     .restart = true,
+     .sliderUi = true,
+     .windowedGated = true},
     {.label = "settings.display.aspect_ratio.label",
      .group = "menu.header.window",
      .binding = {
