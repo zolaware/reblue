@@ -438,24 +438,6 @@ void ReblueApp::OnCreateDialogs(rex::ui::ImGuiDrawer *drawer) {
     rex::ui::UnregisterBind("bind_achievements");
   }
 
-  // The dialog self-deletes on Close(), and the on_closed lambda nulls
-  // report_issue_.
-  rex::ui::RegisterBind(
-      "bind_report_issue", "F12", "Report an issue", [this, drawer] {
-        if (report_issue_) {
-          report_issue_->RequestClose();
-          return;
-        }
-        bd::gpu::RequestScreenshot();
-        bd::ui::ReportContext ctx;
-        ctx.reports_root = ResolveCacheRoot() / "reports";
-        ctx.logs_dir = bd::AppRootFolder() / "logs";
-        ctx.window_width = window() ? window()->GetActualLogicalWidth() : 0;
-        ctx.window_height = window() ? window()->GetActualLogicalHeight() : 0;
-        report_issue_ = new bd::ui::ReportIssueDialog(
-            drawer, std::move(ctx), [this] { report_issue_ = nullptr; });
-      });
-
   // Registered here, not earlier: the sequence needs a UI thread that is
   // actually pumping. Before this point RequestShutdown runs inline on its
   // caller, and an early-init failure wants that anyway.

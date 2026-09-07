@@ -119,9 +119,6 @@ private:
   std::unique_ptr<bd::ui::WatermarkOverlay> watermark_;
   std::unique_ptr<bd::ui::FadeOverlay> fade_overlay_;
 
-  // Raw observer: ImGuiDialog self-deletes on Close(), and the on_closed lambda
-  // nulls this back to nullptr.
-  bd::ui::ReportIssueDialog *report_issue_ = nullptr;
   // The check the prompt last answered, so a re-run offers its build instead
   // of reading as the one already declined.
   u32 update_prompt_generation_ = 0;

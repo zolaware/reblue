@@ -27,7 +27,6 @@
 #include "gpu/frame_stats.h"
 #include "gpu/gpu_timing.h"
 #include "gpu/output.h"
-#include "gpu/screenshot.h"
 #include "gpu/settings.h"
 
 namespace bd::gpu {
@@ -229,9 +228,6 @@ void RecordPresentPass(VideoState &s, GuestTexture *rt, GuestTexture *chosen,
                                            kCopyPushConstantByteOffset,
                                            sizeof(pc));
   s.command_list->drawInstanced(3, 1, 0, 0);
-
-  // One-shot screenshot of the post-gamma game frame, before the overlay.
-  ServiceOnPresent(s, back, back_fb, swap_w, swap_h);
 
   // Overlays (the F3 menu) cover the whole window, not the letterboxed rect.
   s.command_list->setViewports(plume::RenderViewport(
