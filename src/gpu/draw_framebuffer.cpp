@@ -196,8 +196,8 @@ void SeedFreshColorTarget(VideoState &s, GuestTexture *rt, u32 slot,
   if (full_screen) {
     u32 n;
     if (DiagShouldLog(6, rt, &n)) {
-      BD_WARN("[composite-seed] #{} fullscreen {}x{} composite DISCARDED ({})",
-              n, rt->width, rt->height, starved ? starved : "seed copy failed");
+      BD_DEV_WARN("[composite-seed] #{} fullscreen {}x{} composite DISCARDED ({})",
+             n, rt->width, rt->height, starved ? starved : "seed copy failed");
     }
   }
   s.command_list->discardTexture(rt->texture);
@@ -265,10 +265,10 @@ bool Video::BindDrawFramebufferLocked() {
   if (!rt && !ds) {
     u32 n;
     if (DiagShouldLog(5, s.render_target, &n)) {
-      BD_WARN("[draw-diag] #{} draw dropped: no effective RT/DS "
-              "(s.render_target={} s.depth_stencil={})",
-              n, static_cast<void *>(s.render_target),
-              static_cast<void *>(s.depth_stencil));
+      BD_DEV_WARN("[draw-diag] #{} draw dropped: no effective RT/DS "
+             "(s.render_target={} s.depth_stencil={})",
+             n, static_cast<void *>(s.render_target),
+             static_cast<void *>(s.depth_stencil));
     }
     return false;
   }

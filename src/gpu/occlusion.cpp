@@ -19,7 +19,6 @@
 #include "gpu/gpu_timing.h"
 #include "gpu/hooks/tweaks.h"
 #include "gpu/occlusion.h"
-#include "gpu/settings.h"
 
 namespace bd::gpu {
 
@@ -104,11 +103,10 @@ void Occlusion::Begin() {
       }
       const u32 normalized = oversample > 1u ? count / oversample : count;
       s.occlusion_last_count = normalized > 16384u ? 16384u : normalized;
-      const i32 diag = Settings::Get().DiagVerbosity();
-      if (diag >= 1 && normalized > 16384u)
-        BD_WARN("[occlusion] normalized count {} (raw {} / {}x) > 16384 (slot "
-                "{}), clamped",
-                normalized, count, oversample, slot);
+      if (normalized > 16384u)
+        BD_DEV_WARN("[occlusion] normalized count {} (raw {} / {}x) > 16384 (slot "
+               "{}), clamped",
+               normalized, count, oversample, slot);
     } else {
       BD_ERROR("occlusion readback map() null (slot {}), keeping count {}",
                slot, s.occlusion_last_count);

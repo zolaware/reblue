@@ -92,9 +92,6 @@ public:
   bool Vsync() const { return vsync_; }
   bool SetVsync(bool v);
 
-  i32 DiagVerbosity() const { return diagVerbosity_; }
-  bool SetDiagVerbosity(i32 v);
-
   // The raw cvar value, for the menu row that cycles it.
   // Output::ConfiguredAspect turns it into a ratio.
   i32 AspectRatio() const { return aspectRatio_; }
@@ -140,7 +137,6 @@ private:
   void AdoptDOFStrength();
   void AdoptShadowDistance();
   void AdoptVsync();
-  void AdoptDiagVerbosity();
   void AdoptAspectRatio();
   void AdoptFOVOffset();
   void AdoptShadowDimension();
@@ -165,7 +161,6 @@ private:
   bool geometryGPUUpload_ = true;
   bool dred_ = true;
   bool sceneColorR11G11B10_ = false;
-  i32 diagVerbosity_ = 2;
 };
 
 } // namespace bd::gpu

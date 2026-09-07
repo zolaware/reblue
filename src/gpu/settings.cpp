@@ -29,7 +29,6 @@ REXCVAR_DECLARE(double, bd_shadow_distance);
 REXCVAR_DECLARE(i32, bd_aspect_ratio);
 REXCVAR_DECLARE(i32, bd_fov_offset);
 REXCVAR_DECLARE(bool, bd_vsync);
-REXCVAR_DECLARE(i32, bd_diag_verbosity);
 
 REXCVAR_DEFINE_BOOL(bd_pso_precache, true, kCvarGroup,
                     "Precompile pipelines during loads instead of at first "
@@ -134,11 +133,6 @@ REXCVAR_DEFINE_INT32(bd_fov_offset, 0, kCvarGroup,
 
 REXCVAR_DEFINE_BOOL(bd_vsync, true, kCvarGroup, "Vertical sync.");
 
-REXCVAR_DEFINE_INT32(bd_diag_verbosity, 0, kCvarGroup,
-                     "Render diagnostic log verbosity: 0 silent, 1 fallback "
-                     "diagnostics, 2 per-frame telemetry.")
-    .range(0, 2);
-
 namespace bd::gpu {
 namespace {
 
@@ -184,9 +178,6 @@ void Settings::AdoptShadowDistance() {
   shadowDistance_ = REXCVAR_GET(bd_shadow_distance);
 }
 void Settings::AdoptVsync() { vsync_ = REXCVAR_GET(bd_vsync); }
-void Settings::AdoptDiagVerbosity() {
-  diagVerbosity_ = REXCVAR_GET(bd_diag_verbosity);
-}
 void Settings::AdoptAspectRatio() {
   aspectRatio_ = REXCVAR_GET(bd_aspect_ratio);
 }
@@ -234,10 +225,6 @@ bool Settings::SetShadowQuality(f64 distance, i32 dimension) {
 
 bool Settings::SetVsync(bool v) {
   return rex::cvar::SetFlagByName("bd_vsync", FormatCvar(v));
-}
-
-bool Settings::SetDiagVerbosity(i32 v) {
-  return rex::cvar::SetFlagByName("bd_diag_verbosity", FormatCvar(v));
 }
 
 bool Settings::SetAspectRatio(i32 v) {
@@ -302,7 +289,6 @@ void Settings::AdoptCvars() {
   AdoptDOFStrength();
   AdoptShadowDistance();
   AdoptVsync();
-  AdoptDiagVerbosity();
   AdoptAspectRatio();
   AdoptFOVOffset();
   AdoptShadowDimension();
@@ -328,7 +314,6 @@ void Settings::Init() {
   reg("bd_dof_strength", &Settings::AdoptDOFStrength);
   reg("bd_shadow_distance", &Settings::AdoptShadowDistance);
   reg("bd_vsync", &Settings::AdoptVsync);
-  reg("bd_diag_verbosity", &Settings::AdoptDiagVerbosity);
   reg("bd_aspect_ratio", &Settings::AdoptAspectRatio);
   reg("bd_fov_offset", &Settings::AdoptFOVOffset);
   reg("bd_shadow_dimension", &Settings::AdoptShadowDimension);

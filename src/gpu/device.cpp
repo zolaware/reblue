@@ -35,6 +35,7 @@
 
 #include "core/logging.h"
 #include "core/memory_helpers.h"
+#include "core/settings.h"
 #include "core/shutdown.h"
 #include "gpu/bindless_allocator.h"
 #include "gpu/constant_buffers.h"
@@ -143,7 +144,7 @@ plume::RenderSampleCounts Video::CvarMSAASampleCount() {
 // suppressed volume.
 bool DiagShouldLog(u64 site, const GuestTexture *t, u32 *n_out) {
   *n_out = 0;
-  if (Settings::Get().DiagVerbosity() < 1)
+  if (!::bd::Settings::Get().Devmode())
     return false;
   const u64 key =
       (site << 56) |

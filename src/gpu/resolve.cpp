@@ -26,7 +26,6 @@
 #include "gpu/format.h"
 #include "gpu/frame_stats.h"
 #include "gpu/gpu_timing.h"
-#include "gpu/settings.h"
 
 namespace bd::gpu {
 
@@ -53,16 +52,13 @@ GuestTexture *ResolveSourceForFlagsLocked(VideoState &s, u32 flags,
     }
     if (s.last_drawn_ds[slot] && s.last_drawn_ds[slot]->texture) {
       u32 n;
-      // Expected per-frame behavior (frame start history grab), so verbosity 1
-      // stays quiet.
-      if (Settings::Get().DiagVerbosity() >= 2 &&
-          DiagShouldLog(2, s.depth_stencil, &n)) {
-        BD_WARN("[resolve-diag] #{} bound DS {}x{} fmt={} never drawn -> "
-                "falling back to last_drawn {}x{}",
-                n, s.depth_stencil ? s.depth_stencil->width : 0,
-                s.depth_stencil ? s.depth_stencil->height : 0,
-                s.depth_stencil ? u32(s.depth_stencil->format) : 0,
-                s.last_drawn_ds[slot]->width, s.last_drawn_ds[slot]->height);
+      if (DiagShouldLog(2, s.depth_stencil, &n)) {
+        BD_DEV_WARN("[resolve-diag] #{} bound DS {}x{} fmt={} never drawn -> "
+               "falling back to last_drawn {}x{}",
+               n, s.depth_stencil ? s.depth_stencil->width : 0,
+               s.depth_stencil ? s.depth_stencil->height : 0,
+               s.depth_stencil ? u32(s.depth_stencil->format) : 0,
+               s.last_drawn_ds[slot]->width, s.last_drawn_ds[slot]->height);
       }
       return s.last_drawn_ds[slot];
     }
@@ -75,14 +71,13 @@ GuestTexture *ResolveSourceForFlagsLocked(VideoState &s, u32 flags,
   }
   if (s.last_drawn_rt[slot] && s.last_drawn_rt[slot]->texture) {
     u32 n;
-    if (Settings::Get().DiagVerbosity() >= 2 &&
-        DiagShouldLog(1, s.render_target, &n)) {
-      BD_WARN("[resolve-diag] #{} bound RT {}x{} fmt={} never drawn -> "
-              "falling back to last_drawn {}x{}",
-              n, s.render_target ? s.render_target->width : 0,
-              s.render_target ? s.render_target->height : 0,
-              s.render_target ? u32(s.render_target->format) : 0,
-              s.last_drawn_rt[slot]->width, s.last_drawn_rt[slot]->height);
+    if (DiagShouldLog(1, s.render_target, &n)) {
+      BD_DEV_WARN("[resolve-diag] #{} bound RT {}x{} fmt={} never drawn -> "
+             "falling back to last_drawn {}x{}",
+             n, s.render_target ? s.render_target->width : 0,
+             s.render_target ? s.render_target->height : 0,
+             s.render_target ? u32(s.render_target->format) : 0,
+             s.last_drawn_rt[slot]->width, s.last_drawn_rt[slot]->height);
     }
     return s.last_drawn_rt[slot];
   }

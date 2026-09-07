@@ -424,22 +424,19 @@ void ReblueApp::OnCreateDialogs(rex::ui::ImGuiDrawer *drawer) {
 
   fade_overlay_ = std::make_unique<bd::ui::FadeOverlay>(drawer);
 
-  // reblue's own overlay takes F3. The SDK's F4 cvar settings and F7
-  // achievements go in retail, where the config menu and the launcher cover
-  // them, and stay under developer mode: the camp Encyclopedia is the only
-  // other achievement surface, and it does not exist at the title screen.
   rex::ui::UnregisterBind("bind_debug_overlay");
-  if (!bd::Settings::Get().Devmode()) {
+  if (bd::Settings::Get().Devmode()) {
+    rex::ui::RegisterBind(
+        "bind_reblue_menu", "F3", "Cycle reblue perf overlay", [] {
+          const auto stage =
+              bd::ui::NextOverlayStage(static_cast<bd::ui::OverlayStage>(
+                  bd::ui::Settings::Get().PerfOverlay()));
+          bd::ui::Settings::Get().SetPerfOverlay(static_cast<i32>(stage));
+        });
+  } else {
     rex::ui::UnregisterBind("bind_settings");
     rex::ui::UnregisterBind("bind_achievements");
   }
-  rex::ui::RegisterBind(
-      "bind_reblue_menu", "F3", "Cycle reblue perf overlay", [] {
-        const auto stage =
-            bd::ui::NextOverlayStage(static_cast<bd::ui::OverlayStage>(
-                bd::ui::Settings::Get().PerfOverlay()));
-        bd::ui::Settings::Get().SetPerfOverlay(static_cast<i32>(stage));
-      });
 
   // The dialog self-deletes on Close(), and the on_closed lambda nulls
   // report_issue_.

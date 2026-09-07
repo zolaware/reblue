@@ -22,6 +22,7 @@
 #include "core/profiling.h"
 
 #include "core/logging.h"
+#include "core/settings.h"
 #include "gpu/d3d.h"
 #include "gpu/device.h"
 #include "gpu/format.h"
@@ -185,22 +186,22 @@ KeyStats &TouchKeyLocked(Pool &p, u64 key, u32 width, u32 height,
 
 void LogSummaryLocked(Pool &p) {
   const u64 total = p.hits + p.misses;
-  BD_INFO("[surface-pool] {} hits / {} misses ({:.1f}% reuse), recycled={} "
-          "evicted={} trimmed={} rejected_percap={} rejected_oversize={}",
-          p.hits, p.misses,
-          total ? 100.0 * double(p.hits) / double(total) : 0.0, p.recycled,
-          p.evicted_lru, p.trimmed_idle, p.rejected_percap,
-          p.rejected_oversize);
-  BD_INFO("[surface-pool] parked {} surfaces {:.1f} MiB (peak {:.1f} MiB), "
-          "budget {} MiB, caps per-key={} count={}",
-          p.free_count, p.parked_bytes / 1048576.0,
-          p.peak_parked_bytes / 1048576.0, ByteBudget(p) / 1048576, kPerKeyCap,
-          kCountCap);
+  BD_DEV_INFO("[surface-pool] {} hits / {} misses ({:.1f}% reuse), recycled={} "
+              "evicted={} trimmed={} rejected_percap={} rejected_oversize={}",
+              p.hits, p.misses,
+              total ? 100.0 * double(p.hits) / double(total) : 0.0, p.recycled,
+              p.evicted_lru, p.trimmed_idle, p.rejected_percap,
+              p.rejected_oversize);
+  BD_DEV_INFO("[surface-pool] parked {} surfaces {:.1f} MiB (peak {:.1f} MiB), "
+              "budget {} MiB, caps per-key={} count={}",
+              p.free_count, p.parked_bytes / 1048576.0,
+              p.peak_parked_bytes / 1048576.0, ByteBudget(p) / 1048576,
+              kPerKeyCap, kCountCap);
   const auto vm = Video::MemoryUsage();
   if (vm.budget) {
-    BD_INFO("[surface-pool] adapter VRAM {:.0f} MiB in use of {:.0f} MiB "
-            "budget",
-            vm.used / 1048576.0, vm.budget / 1048576.0);
+    BD_DEV_INFO("[surface-pool] adapter VRAM {:.0f} MiB in use of {:.0f} MiB "
+                "budget",
+                vm.used / 1048576.0, vm.budget / 1048576.0);
   }
   // Rank by what a miss actually costs: misses x surface bytes.
   std::vector<const KeyStats *> rows;
@@ -213,12 +214,12 @@ void LogSummaryLocked(Pool &p) {
   const size_t n = std::min<size_t>(rows.size(), 12);
   for (size_t i = 0; i < n; ++i) {
     const KeyStats &k = *rows[i];
-    BD_INFO("[surface-pool]   {}x{} {} fmt={} msaa={} {:.1f} MiB | hit={} "
-            "miss={} recycled={} lru_evict={} percap={} parked={} peak={}",
-            k.width, k.height, k.is_depth ? "DS" : "RT", k.format,
-            k.sample_count, k.bytes / 1048576.0, k.hits, k.misses, k.recycled,
-            k.evicted_lru, k.rejected_percap + k.rejected_oversize, k.parked,
-            k.parked_peak);
+    BD_DEV_INFO(
+        "[surface-pool]   {}x{} {} fmt={} msaa={} {:.1f} MiB | hit={} "
+        "miss={} recycled={} lru_evict={} percap={} parked={} peak={}",
+        k.width, k.height, k.is_depth ? "DS" : "RT", k.format, k.sample_count,
+        k.bytes / 1048576.0, k.hits, k.misses, k.recycled, k.evicted_lru,
+        k.rejected_percap + k.rejected_oversize, k.parked, k.parked_peak);
   }
 }
 
@@ -344,11 +345,11 @@ bool EvictVictimLocked(Pool &p, u64 wanted_key,
     static std::atomic<u32> s_warn{0};
     if (s_warn.fetch_add(1, std::memory_order_relaxed) < 16) {
       const KeyStats &want = p.stats[wanted_key];
-      BD_WARN("SurfacePool: evicted {}x{} {} {:.1f} MiB (parked {} epochs ago) "
-              "to make room for {}x{} {} {:.1f} MiB",
-              ks.width, ks.height, ks.is_depth ? "DS" : "RT",
-              ks.bytes / 1048576.0, p.next_epoch - best_epoch, want.width,
-              want.height, want.is_depth ? "DS" : "RT", want.bytes / 1048576.0);
+      BD_DEV_WARN("SurfacePool: evicted {}x{} {} {:.1f} MiB (parked {} epochs ago) "
+             "to make room for {}x{} {} {:.1f} MiB",
+             ks.width, ks.height, ks.is_depth ? "DS" : "RT",
+             ks.bytes / 1048576.0, p.next_epoch - best_epoch, want.width,
+             want.height, want.is_depth ? "DS" : "RT", want.bytes / 1048576.0);
     }
   }
   evicted.push_back(victim);
@@ -540,12 +541,10 @@ GuestTexture *SurfacePool::Acquire(u32 width, u32 height, u32 guest_format,
       ++ks.misses;
       // Misses are rare enough that a clock read here is free, and it makes
       // the breakdown a time series rather than one shutdown sample.
-      if (Settings::Get().DiagVerbosity() >= 1) {
-        const auto now = std::chrono::steady_clock::now();
-        if (now - p.last_summary >= std::chrono::seconds(30)) {
-          p.last_summary = now;
-          LogSummaryLocked(p);
-        }
+      const auto now = std::chrono::steady_clock::now();
+      if (now - p.last_summary >= std::chrono::seconds(30)) {
+        p.last_summary = now;
+        LogSummaryLocked(p);
       }
     }
   }
@@ -571,13 +570,14 @@ GuestTexture *SurfacePool::Acquire(u32 width, u32 height, u32 guest_format,
       std::lock_guard<std::mutex> lock(p.mutex);
       const KeyStats &ks = p.stats[key];
       if (p.ever_parked.count(key)) {
-        BD_WARN("SurfacePool miss {:.2f}ms {}x{} fmt={} msaa={} {} {:.1f} MiB "
-                "(key: hit={} miss={} lru_evict={} | pool: parked={} {:.0f} "
-                "MiB evicted_lru={} percap={})",
-                miss_ms, width, height, static_cast<u32>(plume_format),
-                sample_count, is_depth ? "DS" : "RT", ks.bytes / 1048576.0,
-                ks.hits, ks.misses, ks.evicted_lru, p.free_count,
-                p.parked_bytes / 1048576.0, p.evicted_lru, p.rejected_percap);
+        BD_DEV_INFO(
+            "SurfacePool miss {:.2f}ms {}x{} fmt={} msaa={} {} {:.1f} MiB "
+            "(key: hit={} miss={} lru_evict={} | pool: parked={} {:.0f} "
+            "MiB evicted_lru={} percap={})",
+            miss_ms, width, height, static_cast<u32>(plume_format),
+            sample_count, is_depth ? "DS" : "RT", ks.bytes / 1048576.0, ks.hits,
+            ks.misses, ks.evicted_lru, p.free_count, p.parked_bytes / 1048576.0,
+            p.evicted_lru, p.rejected_percap);
       } else {
         BD_DEBUG("SurfacePool cold alloc {:.2f}ms {}x{} fmt={} msaa={} {} "
                  "{:.1f} MiB (first use of key)",
@@ -606,10 +606,10 @@ bool ParkSurface(GuestTexture *surface, ParkSource source) {
     if (ms > 1.0) {
       static std::atomic<u32> s_logged{0};
       if (s_logged.fetch_add(1, std::memory_order_relaxed) < 32) {
-        BD_WARN("SurfacePool sweep {:.2f}ms evicted {} surfaces to park "
-                "{}x{} {}",
-                ms, swept, surface->width, surface->height,
-                surface->type == ResourceType::DepthStencil ? "DS" : "RT");
+        BD_DEV_WARN("SurfacePool sweep {:.2f}ms evicted {} surfaces to park "
+               "{}x{} {}",
+               ms, swept, surface->width, surface->height,
+               surface->type == ResourceType::DepthStencil ? "DS" : "RT");
       }
     }
   }

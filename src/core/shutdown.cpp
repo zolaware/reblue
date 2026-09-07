@@ -55,7 +55,7 @@ template <typename F> void Stage(const char *name, F &&fn) {
   fn();
   const double ms =
       std::chrono::duration<double, std::milli>(Clock::now() - t0).count();
-  BD_INFO("[shutdown] {} ({:.1f} ms)", name, ms);
+  BD_DEV_INFO("[shutdown] {} ({:.1f} ms)", name, ms);
 }
 
 // Armed before any work so every later stall is bounded. A quit never hangs on

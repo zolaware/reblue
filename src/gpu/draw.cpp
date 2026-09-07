@@ -202,12 +202,12 @@ bool Video::FlushRenderStateLocked(u32 device_guest) {
   if (!s.pipelineState.vertexShader || !s.pipelineState.vertexDeclaration) {
     u32 n;
     if (DiagShouldLog(3, s.render_target, &n)) {
-      BD_WARN("[draw-diag] #{} draw dropped: vs={} decl={} ps={} rt={}x{}", n,
-              static_cast<void *>(s.pipelineState.vertexShader),
-              static_cast<void *>(s.pipelineState.vertexDeclaration),
-              static_cast<void *>(s.pipelineState.pixelShader),
-              s.render_target ? s.render_target->width : 0,
-              s.render_target ? s.render_target->height : 0);
+      BD_DEV_WARN("[draw-diag] #{} draw dropped: vs={} decl={} ps={} rt={}x{}", n,
+             static_cast<void *>(s.pipelineState.vertexShader),
+             static_cast<void *>(s.pipelineState.vertexDeclaration),
+             static_cast<void *>(s.pipelineState.pixelShader),
+             s.render_target ? s.render_target->width : 0,
+             s.render_target ? s.render_target->height : 0);
     }
     return false;
   }
@@ -223,13 +223,13 @@ bool Video::FlushRenderStateLocked(u32 device_guest) {
     if (!pso) {
       u32 n;
       if (DiagShouldLog(4, s.render_target, &n)) {
-        BD_WARN("[draw-diag] #{} draw dropped: PSO build failed (vs={} ps={} "
-                "rt={}x{} fmt={})",
-                n, static_cast<void *>(s.pipelineState.vertexShader),
-                static_cast<void *>(s.pipelineState.pixelShader),
-                s.render_target ? s.render_target->width : 0,
-                s.render_target ? s.render_target->height : 0,
-                u32(s.pipelineState.renderTargetFormat));
+        BD_DEV_WARN("[draw-diag] #{} draw dropped: PSO build failed (vs={} ps={} "
+               "rt={}x{} fmt={})",
+               n, static_cast<void *>(s.pipelineState.vertexShader),
+               static_cast<void *>(s.pipelineState.pixelShader),
+               s.render_target ? s.render_target->width : 0,
+               s.render_target ? s.render_target->height : 0,
+               u32(s.pipelineState.renderTargetFormat));
       }
       return false;
     }
