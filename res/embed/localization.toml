@@ -766,6 +766,7 @@ lfe_level.label.po = "Subwoofer"
 [settings.controls]
 pad_layout.label.us = "@game:cfg_str/CFG_S0040|Control Type"
 mechat_layout.label.us = "@game:cfg_str/CFG_S0041|Control Type (Mechat)"
+vibration.label.us = "Controller Vibration"
 keyboard_mode.label.us = "Keyboard Mode"
 keyboard_mode.label.de = "Tastaturmodus"
 keyboard_mode.label.es = "Modo teclado"

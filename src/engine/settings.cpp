@@ -21,6 +21,7 @@ REXCVAR_DECLARE(bool, bd_mouse_menu);
 REXCVAR_DECLARE(bool, bd_mouse_cursor_sfx);
 REXCVAR_DECLARE(i32, bd_mouse_cursor_opacity);
 REXCVAR_DECLARE(i32, bd_glyph_set);
+REXCVAR_DECLARE(bool, bd_vibration);
 
 REXCVAR_DEFINE_INT32(bd_fps_limit, 0, kCvarGroup,
                      "Frame-rate cap: 0 = unlimited, above 30 the fixed 30Hz "
@@ -65,6 +66,10 @@ REXCVAR_DEFINE_INT32(bd_glyph_pad, -1, kCvarGroup,
                      "Controller the prompt glyphs draw: -1 = follow the "
                      "connected pad, 0 = Xbox 360, 1 = Xbox, 2 = PlayStation, "
                      "3 = Switch, 4 = Steam Deck.");
+
+REXCVAR_DEFINE_BOOL(bd_vibration, true, kCvarGroup,
+                    "Pad rumble. Off stops the motors without touching any "
+                    "other pad input.");
 
 namespace bd::engine {
 namespace {
@@ -118,6 +123,8 @@ void Settings::AdoptPadGlyphSet() {
       std::clamp(REXCVAR_GET(bd_glyph_pad), kPadSetFirst, kPadSetLast);
 }
 
+void Settings::AdoptVibration() { vibration_ = REXCVAR_GET(bd_vibration); }
+
 void Settings::AdoptMouseCursorOpacity() {
   mouseCursorOpacity_ =
       std::clamp(REXCVAR_GET(bd_mouse_cursor_opacity), kMouseCursorOpacityMin,
@@ -160,6 +167,10 @@ bool Settings::SetMouseCursorOpacity(i32 v) {
   return rex::cvar::SetFlagByName("bd_mouse_cursor_opacity", FormatCvar(v));
 }
 
+bool Settings::SetVibration(bool v) {
+  return rex::cvar::SetFlagByName("bd_vibration", FormatCvar(v));
+}
+
 void Settings::AdoptCvars() {
   AdoptFPSLimit();
   AdoptSaveAnywhere();
@@ -172,6 +183,7 @@ void Settings::AdoptCvars() {
   AdoptMouseCursorOpacity();
   AdoptGlyphSetMode();
   AdoptPadGlyphSet();
+  AdoptVibration();
 }
 
 void Settings::Init() {
@@ -194,6 +206,7 @@ void Settings::Init() {
   reg("bd_mouse_cursor_opacity", &Settings::AdoptMouseCursorOpacity);
   reg("bd_glyph_set", &Settings::AdoptGlyphSetMode);
   reg("bd_glyph_pad", &Settings::AdoptPadGlyphSet);
+  reg("bd_vibration", &Settings::AdoptVibration);
 }
 
 } // namespace bd::engine

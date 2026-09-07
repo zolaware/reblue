@@ -79,6 +79,9 @@ public:
   f64 HudFadeDelay() const { return hudFadeDelay_; }
   bool SetHudFadeDelay(f64 v);
 
+  bool Vibration() const { return vibration_; }
+  bool SetVibration(bool v);
+
 private:
   Settings() = default;
   Settings(const Settings &) = delete;
@@ -95,6 +98,7 @@ private:
   void AdoptMouseCursorOpacity();
   void AdoptGlyphSetMode();
   void AdoptPadGlyphSet();
+  void AdoptVibration();
 
   i32 fpsLimit_ = 0;
   i32 glyphSetMode_ = 0;
@@ -107,6 +111,7 @@ private:
   bool mouseMenu_ = true;
   bool mouseCursorSFX_ = true;
   i32 mouseCursorOpacity_ = 80;
+  bool vibration_ = true;
 };
 
 } // namespace bd::engine

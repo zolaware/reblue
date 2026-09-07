@@ -38,6 +38,7 @@
 #include "engine/menus/camp_settings.h"
 #include "engine/menus/local_map.h"
 #include "engine/mouse_cursor.h"
+#include "engine/settings.h"
 #include "engine/state_layout.h"
 #include "engine/virtual_buttons.h"
 #include "gpu/gpu.h"
@@ -2317,6 +2318,12 @@ REX_EXTERN(__imp__PadVibrationCore__Draw);
 REX_HOOK_RAW(PadVibrationCore__Draw) {
   if (!bd::engine::TickDue())
     return;
+  if (!bd::engine::Settings::Get().Vibration()) {
+    if (auto *amp = bd::mem::at<be_f32>(ctx.r3.u32 + 0x6C)) {
+      amp[0] = 0.0f;
+      amp[1] = 0.0f;
+    }
+  }
   __imp__PadVibrationCore__Draw(ctx, base);
 }
 

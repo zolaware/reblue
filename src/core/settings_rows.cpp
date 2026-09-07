@@ -760,6 +760,18 @@ constexpr SettingRow kControlsSettings[] = {
      .options = kCamera,
      .count = OptCount(kCamera),
      .saveScoped = true},
+    {.label = "settings.controls.vibration.label",
+     .group = "menu.header.controller",
+     .binding = {.get =
+                     [] {
+                       return engine::Settings::Get().Vibration() ? 1.0 : 0.0;
+                     },
+                 .set =
+                     [](double v) {
+                       return engine::Settings::Get().SetVibration(v != 0.0);
+                     }},
+     .options = kOnOff,
+     .count = OptCount(kOnOff)},
     {.label = "settings.controls.keyboard_mode.label",
      .group = "menu.header.keyboard_mouse",
      .binding = {.cvar = "mnk_mode"},
