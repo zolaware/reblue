@@ -440,7 +440,6 @@ struct BoneArray {
   std::vector<float> tickTarget;
   std::vector<float> lastLive;
   u64 blendTick = ~0ull;
-  u64 hideTick = ~0ull;
   u32 count = 0;
   u32 currEA = 0;
   double copyTime = 0.0;
@@ -505,7 +504,7 @@ void SeedNewbornPose(BoneArray &e, u64 tick) {
     const float *prv = nullptr;
     const float *cur = nullptr;
     const be_f32 *live = nullptr;
-    if (p.blendTick == tick && p.hideTick != tick) {
+    if (p.blendTick == tick) {
       cur = p.tickTarget.data();
       prv = p.prevPose.data();
     } else if (p.blendTick + 1 == tick) {
@@ -522,7 +521,7 @@ void SeedNewbornPose(BoneArray &e, u64 tick) {
       for (int k = 0; k < 3; ++k)
         pos[k] = cur ? cur[t + k] : float(live[t + k]);
       const float d2 = DistSq(pos, at);
-      if (d2 >= best)
+      if (d2 >= best || DistSq(pos, prv + t) > kCutDistance * kCutDistance)
         continue;
       best = d2;
       found = true;
@@ -537,23 +536,12 @@ void SeedNewbornPose(BoneArray &e, u64 tick) {
       e.prevPose[i + 12 + size_t(k)] -= delta[k];
 }
 
-bool BoneDegenerate(const float *m) {
-  for (int r = 0; r < 12; r += 4) {
-    const float len2 = m[r] * m[r] + m[r + 1] * m[r + 1] + m[r + 2] * m[r + 2];
-    if (!(len2 > 1e-12f))
-      return true;
-  }
-  return false;
-}
-
-enum class BoneStep { Lerp, Snap, Cut };
+enum class BoneStep { Lerp, Snap };
 
 BoneStep ClassifyBone(const float *cur, const float *prv) {
-  if (DistSq(cur + 12, prv + 12) <= kCutDistance * kCutDistance)
-    return BoneStep::Lerp;
-  if (BoneDegenerate(cur) || BoneDegenerate(prv))
-    return BoneStep::Snap;
-  return BoneStep::Cut;
+  return DistSq(cur + 12, prv + 12) <= kCutDistance * kCutDistance
+             ? BoneStep::Lerp
+             : BoneStep::Snap;
 }
 
 struct AnimeClock {
@@ -2463,24 +2451,15 @@ u32 ServeBones(BoneArray &e, double now) {
     e.prevPose = e.tickTarget;
     return 0;
   }
-  for (int i = 0; i < floats && e.hideTick != tick; i += 16)
-    if (ClassifyBone(&e.tickTarget[size_t(i)], &e.prevPose[size_t(i)]) ==
-        BoneStep::Cut)
-      e.hideTick = tick;
   const float a = bd::engine::Alpha();
   float outM[16];
   for (int i = 0; i < floats; i += 16) {
     const float *prvM = &e.prevPose[size_t(i)];
     const float *tgtM = &e.tickTarget[size_t(i)];
-    if (e.hideTick == tick) {
-      std::copy_n(&e.lastLive[size_t(i)], 16, outM);
-      for (const int r : kRow)
-        outM[r] = outM[r + 1] = outM[r + 2] = 0.0f;
-    } else if (ClassifyBone(tgtM, prvM) == BoneStep::Snap) {
+    if (ClassifyBone(tgtM, prvM) == BoneStep::Snap)
       std::copy_n(tgtM, 16, outM);
-    } else {
+    else
       LerpMatrix(prvM, tgtM, a, outM);
-    }
     WriteFloats(dst + i, outM, 16);
   }
   e.blended = e.scratch;
