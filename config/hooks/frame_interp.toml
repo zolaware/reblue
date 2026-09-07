@@ -13,46 +13,11 @@ after_instruction = false
 jump_address_on_true = 0x82134DB8
 
 [[midasm_hook]]
-address = 0x824543D4
-name = "bdShaderAnimGateHook"
-registers = []
-after_instruction = false
-jump_address_on_true = 0x824543EC
-
-[[midasm_hook]]
-address = 0x8221E594
-name = "bdShaderAnimGateHook"
-registers = []
-after_instruction = false
-jump_address_on_true = 0x8221E614
-
-[[midasm_hook]]
-address = 0x82453AA0
-name = "bdShaderAnimGateHook"
-registers = []
-after_instruction = false
-jump_address_on_true = 0x82453AA8
-
-[[midasm_hook]]
-address = 0x8245558C
-name = "bdShaderAnimGateHook"
-registers = []
-after_instruction = false
-jump_address_on_true = 0x824555A4
-
-[[midasm_hook]]
 address = 0x82433570
-name = "bdShaderAnimGateHook"
+name = "bdTickGateHook"
 registers = []
 after_instruction = false
 jump_address_on_true = 0x82433574
-
-[[midasm_hook]]
-address = 0x8239CBC0
-name = "bdShaderAnimGateHook"
-registers = []
-after_instruction = false
-jump_address_on_true = 0x8239CBE8
 
 [[midasm_hook]]
 address = 0x8239CBF4
@@ -63,66 +28,38 @@ jump_address_on_true = 0x8239CBF8
 
 [[midasm_hook]]
 address = 0x8239CC18
-name = "bdShaderAnimGateHook"
+name = "bdTickGateHook"
 registers = []
 after_instruction = false
 jump_address_on_true = 0x8239CC1C
 
 [[midasm_hook]]
 address = 0x8212957C
-name = "bdShaderAnimGateHook"
+name = "bdTickGateHook"
 registers = []
 after_instruction = false
 jump_address_on_true = 0x821295A0
 
 [[midasm_hook]]
 address = 0x82129590
-name = "bdShaderAnimGateHook"
+name = "bdTickGateHook"
 registers = []
 after_instruction = false
 jump_address_on_true = 0x821295A0
 
 [[midasm_hook]]
 address = 0x821295C0
-name = "bdShaderAnimGateHook"
+name = "bdTickGateHook"
 registers = []
 after_instruction = false
 jump_address_on_true = 0x821295D0
 
 [[midasm_hook]]
-address = 0x821295E4
-name = "bdShaderAnimGateHook"
-registers = []
-after_instruction = false
-jump_address_on_true = 0x82129660
-
-[[midasm_hook]]
-address = 0x82129650
-name = "bdShaderAnimGateHook"
-registers = []
-after_instruction = false
-jump_address_on_true = 0x82129660
-
-[[midasm_hook]]
-address = 0x82321360
-name = "bdShaderAnimGateHook"
-registers = []
-after_instruction = false
-jump_address_on_true = 0x82321364
-
-[[midasm_hook]]
 address = 0x823E9388
-name = "bdShaderAnimGateHook"
+name = "bdTickGateHook"
 registers = []
 after_instruction = false
 jump_address_on_true = 0x823E938C
-
-[[midasm_hook]]
-address = 0x823E9764
-name = "bdShaderAnimGateHook"
-registers = []
-after_instruction = false
-jump_address_on_true = 0x823E9768
 
 [[midasm_hook]]
 address = 0x823B4FB4
@@ -183,116 +120,60 @@ after_instruction = false
 jump_address_on_true = 0x821681D8
 
 [[midasm_hook]]
-address = 0x821C29E8
-name = "bdShaderAnimGateHook"
-registers = []
-after_instruction = false
-jump_address_on_true = 0x821C2A54
-
-[[midasm_hook]]
-address = 0x821C2A20
-name = "bdShaderAnimGateHook"
-registers = []
-after_instruction = false
-jump_address_on_true = 0x821C2A54
-
-[[midasm_hook]]
 address = 0x82381030
-name = "bdShaderAnimGateHook"
+name = "bdTickGateHook"
 registers = []
 after_instruction = false
 jump_address_on_true = 0x82381034
 
 [[midasm_hook]]
 address = 0x82380610
-name = "bdShaderAnimGateHook"
+name = "bdTickGateHook"
 registers = []
 after_instruction = false
 jump_address_on_true = 0x82380614
 
 [[midasm_hook]]
-address = 0x822062B0
-name = "bdShaderAnimGateHook"
-registers = []
-after_instruction = false
-jump_address_on_true = 0x822062C8
-
-[[midasm_hook]]
-address = 0x822062DC
-name = "bdShaderAnimGateHook"
-registers = []
-after_instruction = false
-jump_address_on_true = 0x822062F8
-
-[[midasm_hook]]
-address = 0x821A1384
-name = "bdShaderAnimGateHook"
-registers = []
-after_instruction = false
-jump_address_on_true = 0x821A1398
-
-[[midasm_hook]]
-address = 0x821A13A8
-name = "bdShaderAnimGateHook"
-registers = []
-after_instruction = false
-jump_address_on_true = 0x821A13B4
-
-[[midasm_hook]]
 address = 0x82129448
-name = "bdShaderAnimGateHook"
+name = "bdTickGateHook"
 registers = []
 after_instruction = false
 jump_address_on_true = 0x82129450
 
 [[midasm_hook]]
 address = 0x821294C4
-name = "bdShaderAnimGateHook"
+name = "bdTickGateHook"
 registers = []
 after_instruction = false
 jump_address_on_true = 0x821294C8
 
 [[midasm_hook]]
 address = 0x821C2E00
-name = "bdShaderAnimGateHook"
+name = "bdTickGateHook"
 registers = []
 after_instruction = false
 jump_address_on_true = 0x821C2E08
 
 [[midasm_hook]]
 address = 0x821C2E20
-name = "bdShaderAnimGateHook"
+name = "bdTickGateHook"
 registers = []
 after_instruction = false
 jump_address_on_true = 0x821C2E54
 
 [[midasm_hook]]
 address = 0x82355000
-name = "bdShaderAnimGateHook"
+name = "bdTickGateHook"
 registers = []
 after_instruction = false
 jump_address_on_true = 0x82355018
 
 [[midasm_hook]]
 address = 0x8216FAF8
-name = "bdShaderAnimGateHook"
+name = "bdTickGateHook"
 registers = []
 after_instruction = false
 jump_address_on_true = 0x8216FB00
-
-[[midasm_hook]]
-address = 0x82151260
-name = "bdShaderAnimGateHook"
-registers = []
-after_instruction = false
-jump_address_on_true = 0x82151270
-
-[[midasm_hook]]
-address = 0x8215127C
-name = "bdShaderAnimGateHook"
-registers = []
-after_instruction = false
-jump_address_on_true = 0x8215128C
 
 [[midasm_hook]]
 address = 0x82406EEC
@@ -309,18 +190,17 @@ after_instruction = false
 jump_address_on_true = 0x824107DC
 
 [[midasm_hook]]
+address = 0x821865B8
+name = "bdDofFocusLerpHook"
+registers = ["r11"]
+after_instruction = false
+
+[[midasm_hook]]
 address = 0x82440AC4
-name = "bdShaderAnimGateHook"
+name = "bdTickGateHook"
 registers = []
 after_instruction = false
 jump_address_on_true = 0x82440AD8
-
-[[midasm_hook]]
-address = 0x82463FFC
-name = "bdShaderAnimGateHook"
-registers = []
-after_instruction = false
-jump_address_on_true = 0x82464008
 
 [[midasm_hook]]
 address = 0x82437598
@@ -399,3 +279,165 @@ address = 0x821594FC
 name = "bdAnimeChildClockFloorHook"
 registers = ["f1"]
 after_instruction = false
+
+[[midasm_hook]]
+address = 0x82421C8C
+name = "bdEffectParticleSpawnHook"
+registers = ["r11"]
+after_instruction = true
+[[midasm_hook]]
+address = 0x824543D0
+name = "bdFrameStepScaleHook"
+registers = ["f0"]
+after_instruction = false
+
+[[midasm_hook]]
+address = 0x82455588
+name = "bdFrameStepScaleHook"
+registers = ["f0"]
+after_instruction = false
+
+[[midasm_hook]]
+address = 0x82453A94
+name = "bdFrameStepScaleHook"
+registers = ["f0"]
+after_instruction = false
+
+[[midasm_hook]]
+address = 0x8221E5A0
+name = "bdFrameStepScaleHook"
+registers = ["f0"]
+after_instruction = false
+
+[[midasm_hook]]
+address = 0x8221E5A4
+name = "bdFrameStepScaleHook"
+registers = ["f13"]
+after_instruction = false
+
+[[midasm_hook]]
+address = 0x8221E5B4
+name = "bdFrameStepScaleHook"
+registers = ["f12"]
+after_instruction = false
+
+[[midasm_hook]]
+address = 0x8221E5B8
+name = "bdFrameStepScaleHook"
+registers = ["f11"]
+after_instruction = false
+
+[[midasm_hook]]
+address = 0x8221E5DC
+name = "bdFrameStepScaleHook"
+registers = ["f13"]
+after_instruction = false
+
+[[midasm_hook]]
+address = 0x8221E5E8
+name = "bdFrameStepScaleHook"
+registers = ["f13"]
+after_instruction = false
+
+[[midasm_hook]]
+address = 0x8221E5F4
+name = "bdFrameStepScaleHook"
+registers = ["f12"]
+after_instruction = false
+
+[[midasm_hook]]
+address = 0x8221E600
+name = "bdFrameStepScaleHook"
+registers = ["f11"]
+after_instruction = false
+
+[[midasm_hook]]
+address = 0x8239CBBC
+name = "bdFrameStepScaleHook"
+registers = ["f10"]
+after_instruction = false
+
+[[midasm_hook]]
+address = 0x821295DC
+name = "bdFrameStepScaleHook"
+registers = ["f0"]
+after_instruction = false
+
+[[midasm_hook]]
+address = 0x8212964C
+name = "bdFrameStepScaleHook"
+registers = ["f0"]
+after_instruction = false
+
+[[midasm_hook]]
+address = 0x823E9760
+name = "bdFrameStepScaleHook"
+registers = ["f14"]
+after_instruction = false
+
+[[midasm_hook]]
+address = 0x821C2A00
+name = "bdFrameStepScaleHook"
+registers = ["f0"]
+after_instruction = false
+
+[[midasm_hook]]
+address = 0x821C2A34
+name = "bdFrameStepScaleHook"
+registers = ["f0"]
+after_instruction = false
+
+[[midasm_hook]]
+address = 0x822062B4
+name = "bdFrameStepScaleHook"
+registers = ["f0"]
+after_instruction = false
+
+[[midasm_hook]]
+address = 0x822062E0
+name = "bdFrameStepScaleHook"
+registers = ["f0"]
+after_instruction = false
+
+[[midasm_hook]]
+address = 0x821A1384
+name = "bdFrameStepScaleHook"
+registers = ["f0"]
+after_instruction = false
+
+[[midasm_hook]]
+address = 0x82463FFC
+name = "bdFrameStepScaleHook"
+registers = ["f0"]
+after_instruction = false
+
+[[midasm_hook]]
+address = 0x82321350
+name = "bdFrameStepScaleHook"
+registers = ["f13"]
+after_instruction = false
+
+[[midasm_hook]]
+address = 0x8232135C
+name = "bdFrameStepScaleHook"
+registers = ["f0"]
+after_instruction = false
+
+[[midasm_hook]]
+address = 0x821A13B0
+name = "bdFrameStepSumHook"
+registers = ["f0", "f30"]
+after_instruction = false
+
+[[midasm_hook]]
+address = 0x82151268
+name = "bdFrameFactorScaleHook"
+registers = ["f13"]
+after_instruction = false
+
+[[midasm_hook]]
+address = 0x82151284
+name = "bdFrameFactorScaleHook"
+registers = ["f0"]
+after_instruction = false
+

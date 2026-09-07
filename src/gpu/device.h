@@ -67,6 +67,8 @@ public:
 
   static void Present(GuestTexture *frontBuffer = nullptr);
 
+  static void SkipPresent();
+
   // Pre-Runtime present (installer): clear back buffer + overlay hook only.
   static void PresentOverlayFrame();
 

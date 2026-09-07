@@ -442,6 +442,18 @@ void Video::Present(GuestTexture *frontBuffer) {
   RecordFrameSample(pb);
 }
 
+void Video::SkipPresent() {
+  auto &s = state();
+  if (s.shutting_down.load(std::memory_order_acquire))
+    return;
+  std::unique_lock lock(s.mutex);
+  if (!s.ready || s.shutting_down.load(std::memory_order_acquire) ||
+      s.frame_present_committed) {
+    return;
+  }
+  AbandonFrame(s, lock);
+}
+
 void Video::PresentOverlayFrame() {
   auto &s = state();
   if (s.shutting_down.load(std::memory_order_acquire))

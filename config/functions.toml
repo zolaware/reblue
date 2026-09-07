@@ -268,11 +268,13 @@
 0x8213F7B8 = { name = "bdVisualObjectConstruct", size = 0x578 }
 0x82140178 = { name = "bdBinaryModelLoadRequest", size = 0x154 }
 0x82140450 = { name = "bdVisualObjectUpdate", size = 0x9A8 }
+0x82140DF8 = { name = "bdVisualObjectRelease" }
 0x82141208 = { name = "bdVisualObjectInitAnimSlots", size = 0x8C }
 0x82141298 = { name = "bdVisualObjectSetAnimation", size = 0x9C }
 0x82141338 = { name = "AnimeData_method_1338", size = 0xD4 }
 0x82141410 = { name = "bdVisualObjectGetMaxDrawDistance", size = 0x8C }
 0x821414A0 = { name = "bdAnimationUpdate", size = 0x71C }
+0x82288898 = { name = "bdAnimRotationKeysSample" }
 0x82141BC0 = { name = "bdVisualObjectAnimSlotUpdate", size = 0xCC }
 0x82141C90 = { name = "bdSceneGraphCountNodes", size = 0x68 }
 0x82141CF8 = { name = "bdVisualObjectInitCollision", size = 0x13C }
@@ -504,6 +506,7 @@
 0x82172830 = { name = "bdSoundCuePlay", size = 0xD8 }
 0x821734E8 = { name = "bdGpuBufferSetup", size = 0x94 }
 0x82173580 = { name = "bdShaderConstantFlush", size = 0xC0 }
+0x82174CE8 = { name = "Visual__RenderInfo__vf04" }
 0x82175028 = { name = "bdShadowMapDebugSetup", size = 0x114 }
 0x82177DA0 = { name = "bdBuildMirrorViewProjection" }
 0x82178610 = { name = "bdPlaneReflectUpdateTexture" }

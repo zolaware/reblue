@@ -31,5 +31,6 @@ double FrameDelta();
 
 void PublishRenderClock();
 void BindRenderThread();
+bool IsRenderThread();
 
 } // namespace bd::engine

@@ -101,6 +101,7 @@ void PublishRenderClock() {
 }
 
 void BindRenderThread() { t_renderThread = true; }
+bool IsRenderThread() { return t_renderThread; }
 
 bool TickDue() { return t_renderThread ? g_render.tickDue : g_tickDue; }
 float Alpha() {

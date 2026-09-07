@@ -66,9 +66,10 @@ u32 D3DDevice_Swap_hook(u32 /*device*/, u32 front_buffer_va,
   auto *front_buffer =
       bd::gpu::HostResourceHeap::FromGuest<bd::gpu::GuestTexture>(
           front_buffer_va);
-  if (bd::engine::HoldPresent())
-    return 0;
-  bd::gpu::Video::Present(front_buffer);
+  if (bd::engine::SparseFrame())
+    bd::gpu::Video::SkipPresent();
+  else
+    bd::gpu::Video::Present(front_buffer);
   return 0;
 }
 
