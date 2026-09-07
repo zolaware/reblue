@@ -20,6 +20,10 @@
 0x82401448 = { name = "issFrame__Draw" }
 0x824025A8 = { name = "issFrame__DrawFade" }
 0x822C1810 = { name = "LipPlayerSample" }
+0x8213A8B0 = { name = "Visual__Eff__Task__Draw" }
+0x8241F338 = { name = "bdParticleSystemSnapshot" }
+0x8241F9F8 = { name = "bdParticleSystemStep" }
+0x824285F8 = { name = "bdEffectLightStep" }
 0x82576028 = { name = "bdPhysicalVertexBufferCreate" }
 0x82575F90 = { name = "bdPhysicalIndexBufferCreate" }
 0x820C03A0 = { name = "SequenceHolder_SequenceUnitBase_ctor", size = 0x80 }

@@ -337,10 +337,20 @@ struct Vec3Track : Track<3> {
   bool raw = false;
 };
 
-enum class Vec3Slot : u32 { MirrorEye, MirrorTarget, ShaderEye, DofFocus, Count };
+enum class Vec3Slot : u32 { DofFocus, Count };
 
 std::unordered_map<u32, Vec3Track> g_vec3Tracks;
 u32 g_vec3Scratch[u32(Vec3Slot::Count)] = {};
+
+constexpr int kCameraPointFloats = 6;
+constexpr u32 kViewObjTargetGap = 12;
+
+struct CameraPointTrack : Track<kCameraPointFloats> {
+  bool raw = false;
+};
+
+std::unordered_map<u32, CameraPointTrack> g_cameraPoints;
+u32 g_cameraPointScratch = 0;
 
 constexpr int kWorldFloats = 16;
 u32 g_worldScratch = 0;
@@ -431,9 +441,9 @@ bool InShadowDepthPass() {
 constexpr u32 kVOBoneCount = 0x74C;
 constexpr u32 kVOCurrBones = 0xA48;
 constexpr u32 kMaxBoneMatrices = 1024;
+constexpr u32 kParticleModelVOSize = 5052;
 constexpr double kBoneCopyFresh = kTickSeconds * 1.5;
 constexpr double kBoneArrayLinger = 2.0;
-constexpr float kParentBoneDist = 16.0f;
 
 struct BoneArray {
   std::vector<float> prevPose;
@@ -447,7 +457,6 @@ struct BoneArray {
   u32 blended = 0;
   u32 scratch = 0;
   u32 scratchCount = 0;
-  bool newborn = false;
 };
 
 std::unordered_map<u32, BoneArray> g_boneArrays;
@@ -463,6 +472,13 @@ bool BoneArrayOwned(u32 va) {
       return true;
   }
   return false;
+}
+
+bool ParticleModelPoolVO(u32 vo) {
+  const u32 base = bd::mem::load<u32>(bd::engine::addr::kParticleModelPool);
+  const u32 count =
+      bd::mem::load<u32>(bd::engine::addr::kParticleModelPoolCount);
+  return base != 0 && vo - base < count * kParticleModelVOSize;
 }
 
 void RegisterBoneArray(u32 vo) {
@@ -488,52 +504,6 @@ void PruneBoneArrays() {
       ++it;
     }
   }
-}
-
-void SeedNewbornPose(BoneArray &e, u64 tick) {
-  e.prevPose = e.tickTarget;
-  const float *at = &e.tickTarget[12];
-  float best = kParentBoneDist * kParentBoneDist;
-  float delta[3] = {0.0f, 0.0f, 0.0f};
-  bool found = false;
-  for (auto &[holder, p] : g_boneArrays) {
-    const size_t n = size_t(p.count) * 16;
-    if (&p == &e || p.count < 2 || p.tickTarget.size() != n ||
-        p.prevPose.size() != n)
-      continue;
-    const float *prv = nullptr;
-    const float *cur = nullptr;
-    const be_f32 *live = nullptr;
-    if (p.blendTick == tick) {
-      cur = p.tickTarget.data();
-      prv = p.prevPose.data();
-    } else if (p.blendTick + 1 == tick) {
-      live = bd::mem::try_at<be_f32>(p.currEA);
-      if (!live)
-        continue;
-      prv = p.tickTarget.data();
-    } else {
-      continue;
-    }
-    for (u32 b = 0; b < p.count; ++b) {
-      const size_t t = size_t(b) * 16 + 12;
-      float pos[3];
-      for (int k = 0; k < 3; ++k)
-        pos[k] = cur ? cur[t + k] : float(live[t + k]);
-      const float d2 = DistSq(pos, at);
-      if (d2 >= best || DistSq(pos, prv + t) > kCutDistance * kCutDistance)
-        continue;
-      best = d2;
-      found = true;
-      for (int k = 0; k < 3; ++k)
-        delta[k] = pos[k] - prv[t + k];
-    }
-  }
-  if (!found)
-    return;
-  for (size_t i = 0; i < e.prevPose.size(); i += 16)
-    for (int k = 0; k < 3; ++k)
-      e.prevPose[i + 12 + size_t(k)] -= delta[k];
 }
 
 enum class BoneStep { Lerp, Snap };
@@ -637,16 +607,6 @@ bool bdLogicTickGateHook(PPCRegister &r28) {
 }
 
 bool bdFrameClockGateHook() { return !bd::engine::TickDue(); }
-
-void bdEffectParticleSpawnHook(PPCRegister &r11) {
-  const u32 vo = r11.u32;
-  if (!bd::engine::InterpolationActive() || !vo)
-    return;
-  std::lock_guard<std::mutex> lock(g_interpMutex);
-  BoneArray &e = g_boneArrays[vo + kVOCurrBones];
-  e.copyTime = bd::engine::FrameTime();
-  e.newborn = true;
-}
 
 bool bdCharaBoneChainGateHook(PPCRegister &r3) {
   static std::unordered_map<u32, u64> seen;
@@ -1477,6 +1437,400 @@ void FlushPlyBlinkWindow() {
 
 } // namespace
 
+namespace {
+
+constexpr u32 kEffParticleSystem = 0x14;
+constexpr u32 kEffEmitterTrail = 0x20000;
+constexpr u32 kEffParticleSnapshotted = 0x2;
+constexpr u32 kEffRingSlotSize = 16;
+constexpr int kMaxEffEmitters = 256;
+constexpr int kMaxEffParticles = 8192;
+constexpr u64 kEffHistoryLinger = 4;
+constexpr float kEffUVWrap = 0.5f;
+constexpr u32 kEffEmitterDefSize = 560;
+constexpr u32 kEffCurvesPerEmitter = 22;
+constexpr u32 kEffCurveUV = 10;
+constexpr u32 kEffCurveMaskUV = 0x100;
+constexpr u32 kMaxEffCurveKeys = 64;
+constexpr float kEffAgeStep = 1.0f;
+
+struct EffSystem_t {
+  /* 0x00 */ u8 _pad000[0x0C];
+  /* 0x0C */ be_u32 emitters;
+};
+static_assert(offsetof(EffSystem_t, emitters) == 0x0C);
+
+struct EffEmitter_t {
+  /* 0x000 */ u8 _pad000[0x04];
+  /* 0x004 */ be_u32 next;
+  /* 0x008 */ u8 _pad008[0xB0 - 0x08];
+  /* 0x0B0 */ be_f32 worldPos[3];
+  /* 0x0BC */ u8 _pad0BC[0xD0 - 0xBC];
+  /* 0x0D0 */ be_u32 effect;
+  /* 0x0D4 */ be_u32 def;
+  /* 0x0D8 */ u8 _pad0D8[0xDC - 0xD8];
+  /* 0x0DC */ be_u32 particles;
+};
+static_assert(offsetof(EffEmitter_t, next) == 0x04);
+static_assert(offsetof(EffEmitter_t, worldPos) == 0xB0);
+static_assert(offsetof(EffEmitter_t, effect) == 0xD0);
+static_assert(offsetof(EffEmitter_t, def) == 0xD4);
+static_assert(offsetof(EffEmitter_t, particles) == 0xDC);
+
+struct EffEmitterDef_t {
+  /* 0x00 */ u8 _pad000[0x4C];
+  /* 0x4C */ be_u32 flags;
+};
+static_assert(offsetof(EffEmitterDef_t, flags) == 0x4C);
+
+struct EffEffect_t {
+  /* 0x00 */ u8 _pad000[0x04];
+  /* 0x04 */ be_u32 emitterDefs;
+  /* 0x08 */ u8 _pad008[0x1C - 0x08];
+  /* 0x1C */ be_u32 curveMasks;
+  /* 0x20 */ be_u32 curves;
+};
+static_assert(offsetof(EffEffect_t, emitterDefs) == 0x04);
+static_assert(offsetof(EffEffect_t, curveMasks) == 0x1C);
+static_assert(offsetof(EffEffect_t, curves) == 0x20);
+
+struct EffCurve_t {
+  /* 0x00 */ be_u32 count;
+  /* 0x04 */ be_u32 keys;
+};
+static_assert(sizeof(EffCurve_t) == 0x08);
+
+struct EffEmitterView {
+  u32 ea = 0;
+  u32 flags = 0;
+  u32 uvCurves = 0;
+};
+
+struct EffParticle_t {
+  /* 0x000 */ u8 _pad000[0x04];
+  /* 0x004 */ be_u32 next;
+  /* 0x008 */ u8 _pad008[0x10 - 0x08];
+  /* 0x010 */ be_f32 life;
+  /* 0x014 */ be_f32 age;
+  /* 0x018 */ u8 _pad018[0x80 - 0x18];
+  /* 0x080 */ be_f32 anchor[3];
+  /* 0x08C */ u8 _pad08C[0xBC - 0x8C];
+  /* 0x0BC */ be_f32 size[3];
+  /* 0x0C8 */ be_f32 color[4];
+  /* 0x0D8 */ u8 _pad0D8[0xE8 - 0xD8];
+  /* 0x0E8 */ be_f32 uv[2];
+  /* 0x0F0 */ u8 _pad0F0[0x170 - 0xF0];
+  /* 0x170 */ be_u32 flags;
+  /* 0x174 */ be_f32 trailHead[4];
+  /* 0x184 */ be_f32 drawPos[3];
+  /* 0x190 */ be_f32 drawSize[3];
+  /* 0x19C */ be_f32 drawMatrix[16];
+  /* 0x1DC */ be_u32 ring;
+  /* 0x1E0 */ be_u32 ringCount;
+  /* 0x1E4 */ be_u32 ringHead;
+  /* 0x1E8 */ be_u32 ringSize;
+};
+static_assert(offsetof(EffParticle_t, next) == 0x04);
+static_assert(offsetof(EffParticle_t, life) == 0x10);
+static_assert(offsetof(EffParticle_t, age) == 0x14);
+static_assert(offsetof(EffParticle_t, anchor) == 0x80);
+static_assert(offsetof(EffParticle_t, size) == 0xBC);
+static_assert(offsetof(EffParticle_t, color) == 0xC8);
+static_assert(offsetof(EffParticle_t, uv) == 0xE8);
+static_assert(offsetof(EffParticle_t, flags) == 0x170);
+static_assert(offsetof(EffParticle_t, trailHead) == 0x174);
+static_assert(offsetof(EffParticle_t, drawPos) == 0x184);
+static_assert(offsetof(EffParticle_t, drawSize) == 0x190);
+static_assert(offsetof(EffParticle_t, drawMatrix) == 0x19C);
+static_assert(offsetof(EffParticle_t, ring) == 0x1DC);
+static_assert(offsetof(EffParticle_t, ringCount) == 0x1E0);
+static_assert(offsetof(EffParticle_t, ringHead) == 0x1E4);
+static_assert(offsetof(EffParticle_t, ringSize) == 0x1E8);
+
+struct EffParticlePose {
+  float age;
+  float size[3];
+  float color[4];
+  float uv[2];
+  float drawPos[3];
+  float drawSize[3];
+  float drawMatrix[16];
+  float trailHead[4];
+};
+
+struct EffParticleHistory {
+  EffParticlePose prev;
+  EffParticlePose curr;
+  u64 tick = 0;
+  u32 spawned = 0;
+  u32 captured = 0;
+  bool served = false;
+};
+
+struct EffEmitterMotion {
+  float prev[3];
+  float curr[3];
+  u64 tick = 0;
+};
+
+std::unordered_map<u32, EffParticleHistory> g_effHistory;
+std::unordered_map<u32, EffEmitterMotion> g_effEmitterMotion;
+
+template <typename F> void ForEachEffEmitter(u32 sysEA, F &&fn) {
+  auto *sys = TryStruct<EffSystem_t>(sysEA);
+  if (!sys)
+    return;
+  u32 emitterEA = sys->emitters;
+  for (int e = 0; emitterEA != 0 && e < kMaxEffEmitters; ++e) {
+    auto *emitter = TryStruct<EffEmitter_t>(emitterEA);
+    if (!emitter)
+      return;
+    fn(emitterEA, *emitter);
+    emitterEA = emitter->next;
+  }
+}
+
+u32 EffUVCurves(const EffEmitter_t &e) {
+  auto *effect = TryStruct<EffEffect_t>(e.effect);
+  if (!effect)
+    return 0;
+  const u32 defEA = e.def;
+  const u32 base = effect->emitterDefs;
+  if (defEA < base)
+    return 0;
+  const u32 index = (defEA - base) / kEffEmitterDefSize;
+  auto *mask = bd::mem::try_at<be_u32>(u32(effect->curveMasks) + index * 4);
+  if (!mask || (u32(*mask) & kEffCurveMaskUV) == 0)
+    return 0;
+  return u32(effect->curves) +
+         (kEffCurvesPerEmitter * index + kEffCurveUV) * sizeof(EffCurve_t);
+}
+
+bool EvalEffCurve(u32 curveEA, float t, float &out) {
+  auto *curve = TryStruct<EffCurve_t>(curveEA);
+  if (!curve)
+    return false;
+  const u32 count = curve->count;
+  if (count < 2 || count > kMaxEffCurveKeys)
+    return false;
+  auto *keys = bd::mem::try_at<be_f32>(curve->keys);
+  if (!keys)
+    return false;
+  out = 0.0f;
+  for (u32 i = 0; i + 1 < count; ++i) {
+    const float t0 = keys[2 * i];
+    const float t1 = keys[2 * i + 2];
+    if (t < t0 || t > t1 || t1 <= t0)
+      continue;
+    const float v0 = keys[2 * i + 1];
+    const float v1 = keys[2 * i + 3];
+    out = v0 + (t - t0) / (t1 - t0) * (v1 - v0);
+    return true;
+  }
+  return true;
+}
+
+template <typename F> void ForEachEffParticle(u32 sysEA, F &&fn) {
+  ForEachEffEmitter(sysEA, [&](u32 emitterEA, EffEmitter_t &emitter) {
+    EffEmitterView em;
+    em.ea = emitterEA;
+    if (auto *def = TryStruct<EffEmitterDef_t>(emitter.def))
+      em.flags = def->flags;
+    em.uvCurves = EffUVCurves(emitter);
+    u32 particleEA = emitter.particles;
+    for (int p = 0; particleEA != 0 && p < kMaxEffParticles; ++p) {
+      auto *particle = TryStruct<EffParticle_t>(particleEA);
+      if (!particle)
+        return;
+      fn(em, particleEA, *particle);
+      particleEA = particle->next;
+    }
+  });
+}
+
+void ReadEffPose(const EffParticle_t &p, EffParticlePose &o) {
+  o.age = p.age;
+  ReadFloats(p.size, o.size, 3);
+  ReadFloats(p.color, o.color, 4);
+  ReadFloats(p.uv, o.uv, 2);
+  ReadFloats(p.drawPos, o.drawPos, 3);
+  ReadFloats(p.drawSize, o.drawSize, 3);
+  ReadFloats(p.drawMatrix, o.drawMatrix, 16);
+  ReadFloats(p.trailHead, o.trailHead, 4);
+}
+
+be_f32 *EffTrailNewestSlot(const EffParticle_t &p, u32 flags) {
+  const u32 count = p.ringCount;
+  const u32 size = p.ringSize;
+  if ((flags & kEffEmitterTrail) == 0 || count == 0 || size == 0 ||
+      count > size)
+    return nullptr;
+  const u32 slot = (u32(p.ringHead) + count - 1) % size;
+  return bd::mem::try_at<be_f32>(u32(p.ring) + slot * kEffRingSlotSize);
+}
+
+void WriteEffPose(EffParticle_t &p, u32 flags, const EffParticlePose &o) {
+  WriteFloats(p.size, o.size, (flags & kEffEmitterTrail) != 0 ? 2 : 3);
+  WriteFloats(p.color, o.color, 4);
+  WriteFloats(p.uv, o.uv, 2);
+  WriteFloats(p.drawPos, o.drawPos, 3);
+  WriteFloats(p.drawSize, o.drawSize, 3);
+  WriteFloats(p.drawMatrix, o.drawMatrix, 16);
+  if (be_f32 *slot = EffTrailNewestSlot(p, flags))
+    WriteFloats(slot, o.trailHead, 4);
+}
+
+void RestoreEffParticles(u32 sysEA) {
+  if (g_effHistory.empty())
+    return;
+  ForEachEffParticle(sysEA, [](const EffEmitterView &em, u32 ea,
+                               EffParticle_t &p) {
+    auto it = g_effHistory.find(ea);
+    if (it == g_effHistory.end() || !it->second.served)
+      return;
+    WriteEffPose(p, em.flags, it->second.curr);
+    it->second.served = false;
+  });
+}
+
+void ShiftEffPose(EffParticlePose &o, const float delta[3]) {
+  for (int k = 0; k < 3; ++k) {
+    o.drawPos[k] -= delta[k];
+    o.drawMatrix[12 + k] -= delta[k];
+    o.trailHead[k] -= delta[k];
+  }
+}
+
+void CaptureEffParticles(u32 sysEA) {
+  const u64 tick = bd::engine::TickCount();
+  ForEachEffEmitter(sysEA, [tick](u32 ea, EffEmitter_t &e) {
+    auto [it, inserted] = g_effEmitterMotion.try_emplace(ea);
+    EffEmitterMotion &m = it->second;
+    float pos[3];
+    ReadFloats(e.worldPos, pos, 3);
+    if (inserted || m.tick + 1 != tick)
+      std::copy_n(pos, 3, m.prev);
+    else
+      std::copy_n(m.curr, 3, m.prev);
+    std::copy_n(pos, 3, m.curr);
+    m.tick = tick;
+  });
+  ForEachEffParticle(sysEA, [tick](const EffEmitterView &em, u32 ea,
+                                   EffParticle_t &p) {
+    if ((u32(p.flags) & kEffParticleSnapshotted) == 0)
+      return;
+    auto [it, inserted] = g_effHistory.try_emplace(ea);
+    EffParticleHistory &h = it->second;
+    EffParticlePose live;
+    ReadEffPose(p, live);
+    if (inserted || h.captured != h.spawned) {
+      h.prev = live;
+      float anchor[3];
+      ReadFloats(p.anchor, anchor, 3);
+      float delta[3];
+      for (int k = 0; k < 3; ++k)
+        delta[k] = live.drawPos[k] - anchor[k];
+      const auto motion = g_effEmitterMotion.find(em.ea);
+      if (motion != g_effEmitterMotion.end())
+        for (int k = 0; k < 3; ++k)
+          delta[k] += motion->second.curr[k] - motion->second.prev[k];
+      ShiftEffPose(h.prev, delta);
+    } else if (h.tick + 1 == tick) {
+      h.prev = h.curr;
+    } else {
+      h.prev = live;
+    }
+    h.curr = live;
+    h.tick = tick;
+    h.captured = h.spawned;
+    h.served = false;
+  });
+  static u64 prunedTick = 0;
+  if (prunedTick == tick)
+    return;
+  prunedTick = tick;
+  for (auto it = g_effHistory.begin(); it != g_effHistory.end();) {
+    if (tick - it->second.tick > kEffHistoryLinger)
+      it = g_effHistory.erase(it);
+    else
+      ++it;
+  }
+  for (auto it = g_effEmitterMotion.begin();
+       it != g_effEmitterMotion.end();) {
+    if (tick - it->second.tick > kEffHistoryLinger)
+      it = g_effEmitterMotion.erase(it);
+    else
+      ++it;
+  }
+}
+
+void BlendEffUV(const EffEmitterView &em, const EffParticle_t &p,
+                const EffParticleHistory &h, float alpha, float uv[2]) {
+  const float life = p.life;
+  if (em.uvCurves != 0 && life != 0.0f) {
+    const float t =
+        (h.prev.age - kEffAgeStep + (h.curr.age - h.prev.age) * alpha) / life;
+    for (int i = 0; i < 2; ++i)
+      EvalEffCurve(em.uvCurves + i * sizeof(EffCurve_t), t, uv[i]);
+    return;
+  }
+  for (int i = 0; i < 2; ++i)
+    if (std::fabs(h.curr.uv[i] - h.prev.uv[i]) <= kEffUVWrap)
+      uv[i] = h.prev.uv[i] + (h.curr.uv[i] - h.prev.uv[i]) * alpha;
+}
+
+void BlendEffParticles(u32 sysEA) {
+  const u64 tick = bd::engine::TickCount();
+  const float alpha = CutThisTick() ? 1.0f : bd::engine::Alpha();
+  ForEachEffParticle(sysEA, [&](const EffEmitterView &em, u32 ea,
+                                EffParticle_t &p) {
+    auto it = g_effHistory.find(ea);
+    if (it == g_effHistory.end() || it->second.tick != tick)
+      return;
+    EffParticleHistory &h = it->second;
+    EffParticlePose out = h.curr;
+    LerpElements(h.prev.drawPos, h.curr.drawPos, alpha, out.drawPos, 3);
+    LerpElements(h.prev.trailHead, h.curr.trailHead, alpha, out.trailHead, 4);
+    LerpMatrix(h.prev.drawMatrix, h.curr.drawMatrix, alpha, out.drawMatrix);
+    LerpElements(h.prev.size, h.curr.size, alpha, out.size, 3);
+    LerpElements(h.prev.drawSize, h.curr.drawSize, alpha, out.drawSize, 3);
+    LerpElements(h.prev.color, h.curr.color, alpha, out.color, 4);
+    BlendEffUV(em, p, h, alpha, out.uv);
+    WriteEffPose(p, em.flags, out);
+    h.served = true;
+  });
+}
+
+} // namespace
+
+void bdParticleSpawnHook(PPCRegister &r31) {
+  if (bd::engine::InterpolationActive())
+    ++g_effHistory[r31.u32].spawned;
+}
+
+REX_EXTERN(__imp__bdParticleSystemSnapshot);
+REX_HOOK_RAW(bdParticleSystemSnapshot) {
+  const u32 sysEA = ctx.r3.u32;
+  const bool tick = bd::engine::TickDue();
+  if (tick)
+    RestoreEffParticles(sysEA);
+  __imp__bdParticleSystemSnapshot(ctx, base);
+  if (!bd::engine::InterpolationActive()) {
+    g_effHistory.clear();
+    g_effEmitterMotion.clear();
+    return;
+  }
+  if (tick)
+    CaptureEffParticles(sysEA);
+  BlendEffParticles(sysEA);
+}
+
+REX_EXTERN(__imp__bdEffectStepUpdate);
+REX_HOOK_RAW(bdEffectStepUpdate) {
+  RestoreEffParticles(ctx.r3.u32 + kEffParticleSystem);
+  __imp__bdEffectStepUpdate(ctx, base);
+}
+
 bool bdCompassBlinkHoldHook(PPCRegister &r11) {
   static bool blinkActive = false;
   if (r11.u32 != 0) {
@@ -1683,6 +2037,35 @@ MatrixTrack &ViewTrack(u32 va) {
   MatrixTrack &e = g_views[va];
   e.lastSeen = g_frame;
   return e;
+}
+
+u32 ServeCameraPoints(u32 eyeVa) {
+  auto *src = bd::mem::try_at<be_f32>(eyeVa);
+  if (!src)
+    return 0;
+  float live[kCameraPointFloats];
+  ReadFloats(src, live, kCameraPointFloats);
+  float out[kCameraPointFloats];
+  {
+    std::lock_guard<std::mutex> lock(g_interpMutex);
+    CameraPointTrack &t = g_cameraPoints[eyeVa];
+    t.lastSeen = g_frame;
+    switch (t.Advance(live, bd::engine::FrameTime())) {
+    case Roll::Shared:
+      t.raw = true;
+      break;
+    case Roll::Rolled:
+      t.raw = DistSq(t.prev, t.curr) > kCutDistance * kCutDistance ||
+              DistSq(t.prev + 3, t.curr + 3) > kCutDistance * kCutDistance;
+      break;
+    case Roll::Held:
+      break;
+    }
+    if (t.raw || CutThisTick())
+      return 0;
+    LerpElements(t.prev, t.curr, t.Alpha(), out, kCameraPointFloats);
+  }
+  return WriteScratch(g_cameraPointScratch, out, kCameraPointFloats);
 }
 
 u32 ServeVec3(u32 va, Vec3Slot slot) {
@@ -1914,6 +2297,7 @@ void OnGuestGameStep() {
     PruneStale(g_objSnapshots);
     PruneStale(g_views);
     PruneStale(g_vec3Tracks);
+    PruneStale(g_cameraPoints);
     PruneStale(g_animeClocks);
     g_hudAnchors.BeginFrame();
     g_recordKeys.clear();
@@ -1972,11 +2356,12 @@ REX_HOOK_RAW(bdSceneNodeDrawSingle) {
 
 REX_EXTERN(__imp__bdBuildMirrorViewProjection);
 REX_HOOK_RAW(bdBuildMirrorViewProjection) {
-  if (bd::engine::InterpolationActive()) {
-    if (const u32 eye = ServeVec3(ctx.r4.u32, Vec3Slot::MirrorEye))
-      ctx.r4.u32 = eye;
-    if (const u32 target = ServeVec3(ctx.r5.u32, Vec3Slot::MirrorTarget))
-      ctx.r5.u32 = target;
+  if (bd::engine::InterpolationActive() &&
+      ctx.r5.u32 == ctx.r4.u32 + kViewObjTargetGap) {
+    if (const u32 points = ServeCameraPoints(ctx.r4.u32)) {
+      ctx.r4.u32 = points;
+      ctx.r5.u32 = points + kViewObjTargetGap;
+    }
   }
   __imp__bdBuildMirrorViewProjection(ctx, base);
 }
@@ -1998,7 +2383,7 @@ void ServeShaderEye() {
   for (int i = 0; i < 3; ++i)
     if (float(staged[i]) != float(raw[i]))
       return;
-  const u32 scratch = ServeVec3(eyeVa, Vec3Slot::ShaderEye);
+  const u32 scratch = ServeCameraPoints(eyeVa);
   if (!scratch)
     return;
   float eye[3];
@@ -2443,10 +2828,6 @@ u32 ServeBones(BoneArray &e, double now) {
   }
   e.lastLive.resize(size_t(floats));
   ReadFloats(cur, e.lastLive.data(), floats);
-  if (e.newborn) {
-    e.newborn = false;
-    SeedNewbornPose(e, tick);
-  }
   if (CutThisTick()) {
     e.prevPose = e.tickTarget;
     return 0;
@@ -2479,7 +2860,8 @@ REX_HOOK_RAW(bdDoubleBufferAcquire) {
     return;
   BoneArray &e = it->second;
   e.currEA = ctx.r3.u32;
-  if (t_boneWriter || (!t_inCameraRender && !bd::engine::IsRenderThread()))
+  if (t_boneWriter || (!t_inCameraRender && !bd::engine::IsRenderThread()) ||
+      ParticleModelPoolVO(holder - kVOCurrBones))
     return;
   if (const u32 served = ServeBones(e, bd::engine::FrameTime()))
     ctx.r3.u32 = served;

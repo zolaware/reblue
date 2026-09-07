@@ -245,6 +245,12 @@ registers = ["r11"]
 after_instruction = false
 
 [[midasm_hook]]
+address = 0x82422404
+name = "bdParticleSpawnHook"
+registers = ["r31"]
+after_instruction = true
+
+[[midasm_hook]]
 address = 0x823EFFE0
 name = "bdPopUpAgeLerpHook"
 registers = ["f13"]
@@ -280,11 +286,6 @@ name = "bdAnimeChildClockFloorHook"
 registers = ["f1"]
 after_instruction = false
 
-[[midasm_hook]]
-address = 0x82421C8C
-name = "bdEffectParticleSpawnHook"
-registers = ["r11"]
-after_instruction = true
 [[midasm_hook]]
 address = 0x824543D0
 name = "bdFrameStepScaleHook"

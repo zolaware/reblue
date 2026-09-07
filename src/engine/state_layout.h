@@ -47,6 +47,8 @@ inline constexpr u32 kProjectorMapInfos = 0x82DD6100;
 inline constexpr u32 kProjectorMapInfosEnd = 0x82DD7170;
 inline constexpr u32 kCameraRenderVO = 0x82DBA92C;
 inline constexpr u32 kCameraViewList = 0x82DC9854;
+inline constexpr u32 kParticleModelPool = 0x82DC9BB0;
+inline constexpr u32 kParticleModelPoolCount = 0x82DC9BB8;
 } // namespace addr
 
 // GameTask, FieldPlayerEntity and the character list nodes they head are

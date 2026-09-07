@@ -32,6 +32,31 @@ double g_tps = 0.0;
 constexpr double kTpsWindow = 0.5;
 double g_tpsTicks = 0.0;
 double g_tpsSeconds = 0.0;
+constexpr int kDeltaWindow = 8;
+constexpr double kDeltaHitchRatio = 3.0;
+double g_deltaRing[kDeltaWindow] = {};
+int g_deltaCount = 0;
+int g_deltaNext = 0;
+
+double DeltaMean() {
+  double sum = 0.0;
+  for (int i = 0; i < g_deltaCount; ++i)
+    sum += g_deltaRing[i];
+  return sum / g_deltaCount;
+}
+
+double SmoothDelta(double dt) {
+  if (g_deltaCount == kDeltaWindow && dt > DeltaMean() * kDeltaHitchRatio) {
+    g_deltaCount = 0;
+    g_deltaNext = 0;
+    return dt;
+  }
+  g_deltaRing[g_deltaNext] = dt;
+  g_deltaNext = (g_deltaNext + 1) % kDeltaWindow;
+  if (g_deltaCount < kDeltaWindow)
+    ++g_deltaCount;
+  return DeltaMean();
+}
 
 double NowSeconds() {
   static const Clock::time_point kEpoch = Clock::now();
@@ -47,10 +72,11 @@ bool InterpolationActive() {
 
 void Advance() {
   const double now = NowSeconds();
-  const double dt =
+  const double raw =
       (g_lastTime > 0.0) ? std::max(now - g_lastTime, 0.0) : kTick;
   g_lastTime = now;
-  g_lastDelta = std::min(dt, kMaxReportedDelta);
+  const double dt = SmoothDelta(std::min(raw, kMaxReportedDelta));
+  g_lastDelta = dt;
 
   if (!InterpolationActive()) {
     g_tickDue = true;
