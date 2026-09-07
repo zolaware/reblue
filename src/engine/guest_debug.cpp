@@ -13,6 +13,7 @@
 #include "core/memory_helpers.h"
 #include "core/settings.h"
 #include "engine/engine.h"
+#include "engine/settings.h"
 #include "platform/platform.h"
 
 #include <rex/hook.h>
@@ -68,6 +69,7 @@ void ToggleMindows() {
 // Fires after bdGameSettingsInit writes defaults.
 void bdPostConfigInitHook() {
   bd::Settings::Get().SetDevmodeApplier(bd::engine::ApplyDebugConfig);
+  bd::engine::Settings::Get().ApplyCameraSpeed();
   BD_INFO("guest debug config applied (devmode={})",
           bd::Settings::Get().Devmode());
 }

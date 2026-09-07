@@ -8,6 +8,7 @@
 
 #include <rex/cvar.h>
 
+#include "core/global_config.h"
 #include "core/settings.h" // kCvarGroup
 #include "engine/glyph_set.h"
 
@@ -22,6 +23,7 @@ REXCVAR_DECLARE(bool, bd_mouse_cursor_sfx);
 REXCVAR_DECLARE(i32, bd_mouse_cursor_opacity);
 REXCVAR_DECLARE(i32, bd_glyph_set);
 REXCVAR_DECLARE(bool, bd_vibration);
+REXCVAR_DECLARE(f64, bd_camera_speed);
 
 REXCVAR_DEFINE_INT32(bd_fps_limit, 0, kCvarGroup,
                      "Frame-rate cap: 0 = unlimited, above 30 the fixed 30Hz "
@@ -70,6 +72,10 @@ REXCVAR_DEFINE_INT32(bd_glyph_pad, -1, kCvarGroup,
 REXCVAR_DEFINE_BOOL(bd_vibration, true, kCvarGroup,
                     "Pad rumble. Off stops the motors without touching any "
                     "other pad input.");
+
+REXCVAR_DEFINE_DOUBLE(bd_camera_speed, 1.2, kCvarGroup,
+                      "Field camera stick speed, scaling both axes. 1.2 is "
+                      "the value the disc ships.");
 
 namespace bd::engine {
 namespace {
@@ -125,6 +131,17 @@ void Settings::AdoptPadGlyphSet() {
 
 void Settings::AdoptVibration() { vibration_ = REXCVAR_GET(bd_vibration); }
 
+void Settings::AdoptCameraSpeed() {
+  cameraSpeed_ = std::clamp(REXCVAR_GET(bd_camera_speed), kCameraSpeedMin,
+                            kCameraSpeedMax);
+  ApplyCameraSpeed();
+}
+
+void Settings::ApplyCameraSpeed() const {
+  if (auto *cfg = GetGlobalConfig())
+    cfg->camRollSpd = static_cast<f32>(cameraSpeed_);
+}
+
 void Settings::AdoptMouseCursorOpacity() {
   mouseCursorOpacity_ =
       std::clamp(REXCVAR_GET(bd_mouse_cursor_opacity), kMouseCursorOpacityMin,
@@ -171,6 +188,10 @@ bool Settings::SetVibration(bool v) {
   return rex::cvar::SetFlagByName("bd_vibration", FormatCvar(v));
 }
 
+bool Settings::SetCameraSpeed(f64 v) {
+  return rex::cvar::SetFlagByName("bd_camera_speed", FormatCvar(v));
+}
+
 void Settings::AdoptCvars() {
   AdoptFPSLimit();
   AdoptSaveAnywhere();
@@ -184,6 +205,7 @@ void Settings::AdoptCvars() {
   AdoptGlyphSetMode();
   AdoptPadGlyphSet();
   AdoptVibration();
+  AdoptCameraSpeed();
 }
 
 void Settings::Init() {
@@ -207,6 +229,7 @@ void Settings::Init() {
   reg("bd_glyph_set", &Settings::AdoptGlyphSetMode);
   reg("bd_glyph_pad", &Settings::AdoptPadGlyphSet);
   reg("bd_vibration", &Settings::AdoptVibration);
+  reg("bd_camera_speed", &Settings::AdoptCameraSpeed);
 }
 
 } // namespace bd::engine

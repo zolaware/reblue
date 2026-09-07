@@ -82,6 +82,13 @@ public:
   bool Vibration() const { return vibration_; }
   bool SetVibration(bool v);
 
+  f64 CameraSpeed() const { return cameraSpeed_; }
+  bool SetCameraSpeed(f64 v);
+  void ApplyCameraSpeed() const;
+  static constexpr f64 kCameraSpeedMin = 0.5;
+  static constexpr f64 kCameraSpeedMax = 5.0;
+  static constexpr f64 kCameraSpeedDefault = 1.2;
+
 private:
   Settings() = default;
   Settings(const Settings &) = delete;
@@ -99,6 +106,7 @@ private:
   void AdoptGlyphSetMode();
   void AdoptPadGlyphSet();
   void AdoptVibration();
+  void AdoptCameraSpeed();
 
   i32 fpsLimit_ = 0;
   i32 glyphSetMode_ = 0;
@@ -112,6 +120,7 @@ private:
   bool mouseCursorSFX_ = true;
   i32 mouseCursorOpacity_ = 80;
   bool vibration_ = true;
+  f64 cameraSpeed_ = kCameraSpeedDefault;
 };
 
 } // namespace bd::engine

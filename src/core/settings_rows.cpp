@@ -745,6 +745,28 @@ constexpr SettingRow kAudioSettings[] = {
 };
 
 constexpr SettingRow kControlsSettings[] = {
+    {.label = "settings.controls.camera.label",
+     .group = "menu.header.camera",
+     .binding = OptInt<&engine::GameOptions::Camera,
+                       &engine::GameOptions::SetCamera>(),
+     .options = kCamera,
+     .count = OptCount(kCamera),
+     .saveScoped = true},
+    {.label = "settings.controls.camera_speed.label",
+     .group = "menu.header.camera",
+     .binding = {.get =
+                     [] {
+                       return engine::Settings::Get().CameraSpeed();
+                     },
+                 .set =
+                     [](double v) {
+                       return engine::Settings::Get().SetCameraSpeed(v);
+                     }},
+     .kind = SettingKind::Slider,
+     .smin = engine::Settings::kCameraSpeedMin,
+     .smax = engine::Settings::kCameraSpeedMax,
+     .sstep = 0.10,
+     .sfmt = "%.2f"},
     {.label = "settings.controls.pad_layout.label",
      .group = "menu.header.controller",
      .kind = SettingKind::Action,
@@ -753,13 +775,6 @@ constexpr SettingRow kControlsSettings[] = {
      .group = "menu.header.controller",
      .kind = SettingKind::Action,
      .action = SettingAction::MechatLayout},
-    {.label = "settings.controls.camera.label",
-     .group = "menu.header.controller",
-     .binding = OptInt<&engine::GameOptions::Camera,
-                       &engine::GameOptions::SetCamera>(),
-     .options = kCamera,
-     .count = OptCount(kCamera),
-     .saveScoped = true},
     {.label = "settings.controls.vibration.label",
      .group = "menu.header.controller",
      .binding = {.get =

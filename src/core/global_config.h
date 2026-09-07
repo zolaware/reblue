@@ -47,7 +47,12 @@ struct GlobalConfig {
   be_u32 toolMenu;      // +0x120  [TOOL_MENU]
   be_u32 toolEntryBits; // +0x124  [TOOL_ENTRY] bitfield
 
-  u8 _pad128[0x44]; // +0x128
+  u8 _pad128[0x28]; // +0x128
+
+  be_u32 camRollInv; // +0x150  [CamRollInv]
+  be_f32 camRollSpd; // +0x154  [CamRollSpd]
+
+  u8 _pad158[0x14]; // +0x158
 
   // HDD content pack cache toggle. Gates loading packs from the mounted utility
   // drive in the async pack request pump (read at 0x82128BBC).
@@ -82,6 +87,8 @@ static_assert(offsetof(GlobalConfig, mainMenu) == 0x118);
 static_assert(offsetof(GlobalConfig, userMenu) == 0x11C);
 static_assert(offsetof(GlobalConfig, toolMenu) == 0x120);
 static_assert(offsetof(GlobalConfig, toolEntryBits) == 0x124);
+static_assert(offsetof(GlobalConfig, camRollInv) == 0x150);
+static_assert(offsetof(GlobalConfig, camRollSpd) == 0x154);
 static_assert(offsetof(GlobalConfig, hddCache) == 0x16C);
 static_assert(offsetof(GlobalConfig, debugMindows) == 0x2B0);
 static_assert(offsetof(GlobalConfig, debugInputKey) == 0x2B4);
