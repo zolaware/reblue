@@ -113,8 +113,8 @@ constexpr SettingOption kFPS[] = {
 // Shared by Settings-bound rows and by the two mnk_* rows still on the name
 // path, so this one keeps its value strings.
 constexpr SettingOption kOnOff[] = {
-    {.text = "On", .num = 1, .value = "true", .key = "opt.on"},
-    {.text = "Off", .num = 0, .value = "false", .key = "opt.off"}};
+    {.text = "Off", .num = 0, .value = "false", .key = "opt.off"},
+    {.text = "On", .num = 1, .value = "true", .key = "opt.on"}};
 constexpr SettingOption kUpdateChannel[] = {
     {.text = "Stable",
      .num = static_cast<double>(UpdateChannel::Stable),
@@ -201,9 +201,9 @@ template <auto Get, auto Set> constexpr SettingBinding OptPercent() {
 
 // The compass, the dungeon minimap and the party cards. Battle is unaffected.
 constexpr SettingOption kHudMode[] = {
-    {.text = "On", .num = 0, .key = "opt.on"},
+    {.text = "Off", .num = 2, .key = "opt.off"},
     {.text = "Auto-Hide", .num = 1, .key = "opt.auto_hide"},
-    {.text = "Off", .num = 2, .key = "opt.off"}};
+    {.text = "On", .num = 0, .key = "opt.on"}};
 constexpr SettingOption kMSAA[] = {{.text = "Off", .num = 0, .key = "opt.off"},
                                    {.text = "2x", .num = 2},
                                    {.text = "4x", .num = 4},
@@ -215,8 +215,8 @@ constexpr SettingOption kSuperSampling[] = {
 // the menus offer the two ends of it.
 constexpr i32 kAnisotropyOn = 16;
 constexpr SettingOption kAniso[] = {
-    {.text = "On", .num = kAnisotropyOn, .key = "opt.on"},
-    {.text = "Off", .num = 0, .key = "opt.off"}};
+    {.text = "Off", .num = 0, .key = "opt.off"},
+    {.text = "On", .num = kAnisotropyOn, .key = "opt.on"}};
 constexpr SettingOption kRenderScale[] = {
     {.text = "50%", .num = 50},  {.text = "60%", .num = 60},
     {.text = "75%", .num = 75},  {.text = "85%", .num = 85},
