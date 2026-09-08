@@ -24,7 +24,9 @@
 #include "gpu/device.h"
 #include "gpu/format.h"
 #include "gpu/host_resource_heap.h"
+#include "gpu/hooks/tweaks.h"
 #include "gpu/native_texture_mirror.h"
+#include "gpu/output.h"
 #include "gpu/physical_buffers.h"
 #include "gpu/surface_pool.h"
 #include "gpu/texture_upload.h"
@@ -44,20 +46,30 @@ struct LoadTextureResource {
 static_assert(offsetof(LoadTextureResource, textureVa) == 0xBC);
 static_assert(offsetof(LoadTextureResource, xphysicalData) == 0xC4);
 
+constexpr double kTargetAlignment = 8.0;
+
+bool IsFullFrameScene(u32 width, u32 height) {
+  u32 fit_w = 0;
+  u32 fit_h = 0;
+  if (!bd::gpu::Output::LatchedFit(fit_w, fit_h))
+    return true;
+  const double scale =
+      bd::gpu::Output::RenderFraction() * bd::gpu::SceneRenderScale();
+  return width + kTargetAlignment >= fit_w * scale &&
+         height + kTargetAlignment >= fit_h * scale;
+}
+
 bd::gpu::GuestTexture *D3DDevice_CreateSurface_hook(u32 width, u32 height,
                                                     u32 format,
                                                     u32 multi_sample,
                                                     u32 params_va) {
-  // Honor BD's MSAA request (only its scene color + depth pass
-  // multi_sample!=0).
   const plume::RenderSampleCounts msaa_count =
-      (multi_sample != 0 && bd::gpu::Video::CvarMSAASampleCount() !=
-                                plume::RenderSampleCount::COUNT_1)
+      (multi_sample != 0 && IsFullFrameScene(width, height) &&
+       bd::gpu::Video::CvarMSAASampleCount() !=
+           plume::RenderSampleCount::COUNT_1)
           ? bd::gpu::Video::CvarMSAASampleCount()
           : plume::RenderSampleCount::COUNT_1;
 
-  // Pooled reuse of the same-dim scratch surfaces the engine recreates every
-  // frame, fresh committed alloc on miss. Reuse is fence-gated, so GPU-safe.
   return bd::gpu::SurfacePool::Acquire(width, height, format,
                                        static_cast<u32>(msaa_count));
 }
