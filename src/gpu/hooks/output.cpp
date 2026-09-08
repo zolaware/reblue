@@ -51,6 +51,9 @@ constexpr u32 kCloseUpViewWidthOff = 0x1D0;
 constexpr u32 kViewTextureWOff = 0x38;
 constexpr u32 kViewTextureHOff = 0x3C;
 
+constexpr u32 kViewRateOff = 0x348;
+constexpr f32 kViewFitSlack = 8.0f;
+
 // SAFE/RATE under the Mindows RENDER>DEBUG tree, the f32 scale of the guide box
 // the renderer draws when SAFE/DISP is on. Stock 0.9 is the CRT overscan margin,
 // which hides nothing on a display that shows the whole frame.
@@ -162,6 +165,19 @@ void bdProjectionAspectHook(PPCRegister &fov_half, PPCRegister &aspect) {
 
 void bdOutputResViewScaleHook(PPCRegister &w, PPCRegister &h) {
   ScaleDesignDims(w.f64, h.f64);
+}
+
+void bdSubViewRenderScaleHook(PPCRegister &r31) {
+  u32 fit_w = 0;
+  u32 fit_h = 0;
+  if (!Output::LatchedFit(fit_w, fit_h))
+    return;
+  const f64 full = std::min(kDesignCanvasWidth * Output::RenderDensity(),
+                            fit_w * Output::RenderFraction());
+  const f32 width = bd::mem::load<float>(r31.u32 + kCloseUpViewWidthOff);
+  if (width + kViewFitSlack >= full)
+    return;
+  bd::mem::store<float>(r31.u32 + kViewRateOff, 1.0f);
 }
 
 void bdFreeDfsViewTextureSizeHook(PPCRegister &r11) {

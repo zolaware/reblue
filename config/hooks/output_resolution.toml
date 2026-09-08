@@ -71,6 +71,12 @@ registers = ["f31", "f30"]
 after_instruction = false
 
 [[midasm_hook]]
+address = 0x8213BA7C
+name = "bdSubViewRenderScaleHook"
+registers = ["r31"]
+after_instruction = false
+
+[[midasm_hook]]
 address = 0x8228C084
 name = "bdFreeDfsViewTextureSizeHook"
 registers = ["r11"]
