@@ -50,9 +50,12 @@ constexpr u64 kLargeSurfaceBytes = 16ull * 1024 * 1024;
 
 constexpr u64 kAutoBudgetMin = 512ull * 1024 * 1024;
 constexpr u64 kAutoBudgetMax = 8192ull * 1024 * 1024;
-constexpr u64 kAutoBudgetNum = 3;
-constexpr u64 kAutoBudgetDen = 8;
-constexpr u64 kBudgetCapPercent = 50;
+constexpr u64 kBudgetReserveBytes = 2048ull * 1024 * 1024;
+constexpr u64 kCeilingReserveBytes = 1536ull * 1024 * 1024;
+constexpr u64 kBudgetLogDelta = 256ull * 1024 * 1024;
+constexpr auto kBudgetRefresh = std::chrono::milliseconds(500);
+constexpr u64 kFallbackBudgetNum = 3;
+constexpr u64 kFallbackBudgetDen = 8;
 constexpr u64 kHotEpochs = 1024;
 
 // Working-set copies recycle LIFO and keep a fresh park time. An entry this
@@ -123,6 +126,9 @@ struct Pool {
   u64 parked_bytes = 0;
   u64 peak_parked_bytes = 0;
   u64 auto_budget_bytes = 0;
+  u64 hard_ceiling_bytes = 0;
+  u64 logged_budget_bytes = 0;
+  std::chrono::steady_clock::time_point budget_resolved{};
   u64 vram_bytes = 0;
   bool vram_resolved = false;
   std::chrono::steady_clock::time_point last_summary{};
@@ -147,29 +153,51 @@ u64 VramBytes(Pool &p) {
   return p.vram_bytes;
 }
 
-// A share of a card whose size is unknown is unanswerable, so UMA and the
-// pre-device calls take the floor rather than a guess at what it may hold.
-u64 ByteBudget(Pool &p) {
-  if (p.auto_budget_bytes)
-    return p.auto_budget_bytes;
+void ResolveBudgetLocked(Pool &p) {
+  const auto now = std::chrono::steady_clock::now();
+  if (p.auto_budget_bytes && now - p.budget_resolved < kBudgetRefresh)
+    return;
+  p.budget_resolved = now;
 
-  const u64 vram = VramBytes(p);
-  if (!vram)
-    return kAutoBudgetMin;
-  p.auto_budget_bytes = std::clamp(vram / kAutoBudgetDen * kAutoBudgetNum,
-                                   kAutoBudgetMin, kAutoBudgetMax);
-  BD_INFO("[surface-pool] auto budget {} MiB from {} MiB VRAM ({})",
-          p.auto_budget_bytes / 1048576, vram / 1048576,
-          Video::GetDeviceName());
+  const auto vm = Video::MemoryUsage();
+  if (!vm.budget) {
+    const u64 vram = VramBytes(p);
+    p.auto_budget_bytes =
+        vram ? std::clamp(vram / kFallbackBudgetDen * kFallbackBudgetNum,
+                          kAutoBudgetMin, kAutoBudgetMax)
+             : kAutoBudgetMin;
+    p.hard_ceiling_bytes = p.auto_budget_bytes * 2;
+    return;
+  }
+
+  const u64 budget =
+      vm.budget > kBudgetReserveBytes ? vm.budget - kBudgetReserveBytes : 0;
+  const u64 ceiling =
+      vm.budget > kCeilingReserveBytes ? vm.budget - kCeilingReserveBytes : 0;
+  p.auto_budget_bytes = std::clamp(budget, kAutoBudgetMin, kAutoBudgetMax);
+  p.hard_ceiling_bytes =
+      std::max(p.auto_budget_bytes, std::min(ceiling, kAutoBudgetMax));
+
+  const u64 logged = p.logged_budget_bytes;
+  const u64 delta = p.auto_budget_bytes > logged ? p.auto_budget_bytes - logged
+                                                 : logged - p.auto_budget_bytes;
+  if (delta >= kBudgetLogDelta) {
+    p.logged_budget_bytes = p.auto_budget_bytes;
+    BD_INFO("[surface-pool] budget {} MiB of {} MiB adapter budget on {}",
+            p.auto_budget_bytes / 1048576, vm.budget / 1048576,
+            Video::GetDeviceName());
+  }
+}
+
+u64 ByteBudget(Pool &p) {
+  ResolveBudgetLocked(p);
   return p.auto_budget_bytes;
 }
 
 // Where holding the live working set stops being cheaper than recreating it.
 u64 HardCeiling(Pool &p, u64 budget) {
-  const u64 vram = VramBytes(p);
-  if (!vram)
-    return budget * 2;
-  return std::max(budget, vram / 100 * kBudgetCapPercent);
+  ResolveBudgetLocked(p);
+  return std::max(budget, p.hard_ceiling_bytes);
 }
 
 KeyStats &TouchKeyLocked(Pool &p, u64 key, u32 width, u32 height,
