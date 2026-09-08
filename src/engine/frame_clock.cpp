@@ -23,6 +23,7 @@ constexpr double kMaxBacklog = kTick * 4.0;
 using Clock = std::chrono::steady_clock;
 
 double g_lastTime = 0.0;
+double g_frameTime = 0.0;
 double g_lastDelta = kTick;
 double g_accum = 0.0;
 float g_alpha = 0.0f;
@@ -77,6 +78,7 @@ void Advance() {
   g_lastTime = now;
   const double dt = SmoothDelta(std::min(raw, kMaxReportedDelta));
   g_lastDelta = dt;
+  g_frameTime += dt;
 
   if (!InterpolationActive()) {
     g_tickDue = true;
@@ -119,7 +121,7 @@ thread_local bool t_renderThread = false;
 void PublishRenderClock() {
   if (t_renderThread)
     return;
-  g_render.time = g_lastTime;
+  g_render.time = g_frameTime;
   g_render.delta = g_lastDelta;
   g_render.alpha = g_alpha;
   g_render.tickDue = g_tickDue;
@@ -137,7 +139,7 @@ float Alpha() {
 }
 u64 TickCount() { return t_renderThread ? g_render.tick : g_tickCount; }
 double TicksPerSecond() { return g_tps; }
-double FrameTime() { return t_renderThread ? g_render.time : g_lastTime; }
+double FrameTime() { return t_renderThread ? g_render.time : g_frameTime; }
 double FrameDelta() { return t_renderThread ? g_render.delta : g_lastDelta; }
 
 } // namespace bd::engine

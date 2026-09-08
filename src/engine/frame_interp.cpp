@@ -70,6 +70,7 @@ constexpr int kRow[3] = {0, 4, 8};
 
 std::mutex g_interpMutex;
 u64 g_frame = 0;
+thread_local u32 t_renderViewObj = 0;
 std::atomic<u64> g_cutTick{~0ull};
 
 bool CutThisTick() {
@@ -331,6 +332,13 @@ struct MatrixTrack : Track<16> {
 
 std::unordered_map<u32, MatrixTrack> g_views;
 u32 g_viewScratch = 0;
+
+struct GlobalViewTrack : MatrixTrack {
+  float written[16] = {};
+  bool hasWritten = false;
+};
+
+std::unordered_map<u64, GlobalViewTrack> g_globalViews;
 u32 g_projScratch = 0;
 
 struct Vec3Track : Track<3> {
@@ -418,6 +426,20 @@ bool ProjectorView(u32 va) {
   return va == bd::engine::addr::kCubeShadowLightView ||
          (va >= bd::engine::addr::kProjectorMapInfos &&
           va < bd::engine::addr::kProjectorMapInfosEnd);
+}
+
+// Rebuilt from the tick camera once per view submitted, into one global, so a
+// track keyed by the address alone lerps between two views' matrices.
+bool GlobalLightView(u32 va) {
+  return va == bd::engine::addr::kShadowLightView ||
+         va == bd::engine::addr::kWaterBottomLightView;
+}
+
+// Built from camera points this layer already served, so tracking it again
+// interpolates an interpolated value.
+bool ReflectSlotView(u32 va) {
+  return va >= bd::engine::addr::kReflectSlots &&
+         va < bd::engine::addr::kReflectSlotsEnd;
 }
 
 bool InShadowDepthPass() {
@@ -2068,7 +2090,7 @@ u32 ServeCameraPoints(u32 eyeVa) {
   return WriteScratch(g_cameraPointScratch, out, kCameraPointFloats);
 }
 
-u32 ServeVec3(u32 va, Vec3Slot slot) {
+u32 ServeVec3(u32 key, u32 va, Vec3Slot slot) {
   auto *src = bd::mem::try_at<be_f32>(va);
   if (!src)
     return 0;
@@ -2077,7 +2099,7 @@ u32 ServeVec3(u32 va, Vec3Slot slot) {
   float out[3];
   {
     std::lock_guard<std::mutex> lock(g_interpMutex);
-    Vec3Track &t = g_vec3Tracks[va];
+    Vec3Track &t = g_vec3Tracks[key];
     t.lastSeen = g_frame;
     switch (t.Advance(live, bd::engine::FrameTime())) {
     case Roll::Shared:
@@ -2125,20 +2147,22 @@ bool ServeProj(MatrixTrack &e, const float live[16], double now,
   return false;
 }
 
-void ServeSunLightView(be_f32 *global, u32 va) {
-  static float lastWritten[16];
+void ServeGlobalView(be_f32 *global, u32 va) {
   float liveView[16];
   ReadFloats(global, liveView, 16);
   float view[16];
   {
     std::lock_guard<std::mutex> lock(g_interpMutex);
-    if (std::equal(liveView, liveView + 16, lastWritten))
+    GlobalViewTrack &e = g_globalViews[(u64(t_renderViewObj) << 32) | va];
+    e.lastSeen = g_frame;
+    if (e.hasWritten && std::equal(liveView, liveView + 16, e.written))
       return;
-    if (ServeView(ViewTrack(va), liveView, bd::engine::FrameTime(), view))
+    if (ServeView(e, liveView, bd::engine::FrameTime(), view))
       return;
+    std::copy_n(view, 16, e.written);
+    e.hasWritten = true;
   }
   WriteFloats(global, view, 16);
-  std::copy_n(view, 16, lastWritten);
 }
 
 struct HUDAnchor : Track<3> {
@@ -2296,6 +2320,7 @@ void OnGuestGameStep() {
     ++g_frame;
     PruneStale(g_objSnapshots);
     PruneStale(g_views);
+    PruneStale(g_globalViews);
     PruneStale(g_vec3Tracks);
     PruneStale(g_cameraPoints);
     PruneStale(g_animeClocks);
@@ -2368,7 +2393,6 @@ REX_HOOK_RAW(bdBuildMirrorViewProjection) {
 
 namespace {
 
-thread_local u32 t_renderViewObj = 0;
 constexpr u32 kRenderViewObj = 0x08;
 constexpr u32 kViewObjEye = 0x120;
 
@@ -2404,7 +2428,8 @@ void bdDofFocusLerpHook(PPCRegister &r11) {
   if (!bd::engine::InterpolationActive())
     return;
   const u32 slot = r11.u32;
-  const u32 lerped = ServeVec3(slot, Vec3Slot::DofFocus);
+  const u32 lerped = ServeVec3(t_renderViewObj ? t_renderViewObj : slot, slot,
+                               Vec3Slot::DofFocus);
   if (!lerped)
     return;
   float focus[3];
@@ -2482,11 +2507,14 @@ void ServeCameraMatrices(PPCContext &ctx) {
   auto *live = bd::mem::try_at<be_f32>(viewVa);
   if (!live)
     return;
-  if (ProjectorView(viewVa)) {
-    if (viewVa == bd::engine::addr::kShadowLightView)
-      ServeSunLightView(live, viewVa);
+  if (ReflectSlotView(viewVa))
+    return;
+  if (GlobalLightView(viewVa)) {
+    ServeGlobalView(live, viewVa);
     return;
   }
+  if (ProjectorView(viewVa))
+    return;
   const double now = bd::engine::FrameTime();
   if (auto *liveProj =
           ctx.r5.u32 ? bd::mem::try_at<be_f32>(ctx.r5.u32) : nullptr) {
