@@ -190,6 +190,13 @@ after_instruction = false
 jump_address_on_true = 0x824107DC
 
 [[midasm_hook]]
+address = 0x823F4FEC
+name = "bdEvtMapHideDeferHook"
+registers = []
+after_instruction = false
+jump_address_on_true = 0x823F5050
+
+[[midasm_hook]]
 address = 0x821865B8
 name = "bdDofFocusLerpHook"
 registers = ["r11"]

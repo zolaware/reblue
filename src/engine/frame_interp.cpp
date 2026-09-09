@@ -1329,6 +1329,8 @@ bool bdEvtActorHideDeferHook(PPCRegister &r31) {
   return true;
 }
 
+bool bdEvtMapHideDeferHook() { return g_hostEvtDrive; }
+
 namespace {
 
 std::atomic<u32> g_nodeDraws{0};
