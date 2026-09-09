@@ -1129,6 +1129,8 @@ static_assert(offsetof(IssCamera_t, output) == 0x9C);
 static_assert(offsetof(IssCamera_t, dir) == 0x314);
 static_assert(offsetof(IssCamera_t, sample) == 0x11B8);
 
+constexpr u32 kCamPathSegmentIndex = 0x0C;
+
 struct CamSave {
   f32 output[kCamOutputFloats];
   f32 dir[2];
@@ -1330,6 +1332,12 @@ bool bdEvtActorHideDeferHook(PPCRegister &r31) {
 }
 
 bool bdEvtMapHideDeferHook() { return g_hostEvtDrive; }
+
+bool bdEvtCameraPathEndHook(PPCRegister &r31) {
+  const u32 path = r31.u32;
+  return bd::mem::try_load<u32>(path) == 0 &&
+         bd::mem::try_load<u32>(path + kCamPathSegmentIndex) != 0;
+}
 
 namespace {
 
