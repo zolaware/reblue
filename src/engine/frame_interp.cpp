@@ -1037,13 +1037,13 @@ constexpr f32 kWindowClosingMargin = 1.5f;
 constexpr u32 kIssCameraUpdateEA = 0x824046C0;
 constexpr u32 kIssObjectUpdateEA = 0x82406688;
 constexpr u32 kIssMapUpdateEA = 0x823F4F40;
-constexpr u32 kIssEffectVf02EA = 0x82411610;
 constexpr u32 kIssSpriteVf02EA = 0x82412688;
-constexpr u32 kIssLightVf02EA = 0x82416DD0;
 
 constexpr u32 kEvtMovementUpdates[] = {
-    kIssObjectUpdateEA, kIssCameraUpdateEA, kIssMapUpdateEA,
-    kIssEffectVf02EA,   kIssSpriteVf02EA,   kIssLightVf02EA,
+    kIssObjectUpdateEA,
+    kIssCameraUpdateEA,
+    kIssMapUpdateEA,
+    kIssSpriteVf02EA,
 };
 
 struct EvtDriveState {
@@ -1503,22 +1503,10 @@ REX_HOOK_RAW(issMap__Update) {
   __imp__issMap__Update(ctx, base);
 }
 
-REX_EXTERN(__imp__issEffect__Update);
-REX_HOOK_RAW(issEffect__Update) {
-  EvtSpeedRemainder z(ctx.r3.u32);
-  __imp__issEffect__Update(ctx, base);
-}
-
 REX_EXTERN(__imp__issSprite__Update);
 REX_HOOK_RAW(issSprite__Update) {
   EvtSpeedRemainder z(ctx.r3.u32);
   __imp__issSprite__Update(ctx, base);
-}
-
-REX_EXTERN(__imp__issLight__Update);
-REX_HOOK_RAW(issLight__Update) {
-  EvtSpeedRemainder z(ctx.r3.u32);
-  __imp__issLight__Update(ctx, base);
 }
 
 REX_EXTERN(__imp__issActor__Update);
