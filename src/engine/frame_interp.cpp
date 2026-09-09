@@ -16,6 +16,7 @@
 #include <cmath>
 #include <cstddef>
 #include <mutex>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -179,21 +180,7 @@ template <int N> struct Track {
   }
 };
 
-bool DecomposeBasis(const float *m, float quat[4], float scale[3]) {
-  float r[3][3];
-  for (int i = 0; i < 3; ++i) {
-    const float *row = m + kRow[i];
-    scale[i] = std::sqrt(row[0] * row[0] + row[1] * row[1] + row[2] * row[2]);
-    if (!(scale[i] > 1e-6f))
-      return false;
-    for (int j = 0; j < 3; ++j)
-      r[i][j] = row[j] / scale[i];
-  }
-  const float det = r[0][0] * (r[1][1] * r[2][2] - r[1][2] * r[2][1]) -
-                    r[0][1] * (r[1][0] * r[2][2] - r[1][2] * r[2][0]) +
-                    r[0][2] * (r[1][0] * r[2][1] - r[1][1] * r[2][0]);
-  if (det <= 0.0f)
-    return false;
+void QuatFromRotation(const float r[3][3], float quat[4]) {
   const float trace = r[0][0] + r[1][1] + r[2][2];
   if (trace > 0.0f) {
     const float s = std::sqrt(trace + 1.0f) * 2.0f;
@@ -220,22 +207,104 @@ bool DecomposeBasis(const float *m, float quat[4], float scale[3]) {
     quat[2] = (r[1][2] + r[2][1]) / s;
     quat[3] = 0.25f * s;
   }
+}
+
+void RotationFromQuat(const float quat[4], float r[3][3]) {
+  const float w = quat[0], x = quat[1], y = quat[2], z = quat[3];
+  r[0][0] = 1.0f - 2.0f * (y * y + z * z);
+  r[0][1] = 2.0f * (x * y + z * w);
+  r[0][2] = 2.0f * (x * z - y * w);
+  r[1][0] = 2.0f * (x * y - z * w);
+  r[1][1] = 1.0f - 2.0f * (x * x + z * z);
+  r[1][2] = 2.0f * (y * z + x * w);
+  r[2][0] = 2.0f * (x * z + y * w);
+  r[2][1] = 2.0f * (y * z - x * w);
+  r[2][2] = 1.0f - 2.0f * (x * x + y * y);
+}
+
+void Cross(const float a[3], const float b[3], float out[3]) {
+  out[0] = a[1] * b[2] - a[2] * b[1];
+  out[1] = a[2] * b[0] - a[0] * b[2];
+  out[2] = a[0] * b[1] - a[1] * b[0];
+}
+
+// The closest rotation to a basis, by Newton polar iteration: averaging a
+// matrix with its own inverse transpose converges on the orthogonal factor.
+bool PolarRotation(const float basis[3][3], float r[3][3]) {
+  float c0[3];
+  Cross(basis[1], basis[2], c0);
+  const float det0 =
+      basis[0][0] * c0[0] + basis[0][1] * c0[1] + basis[0][2] * c0[2];
+  if (!(std::fabs(det0) > 1e-12f))
+    return false;
+  // Each pass halves the distance to unit singular values, so a basis far from
+  // unit scale would spend most of its passes just getting near one. Scaling a
+  // basis does not move its polar factor, so normalize the determinant first
+  // and every bone converges in the same few passes whatever its scale.
+  const float norm = 1.0f / std::cbrt(std::fabs(det0));
+  for (int i = 0; i < 3; ++i)
+    for (int j = 0; j < 3; ++j)
+      r[i][j] = basis[i][j] * norm;
+  for (int iter = 0; iter < 8; ++iter) {
+    float c[3][3];
+    Cross(r[1], r[2], c[0]);
+    Cross(r[2], r[0], c[1]);
+    Cross(r[0], r[1], c[2]);
+    const float det = r[0][0] * c[0][0] + r[0][1] * c[0][1] + r[0][2] * c[0][2];
+    if (!(std::fabs(det) > 1e-12f))
+      return false;
+    float worst = 0.0f;
+    for (int i = 0; i < 3; ++i)
+      for (int j = 0; j < 3; ++j) {
+        const float next = 0.5f * (r[i][j] + c[i][j] / det);
+        worst = std::max(worst, std::fabs(next - r[i][j]));
+        r[i][j] = next;
+      }
+    if (worst < 1e-6f)
+      break;
+  }
   return true;
 }
 
-void ComposeBasis(const float quat[4], const float scale[3], float *m) {
-  const float w = quat[0], x = quat[1], y = quat[2], z = quat[3];
-  const float r[3][3] = {
-      {1.0f - 2.0f * (y * y + z * z), 2.0f * (x * y + z * w),
-       2.0f * (x * z - y * w)},
-      {2.0f * (x * y - z * w), 1.0f - 2.0f * (x * x + z * z),
-       2.0f * (y * z + x * w)},
-      {2.0f * (x * z + y * w), 2.0f * (y * z - x * w),
-       1.0f - 2.0f * (x * x + y * y)},
-  };
+// A bone basis is a rotation times a stretch, not a rotation times three
+// per-axis scales. BD skeletons carry shear, and normalizing the rows to pull a
+// rotation out drops it, so recomposing hands back a different basis than it
+// was given. Keeping the whole remainder makes both endpoints exact.
+bool DecomposeAffine(const float *m, float quat[4], float stretch[3][3]) {
+  float basis[3][3];
   for (int i = 0; i < 3; ++i)
     for (int j = 0; j < 3; ++j)
-      m[kRow[i] + j] = r[i][j] * scale[i];
+      basis[i][j] = m[kRow[i] + j];
+  float r[3][3];
+  if (!PolarRotation(basis, r))
+    return false;
+  float c[3];
+  Cross(r[1], r[2], c);
+  if (r[0][0] * c[0] + r[0][1] * c[1] + r[0][2] * c[2] < 0.0f)
+    for (int i = 0; i < 3; ++i)
+      for (int j = 0; j < 3; ++j)
+        r[i][j] = -r[i][j];
+  for (int i = 0; i < 3; ++i)
+    for (int j = 0; j < 3; ++j) {
+      float sum = 0.0f;
+      for (int k = 0; k < 3; ++k)
+        sum += basis[i][k] * r[j][k];
+      stretch[i][j] = sum;
+    }
+  QuatFromRotation(r, quat);
+  return true;
+}
+
+void ComposeAffine(const float quat[4], const float stretch[3][3], float *m) {
+  float r[3][3];
+  RotationFromQuat(quat, r);
+  for (int i = 0; i < 3; ++i)
+    for (int j = 0; j < 3; ++j) {
+      float sum = 0.0f;
+      for (int k = 0; k < 3; ++k)
+        sum += stretch[i][k] * r[k][j];
+      m[kRow[i] + j] = sum;
+    }
 }
 
 void LerpElements(const float *a, const float *b, float t, float *out,
@@ -256,8 +325,9 @@ void LerpMatrix(const float a[16], const float b[16], float t, float out[16]) {
     LerpElements(a, b, t, out, 16);
     return;
   }
-  float qa[4], qb[4], sa[3], sb[3];
-  if (!DecomposeBasis(a, qa, sa) || !DecomposeBasis(b, qb, sb)) {
+  float qa[4], qb[4];
+  float stretchA[3][3], stretchB[3][3];
+  if (!DecomposeAffine(a, qa, stretchA) || !DecomposeAffine(b, qb, stretchB)) {
     LerpElements(a, b, t, out, 16);
     return;
   }
@@ -277,10 +347,11 @@ void LerpMatrix(const float a[16], const float b[16], float t, float out[16]) {
   }
   for (int i = 0; i < 4; ++i)
     q[i] /= len;
-  float scale[3];
+  float stretch[3][3];
   for (int i = 0; i < 3; ++i)
-    scale[i] = sa[i] + (sb[i] - sa[i]) * t;
-  ComposeBasis(q, scale, out);
+    for (int j = 0; j < 3; ++j)
+      stretch[i][j] = stretchA[i][j] + (stretchB[i][j] - stretchA[i][j]) * t;
+  ComposeAffine(q, stretch, out);
   static constexpr int kPassthrough[] = {3, 7, 11, 12, 13, 14, 15};
   for (const int i : kPassthrough)
     out[i] = a[i] + (b[i] - a[i]) * t;
@@ -503,14 +574,31 @@ bool ParticleModelPoolVO(u32 vo) {
   return base != 0 && vo - base < count * kParticleModelVOSize;
 }
 
+bool BonePaletteResolves(u32 holder, u32 count) {
+  const u32 span = count * 64u;
+  for (const u32 slot : {holder + 8u, holder + 20u}) {
+    const u32 ptr = bd::mem::try_load<u32>(slot);
+    if (!ptr)
+      return false;
+    const u32 buf = bd::mem::try_load<u32>(ptr);
+    if (!buf || !bd::mem::try_at<be_f32>(buf) ||
+        !bd::mem::try_at<be_f32>(buf + span - 4u))
+      return false;
+  }
+  return true;
+}
+
 void RegisterBoneArray(u32 vo) {
   if (!bd::engine::InterpolationActive() || vo == 0)
     return;
   const u32 count = bd::mem::try_load<u32>(vo + kVOBoneCount);
   if (count == 0 || count > kMaxBoneMatrices)
     return;
+  const u32 holder = vo + kVOCurrBones;
+  if (!BonePaletteResolves(holder, count))
+    return;
   std::lock_guard<std::mutex> lock(g_interpMutex);
-  BoneArray &e = g_boneArrays[vo + kVOCurrBones];
+  BoneArray &e = g_boneArrays[holder];
   e.count = count;
   e.copyTime = bd::engine::FrameTime();
 }
@@ -630,21 +718,8 @@ bool bdLogicTickGateHook(PPCRegister &r28) {
 
 bool bdFrameClockGateHook() { return !bd::engine::TickDue(); }
 
-bool bdCharaBoneChainGateHook(PPCRegister &r3) {
-  static std::unordered_map<u32, u64> seen;
-  if (!bd::engine::InterpolationActive() || r3.u32 == 0)
-    return false;
-  const u64 tick = bd::engine::TickCount();
-  std::lock_guard<std::mutex> lock(g_interpMutex);
-  if (seen.size() > 256)
-    seen.clear();
-  auto [it, inserted] = seen.try_emplace(r3.u32, tick);
-  if (inserted)
-    return false;
-  if (it->second == tick)
-    return true;
-  it->second = tick;
-  return false;
+bool bdCharaBoneChainGateHook(PPCRegister &) {
+  return bd::engine::InterpolationActive() && !bd::engine::TickDue();
 }
 
 void bdActEvClockMismatchHook(PPCRegister &r11) {
@@ -784,7 +859,10 @@ struct IssVtable_t {
 static_assert(offsetof(IssVtable_t, update) == 0x08);
 
 struct IssActor_t {
-  /* 0x000 */ u8 _pad000[0x150];
+  /* 0x000 */ u8 _pad000[0x94];
+  /* 0x094 */ be_u32 visualObject;
+  /* 0x098 */ u8 _pad098[0x04];
+  /* 0x09C */ char modelName[0x150 - 0x9C];
   /* 0x150 */ be_u32 hidePending;
   /* 0x154 */ u8 _pad154[0x238 - 0x154];
   /* 0x238 */ be_f32 motionCursor;
@@ -792,23 +870,138 @@ struct IssActor_t {
   /* 0x240 */ u8 _pad240[0x2CC - 0x240];
   /* 0x2CC */ be_u32 guided;
 };
+static_assert(offsetof(IssActor_t, visualObject) == 0x94);
+static_assert(offsetof(IssActor_t, modelName) == 0x9C);
 static_assert(offsetof(IssActor_t, hidePending) == 0x150);
 static_assert(offsetof(IssActor_t, motionCursor) == 0x238);
 static_assert(offsetof(IssActor_t, motionEnd) == 0x23C);
 static_assert(offsetof(IssActor_t, guided) == 0x2CC);
 
 struct IssObject_t {
-  /* 0x000 */ u8 _pad000[0x9E0];
+  /* 0x000 */ be_u32 vtable;
+  /* 0x004 */ u8 _pad004[0x38 - 0x04];
+  /* 0x038 */ be_u32 firstChild;
+  /* 0x03C */ be_u32 nextSibling;
+  /* 0x040 */ be_u32 parentTask;
+  /* 0x044 */ be_u32 rootTask;
+  /* 0x048 */ u8 _pad048[0x58 - 0x48];
+  /* 0x058 */ be_u32 taskFlags;
+  /* 0x05C */ u8 _pad05C[0x68 - 0x5C];
+  /* 0x068 */ be_f32 time;
+  /* 0x06C */ u8 _pad06C[0x7C - 0x6C];
+  /* 0x07C */ be_u32 loadState;
+  /* 0x080 */ be_u32 event;
+  /* 0x084 */ be_u32 next;
+  /* 0x088 */ be_u32 visualObject;
+  /* 0x08C */ u8 modelLoad[0x7C8 - 0x8C];
+  /* 0x7C8 */ u8 _pad7C8[0x7D0 - 0x7C8];
+  /* 0x7D0 */ u8 isItem;
+  /* 0x7D1 */ u8 itemPacked;
+  /* 0x7D2 */ char eventDir[0x8D6 - 0x7D2];
+  /* 0x8D6 */ char modelPath[0x9DC - 0x8D6];
+  /* 0x9DC */ be_u32 track;
   /* 0x9E0 */ be_u32 visible;
   /* 0x9E4 */ be_u32 hidePending;
-  /* 0x9E8 */ u8 _pad9E8[0xA5C - 0x9E8];
+  /* 0x9E8 */ be_f32 pos[3];
+  /* 0x9F4 */ be_f32 rot[3];
+  /* 0xA00 */ be_f32 scale[3];
+  /* 0xA0C */ be_f32 color[4];
+  /* 0xA1C */ u8 _padA1C[0xA5C - 0xA1C];
   /* 0xA5C */ be_f32 motionCursor;
   /* 0xA60 */ be_f32 motionEnd;
+  /* 0xA64 */ be_f32 posCursor;
+  /* 0xA68 */ be_f32 posDuration;
+  /* 0xA6C */ be_f32 posFrom[3];
+  /* 0xA78 */ be_f32 posTo[3];
+  /* 0xA84 */ be_f32 rotCursor;
+  /* 0xA88 */ be_f32 rotDuration;
+  /* 0xA8C */ be_f32 rotFrom[3];
+  /* 0xA98 */ be_f32 rotTo[3];
+  /* 0xAA4 */ be_f32 scaleCursor;
+  /* 0xAA8 */ be_f32 scaleDuration;
+  /* 0xAAC */ be_f32 scaleFrom[3];
+  /* 0xAB8 */ be_f32 scaleTo[3];
+  /* 0xAC4 */ be_f32 colorCursor;
+  /* 0xAC8 */ be_f32 colorDuration;
+  /* 0xACC */ be_f32 colorFrom[4];
+  /* 0xADC */ be_f32 colorTo[4];
+  /* 0xAEC */ be_u32 guideActive;
+  /* 0xAF0 */ be_u32 guide;
+  /* 0xAF4 */ be_u32 moveActive;
+  /* 0xAF8 */ be_u32 move;
+  /* 0xAFC */ be_f32 attachCursor;
+  /* 0xB00 */ be_f32 attachDuration;
+  /* 0xB04 */ be_u32 attachActorName;
+  /* 0xB08 */ be_u32 attachBoneName;
+  /* 0xB0C */ be_u32 attachFlags;
+  /* 0xB10 */ be_u32 attachRotateOffset;
+  /* 0xB14 */ be_f32 attachPosOffset[3];
+  /* 0xB20 */ be_f32 attachRotOffset[3];
+  /* 0xB2C */ u8 _padB2C[0xB38 - 0xB2C];
+  /* 0xB38 */ be_f32 materialCursor;
+  /* 0xB3C */ be_f32 materialDuration;
+  /* 0xB40 */ be_f32 materialFrom[16];
+  /* 0xB80 */ be_f32 materialTo[16];
+  /* 0xBC0 */ be_f32 baseColor[4];
+  /* 0xBD0 */ u8 _padBD0[0xBD4 - 0xBD0];
+  /* 0xBD4 */ be_f32 initPos[3];
+  /* 0xBE0 */ be_f32 initPosTarget[3];
+  /* 0xBEC */ be_f32 initRot[3];
+  /* 0xBF8 */ be_f32 initRotTarget[3];
+  /* 0xC04 */ be_f32 initDuration;
+  /* 0xC08 */ be_f32 initCursor;
+  /* 0xC0C */ be_u32 initVisible;
+  /* 0xC10 */ be_f32 initPosCursor;
+  /* 0xC14 */ be_f32 initPosDuration;
+  /* 0xC18 */ be_f32 initPosFrom[3];
+  /* 0xC24 */ be_f32 initPosTo[3];
+  /* 0xC30 */ be_f32 initRotCursor;
+  /* 0xC34 */ be_f32 initRotDuration;
+  /* 0xC38 */ be_f32 initRotFrom[3];
+  /* 0xC44 */ be_f32 initRotTo[3];
+  /* 0xC50 */ be_u32 itemPackRequest;
+  /* 0xC54 */ be_i32 itemPackSlot;
+  /* 0xC58 */ be_u32 itemPackHandle;
+  /* 0xC5C */ u8 _padC5C[0xC60 - 0xC5C];
 };
+static_assert(offsetof(IssObject_t, firstChild) == 0x38);
+static_assert(offsetof(IssObject_t, taskFlags) == 0x58);
+static_assert(offsetof(IssObject_t, time) == 0x68);
+static_assert(offsetof(IssObject_t, loadState) == 0x7C);
+static_assert(offsetof(IssObject_t, event) == 0x80);
+static_assert(offsetof(IssObject_t, next) == 0x84);
+static_assert(offsetof(IssObject_t, visualObject) == 0x88);
+static_assert(offsetof(IssObject_t, isItem) == 0x7D0);
+static_assert(offsetof(IssObject_t, eventDir) == 0x7D2);
+static_assert(offsetof(IssObject_t, modelPath) == 0x8D6);
+static_assert(offsetof(IssObject_t, track) == 0x9DC);
 static_assert(offsetof(IssObject_t, visible) == 0x9E0);
 static_assert(offsetof(IssObject_t, hidePending) == 0x9E4);
+static_assert(offsetof(IssObject_t, pos) == 0x9E8);
+static_assert(offsetof(IssObject_t, color) == 0xA0C);
 static_assert(offsetof(IssObject_t, motionCursor) == 0xA5C);
 static_assert(offsetof(IssObject_t, motionEnd) == 0xA60);
+static_assert(offsetof(IssObject_t, posCursor) == 0xA64);
+static_assert(offsetof(IssObject_t, rotCursor) == 0xA84);
+static_assert(offsetof(IssObject_t, scaleCursor) == 0xAA4);
+static_assert(offsetof(IssObject_t, colorCursor) == 0xAC4);
+static_assert(offsetof(IssObject_t, guideActive) == 0xAEC);
+static_assert(offsetof(IssObject_t, move) == 0xAF8);
+static_assert(offsetof(IssObject_t, attachCursor) == 0xAFC);
+static_assert(offsetof(IssObject_t, attachActorName) == 0xB04);
+static_assert(offsetof(IssObject_t, attachBoneName) == 0xB08);
+static_assert(offsetof(IssObject_t, attachPosOffset) == 0xB14);
+static_assert(offsetof(IssObject_t, attachRotOffset) == 0xB20);
+static_assert(offsetof(IssObject_t, materialCursor) == 0xB38);
+static_assert(offsetof(IssObject_t, materialFrom) == 0xB40);
+static_assert(offsetof(IssObject_t, materialTo) == 0xB80);
+static_assert(offsetof(IssObject_t, baseColor) == 0xBC0);
+static_assert(offsetof(IssObject_t, initPos) == 0xBD4);
+static_assert(offsetof(IssObject_t, initDuration) == 0xC04);
+static_assert(offsetof(IssObject_t, initPosCursor) == 0xC10);
+static_assert(offsetof(IssObject_t, initRotCursor) == 0xC30);
+static_assert(offsetof(IssObject_t, itemPackRequest) == 0xC50);
+static_assert(sizeof(IssObject_t) == 0xC60);
 
 struct AnimClip_t {
   /* 0x00 */ u8 _pad00[0x04];
@@ -862,6 +1055,7 @@ struct EvtDriveState {
 std::unordered_map<u32, EvtDriveState> g_evtDrive;
 std::unordered_map<u32, f32> g_evtTickAdvanced;
 std::unordered_set<u32> g_evtTickScaled;
+std::unordered_set<u32> g_evtRestartedVO;
 
 std::atomic<double> g_evtEngagedUntil{0.0};
 std::atomic<bool> g_evtEngaged{false};
@@ -1006,8 +1200,14 @@ f32 DriveEventChildren(IssEvent_t &evt, f32 frac) {
   return speed * frac;
 }
 
+bool EvtClipRestarted(u32 childEA) {
+  auto *object = TryStruct<IssObject_t>(childEA);
+  return object && g_evtRestartedVO.count(u32(object->visualObject)) != 0;
+}
+
 void StepEventScenes() {
   g_evtTickAdvanced.clear();
+  g_evtRestartedVO.clear();
   const bool tick = bd::engine::TickDue();
   if (tick)
     g_evtTickScaled.clear();
@@ -1061,7 +1261,7 @@ struct EvtSpeedRemainder {
       return;
     const u32 parent = child->parent;
     const auto it = g_evtTickAdvanced.find(parent);
-    if (it == g_evtTickAdvanced.end())
+    if (it == g_evtTickAdvanced.end() || EvtClipRestarted(childEA))
       return;
     evt = TryStruct<IssEvent_t>(parent);
     if (!evt)
@@ -1247,12 +1447,25 @@ REX_HOOK_RAW(issEvent__Update) {
   }
 }
 
+REX_EXTERN(__imp__bdVisualObjectSetAnimation);
+REX_HOOK_RAW(bdVisualObjectSetAnimation) {
+  const u32 vo = ctx.r3.u32;
+  auto *anim = ctx.r4.u32 == 0 ? TryStruct<CharaAnim_t>(vo) : nullptr;
+  const f32 before = anim ? f32(anim->cursor) : 0.0f;
+  const u32 clipBefore = anim ? u32(anim->anim) : 0;
+  __imp__bdVisualObjectSetAnimation(ctx, base);
+  if (anim && f32(anim->cursor) == 0.0f &&
+      (before != 0.0f || u32(anim->anim) != clipBefore))
+    g_evtRestartedVO.insert(vo);
+}
+
 REX_EXTERN(__imp__issObject__Update);
 REX_HOOK_RAW(issObject__Update) {
   const u32 objectEA = ctx.r3.u32;
   EvtSpeedRemainder z(objectEA);
   auto *evt = DrivenEvent(objectEA);
-  if (auto *object = evt ? TryStruct<IssObject_t>(objectEA) : nullptr) {
+  auto *object = evt ? TryStruct<IssObject_t>(objectEA) : nullptr;
+  if (object) {
     g_evtWindowClosing = MotionWindowClosing(
         object->motionCursor, object->motionEnd, evt->speed);
   }
@@ -1300,7 +1513,8 @@ REX_EXTERN(__imp__issActor__Update);
 REX_HOOK_RAW(issActor__Update) {
   const u32 actorEA = ctx.r3.u32;
   auto *evt = DrivenEvent(actorEA);
-  if (auto *actor = evt ? TryStruct<IssActor_t>(actorEA) : nullptr) {
+  auto *actor = evt ? TryStruct<IssActor_t>(actorEA) : nullptr;
+  if (actor) {
     g_evtWindowClosing =
         u32(actor->guided) == 0 &&
         MotionWindowClosing(actor->motionCursor, actor->motionEnd, evt->speed);
