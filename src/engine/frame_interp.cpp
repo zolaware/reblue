@@ -52,7 +52,6 @@ template <typename T> T *TryStruct(u32 va) {
 }
 
 constexpr double kTickSeconds = 1.0 / 30.0;
-constexpr double kFastChangeSeconds = kTickSeconds * 0.5;
 constexpr double kEventCutSpacing = kTickSeconds * 1.5;
 constexpr double kCutRunSpacing = kTickSeconds * 2.5;
 constexpr u64 kStaleFrames = 4;
@@ -65,7 +64,6 @@ constexpr float kCutFloor = 20.0f;
 constexpr float kStepBlend = 0.25f;
 constexpr float kObjCutRotDot = 0.25f;
 constexpr u16 kTrustedStreak = 8;
-constexpr float kSubTickSpacing = float(kTickSeconds * 0.85);
 constexpr float kBasisLerpSafe = 0.02f;
 constexpr int kRow[3] = {0, 4, 8};
 
@@ -141,6 +139,13 @@ struct StepGauge {
   }
 };
 
+bool RewrittenThisTick(u64 &rewriteTick) {
+  const u64 tick = bd::engine::TickCount();
+  const bool same = rewriteTick == tick;
+  rewriteTick = tick;
+  return same;
+}
+
 enum class Roll { Held, Shared, Rolled };
 
 template <int N> struct Track {
@@ -149,6 +154,7 @@ template <int N> struct Track {
   double lastChange = 0.0;
   double spacing = 0.0;
   u64 changeTick = ~0ull;
+  u64 rewriteTick = ~0ull;
   u64 lastSeen = 0;
   bool valid = false;
 
@@ -160,10 +166,11 @@ template <int N> struct Track {
       std::copy_n(live, N, curr);
       valid = true;
       lastChange = now;
+      rewriteTick = bd::engine::TickCount();
       return Roll::Held;
     }
     spacing = now - lastChange;
-    const bool fast = spacing < kFastChangeSeconds;
+    const bool fast = RewrittenThisTick(rewriteTick);
     std::copy_n(fast ? live : curr, N, prev);
     std::copy_n(live, N, curr);
     lastChange = now;
@@ -397,6 +404,7 @@ float MinRowDot(const float *cur, const float *prv) {
 struct MatrixTrack : Track<16> {
   StepGauge gauge;
   bool cut = false;
+  bool derived = false;
 
   void DetectCut();
 };
@@ -438,12 +446,14 @@ struct FloatSnapshot {
   std::vector<float> prev;
   std::vector<float> curr;
   StepGauge gauge;
-  float avgSpacing = 0.0f;
   float spacing = 0.0f;
   double lastChange = 0.0;
+  u64 rewriteTick = ~0ull;
   u64 lastSeen = 0;
   bool valid = false;
   bool cut = false;
+  bool subTick = false;
+  bool subTickWriter = false;
   u16 streak = 0;
 };
 
@@ -488,10 +498,6 @@ static_assert(offsetof(DrawRecord_t, range) == 0x118);
 constexpr u32 kRecMatrix = offsetof(DrawRecord_t, worldMatrix);
 
 thread_local bool t_inRecordReplay = false;
-
-bool SubTickWriter(const FloatSnapshot &e) {
-  return e.avgSpacing != 0.0f && e.avgSpacing < kSubTickSpacing;
-}
 
 bool ProjectorView(u32 va) {
   return va == bd::engine::addr::kCubeShadowLightView ||
@@ -628,6 +634,7 @@ struct AnimeClock {
   float prev = 0.0f;
   float curr = 0.0f;
   double lastChange = 0.0;
+  u64 rewriteTick = ~0ull;
   u64 lastSeen = 0;
   bool valid = false;
 };
@@ -661,6 +668,8 @@ Snapshot AdvanceSnapshot(u64 key, u32 srcVa, int floats, FloatSnapshot *&out) {
     e.prev = e.curr;
     e.valid = true;
     e.lastChange = now;
+    e.rewriteTick = bd::engine::TickCount();
+    e.subTick = false;
     return Snapshot::First;
   }
   bool changed = false;
@@ -668,19 +677,17 @@ Snapshot AdvanceSnapshot(u64 key, u32 srcVa, int floats, FloatSnapshot *&out) {
     changed = e.curr[size_t(i)] != float(src[i]);
   if (!changed)
     return Snapshot::Ready;
-  const double spacing = now - e.lastChange;
-  const float sample = float(std::min(spacing, kTickSeconds * 4.0));
-  e.spacing = float(spacing);
-  e.avgSpacing = e.avgSpacing == 0.0f
-                     ? sample
-                     : e.avgSpacing + (sample - e.avgSpacing) * 0.25f;
+  e.spacing = float(now - e.lastChange);
   e.prev.swap(e.curr);
   ReadFloats(src, e.curr.data(), floats);
   e.lastChange = now;
-  if (spacing < kFastChangeSeconds) {
+  if (RewrittenThisTick(e.rewriteTick)) {
+    e.subTick = true;
     e.prev = e.curr;
     return Snapshot::Shared;
   }
+  e.subTickWriter = e.subTick;
+  e.subTick = false;
   return Snapshot::Rolled;
 }
 
@@ -720,11 +727,6 @@ bool bdFrameClockGateHook() { return !bd::engine::TickDue(); }
 
 bool bdCharaBoneChainGateHook(PPCRegister &) {
   return bd::engine::InterpolationActive() && !bd::engine::TickDue();
-}
-
-void bdActEvClockMismatchHook(PPCRegister &r11) {
-  if (!bd::engine::TickDue())
-    r11.u32 ^= 1u;
 }
 
 bool bdTickGateHook() { return !bd::engine::TickDue(); }
@@ -2260,12 +2262,11 @@ void MatrixTrack::DetectCut() {
   EyeFromView(prev, pe);
   EyeFromView(curr, ce);
   const float step = std::sqrt(DistSq(pe, ce));
-  const bool discontinuous =
-      (EventSceneEngaged() && step > kEventViewCutStep &&
-       spacing > kEventCutSpacing) ||
-      MinRowDot(curr, prev) < kViewCutRotDot;
-  cut = gauge.Roll(step, spacing, discontinuous, false);
-  if (cut)
+  const bool turned = MinRowDot(curr, prev) < kViewCutRotDot;
+  const bool discontinuous = EventSceneEngaged() && step > kEventViewCutStep &&
+                             spacing > kEventCutSpacing;
+  cut = gauge.Roll(step, spacing, discontinuous, turned);
+  if (cut && !derived)
     g_cutTick.store(bd::engine::TickCount(), std::memory_order_relaxed);
 }
 
@@ -2341,7 +2342,7 @@ bool ServeView(MatrixTrack &e, const float live[16], double now,
   }
   if (roll == Roll::Rolled)
     e.DetectCut();
-  if (CutThisTick())
+  if (CutThisTick() || (e.derived && e.cut))
     std::copy_n(e.curr, 16, out);
   else
     LerpView(e.prev, e.curr, e.Alpha(), out);
@@ -2369,6 +2370,7 @@ void ServeGlobalView(be_f32 *global, u32 va) {
     std::lock_guard<std::mutex> lock(g_interpMutex);
     GlobalViewTrack &e = g_globalViews[(u64(t_renderViewObj) << 32) | va];
     e.lastSeen = g_frame;
+    e.derived = true;
     if (e.hasWritten && std::equal(liveView, liveView + 16, e.written))
       return;
     if (ServeView(e, liveView, bd::engine::FrameTime(), view))
@@ -2691,7 +2693,7 @@ void ServeWorldMatrix(PPCContext &ctx) {
     const float step = std::sqrt(DistSq(&e->curr[12], &e->prev[12]));
     const bool hard = step > kCutDistance ||
                       MinRowDot(e->curr.data(), e->prev.data()) < kObjCutRotDot ||
-                      SubTickWriter(*e);
+                      e->subTickWriter;
     e->cut = e->gauge.Roll(step, e->spacing, false, hard);
     if (e->cut)
       e->streak = 0;
@@ -2830,8 +2832,9 @@ float LerpedAnimeFrame(u32 taskEA, const bd::engine::D2AnimeTask_t &task) {
     c.prev = c.curr = live;
     c.valid = true;
     c.lastChange = now;
+    c.rewriteTick = bd::engine::TickCount();
   } else if (c.curr != live) {
-    const bool cut = now - c.lastChange < kFastChangeSeconds ||
+    const bool cut = RewrittenThisTick(c.rewriteTick) ||
                      AnimeClockDiscontinuous(
                          live - c.curr, static_cast<float>(task.animeData.speed));
     c.prev = cut ? live : c.curr;

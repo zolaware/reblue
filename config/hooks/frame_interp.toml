@@ -203,48 +203,6 @@ after_instruction = false
 jump_address_on_true = 0x82440AD8
 
 [[midasm_hook]]
-address = 0x82437598
-name = "bdActEvClockMismatchHook"
-registers = ["r11"]
-after_instruction = false
-
-[[midasm_hook]]
-address = 0x824394C0
-name = "bdActEvClockMismatchHook"
-registers = ["r11"]
-after_instruction = false
-
-[[midasm_hook]]
-address = 0x8243BFEC
-name = "bdActEvClockMismatchHook"
-registers = ["r11"]
-after_instruction = false
-
-[[midasm_hook]]
-address = 0x82435634
-name = "bdActEvClockMismatchHook"
-registers = ["r11"]
-after_instruction = false
-
-[[midasm_hook]]
-address = 0x8243DCFC
-name = "bdActEvClockMismatchHook"
-registers = ["r11"]
-after_instruction = false
-
-[[midasm_hook]]
-address = 0x824407A0
-name = "bdActEvClockMismatchHook"
-registers = ["r11"]
-after_instruction = false
-
-[[midasm_hook]]
-address = 0x82442E6C
-name = "bdActEvClockMismatchHook"
-registers = ["r11"]
-after_instruction = false
-
-[[midasm_hook]]
 address = 0x82422404
 name = "bdParticleSpawnHook"
 registers = ["r31"]
