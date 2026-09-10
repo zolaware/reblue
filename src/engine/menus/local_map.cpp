@@ -597,8 +597,6 @@ void AreaMap::Draw(u32 screenTask) {
   const u32 floorTex = mem::load<u32>(PrimState() + kPrim_Texture);
   const gpu::TextureContent content = FloorContent(db, floorTex);
 
-  // MiniMapTask__DrawWidget turns its crop by TexRot alone, over a world-axis
-  // raster: OffSet.rot turns only the marker offsets drawn on top.
   const float rot = float(m->texRot) * kDegToRad;
   const float cosA = std::cos(rot);
   const float sinA = std::sin(rot);
@@ -610,22 +608,27 @@ void AreaMap::Draw(u32 screenTask) {
   const float fit =
       std::min({kMapAreaW / (artW * absCos + artH * absSin),
                 kFrameH / (artW * absSin + artH * absCos), kMaxMapMagnify});
-  const float halfW = artW * fit * 0.5f;
-  const float halfH = artH * fit * 0.5f;
   const float centerX = kFrameX + kFrameW * 0.5f - kMapCenterOffsetX;
   const float centerY = kFrameY + kFrameH * 0.5f;
 
-  // Zoom shrinks the sampled window rather than the quad, so the map never
-  // spills past the parchment and the UVs never leave the art.
-  const float half = 0.5f / kZoomSteps[zoom_];
-  const float panU = std::clamp(panU_, half, 1.0f - half);
-  const float panV = std::clamp(panV_, half, 1.0f - half);
+  const float zoom = kZoomSteps[zoom_];
+  const bool sideways = absSin > absCos;
+  const float roomW = sideways ? kFrameH : kMapAreaW;
+  const float roomH = sideways ? kMapAreaW : kFrameH;
+  const float drawW = std::min(artW * fit * zoom, roomW);
+  const float drawH = std::min(artH * fit * zoom, roomH);
+  const float halfW = drawW * 0.5f;
+  const float halfH = drawH * 0.5f;
+  const float halfU = drawW / (artW * fit * zoom) * 0.5f;
+  const float halfV = drawH / (artH * fit * zoom) * 0.5f;
+  const float panU = std::clamp(panU_, halfU, 1.0f - halfU);
+  const float panV = std::clamp(panV_, halfV, 1.0f - halfV);
   const float windowU = content.u0 + panU * content.Width();
   const float windowV = content.v0 + panV * content.Height();
-  const float u0 = content.u0 + (panU - half) * content.Width();
-  const float u1 = content.u0 + (panU + half) * content.Width();
-  const float v0 = content.v0 + (panV - half) * content.Height();
-  const float v1 = content.v0 + (panV + half) * content.Height();
+  const float u0 = content.u0 + (panU - halfU) * content.Width();
+  const float u1 = content.u0 + (panU + halfU) * content.Width();
+  const float v0 = content.v0 + (panV - halfV) * content.Height();
+  const float v1 = content.v0 + (panV + halfV) * content.Height();
 
   // Screen space from the map's own, matching XMMatrixRotationY on the row
   // vector bdMatrixRotateAxis hands the compass.
