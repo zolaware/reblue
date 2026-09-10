@@ -15,6 +15,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <map>
 #include <mutex>
 #include <string_view>
 #include <unordered_map>
@@ -28,6 +29,7 @@
 #include <rex/types.h>
 
 #include "core/memory_helpers.h"
+#include "core/profiling.h"
 #include "engine/battle.h"
 #include "engine/cutscene.h"
 #include "engine/d2anime/anime_mouse.h"
@@ -559,18 +561,28 @@ struct BoneArray {
 };
 
 std::unordered_map<u32, BoneArray> g_boneArrays;
+std::map<u32, u32> g_boneRanges;
 
 thread_local bool t_inCameraRender = false;
 thread_local bool t_boneWriter = false;
 
+void UnmapBoneRange(u32 &slot) {
+  if (slot)
+    g_boneRanges.erase(slot);
+  slot = 0;
+}
+
+void MapBoneRange(u32 &slot, u32 start, u32 count) {
+  if (slot != start)
+    UnmapBoneRange(slot);
+  slot = start;
+  if (start)
+    g_boneRanges[start] = start + count * 64u;
+}
+
 bool BoneArrayOwned(u32 va) {
-  for (const auto &[holder, e] : g_boneArrays) {
-    if (e.currEA && va - e.currEA < e.count * 64u)
-      return true;
-    if (e.scratch && va - e.scratch < e.scratchCount * 64u)
-      return true;
-  }
-  return false;
+  auto it = g_boneRanges.upper_bound(va);
+  return it != g_boneRanges.begin() && va < (--it)->second;
 }
 
 bool ParticleModelPoolVO(u32 vo) {
@@ -606,6 +618,7 @@ void RegisterBoneArray(u32 vo) {
   std::lock_guard<std::mutex> lock(g_interpMutex);
   BoneArray &e = g_boneArrays[holder];
   e.count = count;
+  MapBoneRange(e.currEA, e.currEA, count);
   e.copyTime = bd::engine::FrameTime();
 }
 
@@ -615,6 +628,8 @@ void PruneBoneArrays() {
     if (now - it->second.copyTime > kBoneArrayLinger) {
       if (it->second.scratch)
         bd::gpu::HostHeap::Get().FreeGuest(it->second.scratch);
+      UnmapBoneRange(it->second.scratch);
+      UnmapBoneRange(it->second.currEA);
       it = g_boneArrays.erase(it);
     } else {
       ++it;
@@ -2531,6 +2546,9 @@ void OnGuestGameStep() {
   Advance();
   {
     std::lock_guard<std::mutex> lock(g_interpMutex);
+    BD_CPU_ZONE("interp frame prune");
+    BD_PLOT("obj snapshots", g_objSnapshots.size());
+    BD_PLOT("bone arrays", g_boneArrays.size());
     ++g_frame;
     PruneStale(g_objSnapshots);
     PruneStale(g_views);
@@ -2583,12 +2601,14 @@ struct NodeDrawScope {
 
 REX_EXTERN(__imp__bdSceneNodeProcessRenderCmds);
 REX_HOOK_RAW(bdSceneNodeProcessRenderCmds) {
+  BD_CPU_ZONE("bdSceneNodeProcessRenderCmds");
   NodeDrawScope scope(ctx.r4.u32);
   __imp__bdSceneNodeProcessRenderCmds(ctx, base);
 }
 
 REX_EXTERN(__imp__bdSceneNodeDrawSingle);
 REX_HOOK_RAW(bdSceneNodeDrawSingle) {
+  BD_CPU_ZONE("bdSceneNodeDrawSingle");
   NodeDrawScope scope(ctx.r4.u32);
   __imp__bdSceneNodeDrawSingle(ctx, base);
 }
@@ -2680,6 +2700,7 @@ u64 WorldMatrixKey(u32 va) {
 }
 
 void ServeWorldMatrix(PPCContext &ctx) {
+  BD_CPU_ZONE("ServeWorldMatrix");
   const u32 va = ctx.r3.u32;
   std::lock_guard<std::mutex> lock(g_interpMutex);
   const u64 key = WorldMatrixKey(va);
@@ -2717,6 +2738,7 @@ void ServeWorldMatrix(PPCContext &ctx) {
 }
 
 void ServeCameraMatrices(PPCContext &ctx) {
+  BD_CPU_ZONE("ServeCameraMatrices");
   const u32 viewVa = ctx.r4.u32;
   auto *live = bd::mem::try_at<be_f32>(viewVa);
   if (!live)
@@ -2762,6 +2784,7 @@ void ServeCameraMatrices(PPCContext &ctx) {
 
 REX_EXTERN(__imp__bdBuildViewMatrix);
 REX_HOOK_RAW(bdBuildViewMatrix) {
+  BD_CPU_ZONE("bdBuildViewMatrix");
   if (bd::engine::InterpolationActive()) {
     if (ctx.r3.u32 && !ctx.r4.u32 && !ctx.r5.u32)
       ServeWorldMatrix(ctx);
@@ -2977,12 +3000,13 @@ REX_HOOK_RAW(bdVisualObjectCopyShadowBones) {
   std::lock_guard<std::mutex> lock(g_interpMutex);
   BoneArray &e = g_boneArrays[vo + kVOCurrBones];
   e.count = count;
-  e.currEA = currEA;
+  MapBoneRange(e.currEA, currEA, count);
   e.copyTime = bd::engine::FrameTime();
 }
 
 REX_EXTERN(__imp__bdDrawRecordListReplay);
 REX_HOOK_RAW(bdDrawRecordListReplay) {
+  BD_CPU_ZONE("bdDrawRecordListReplay");
   t_inRecordReplay = true;
   __imp__bdDrawRecordListReplay(ctx, base);
   t_inRecordReplay = false;
@@ -3049,10 +3073,12 @@ u32 ServeBones(BoneArray &e, double now) {
     return 0;
   if (e.scratch != 0 && e.scratchCount < count) {
     bd::gpu::HostHeap::Get().FreeGuest(e.scratch);
-    e.scratch = 0;
+    UnmapBoneRange(e.scratch);
   }
   if (e.scratch == 0) {
-    e.scratch = bd::gpu::HostHeap::Get().AllocGuest(u32(floats) * 4, 16);
+    MapBoneRange(e.scratch,
+                 bd::gpu::HostHeap::Get().AllocGuest(u32(floats) * 4, 16),
+                 count);
     e.scratchCount = count;
   }
   if (e.scratch == 0)
@@ -3102,7 +3128,7 @@ REX_HOOK_RAW(bdDoubleBufferAcquire) {
   if (it == g_boneArrays.end())
     return;
   BoneArray &e = it->second;
-  e.currEA = ctx.r3.u32;
+  MapBoneRange(e.currEA, ctx.r3.u32, e.count);
   if (t_boneWriter || (!t_inCameraRender && !bd::engine::IsRenderThread()) ||
       ParticleModelPoolVO(holder - kVOCurrBones))
     return;

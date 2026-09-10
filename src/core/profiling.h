@@ -30,6 +30,12 @@
       FrameMark;                                                               \
     }                                                                          \
   } while (0)
+#define BD_PLOT(name, val)                                                     \
+  do {                                                                         \
+    if (TracyIsStarted) {                                                      \
+      TracyPlot((name), static_cast<double>(val));                             \
+    }                                                                          \
+  } while (0)
 
 #else
 
@@ -37,5 +43,6 @@
 #define BD_CPU_ZONE_DYN(name) ((void)0)
 #define BD_PROFILER_CONNECTED() (false)
 #define BD_FRAME_MARK() ((void)0)
+#define BD_PLOT(name, val) ((void)0)
 
 #endif
