@@ -404,7 +404,57 @@ bool ClearDepthTargetToFarLocked(VideoState &s, GuestTexture *dst) {
   return true;
 }
 
+bool ClearColorTargetLocked(VideoState &s, GuestTexture *dst,
+                            plume::RenderColor color) {
+  if (!dst || !dst->texture || !s.ready)
+    return false;
+  if (IsDepthFormat(dst->format) ||
+      dst->sampleCount != plume::RenderSampleCount::COUNT_1)
+    return false;
+  BeginCommandList(s);
+  if (!s.command_list_open)
+    return false;
+  s.draw_framebuffer_bound = false;
+
+  plume::RenderFramebuffer *dst_fb = GetFramebuffer(s, dst, nullptr);
+  if (!dst_fb)
+    return false;
+
+  plume::RenderTextureBarrier pre(dst->texture,
+                                  plume::RenderTextureLayout::COLOR_WRITE);
+  s.command_list->barriers(plume::RenderBarrierStage::GRAPHICS, &pre, 1);
+  NoteBarrierCall(1, BarrierSite::Resolve);
+  MarkResolve(s.command_list);
+  dst->layout = plume::RenderTextureLayout::COLOR_WRITE;
+  s.command_list->setFramebuffer(dst_fb);
+  NoteFbBind();
+  s.command_list->setViewports(
+      plume::RenderViewport(0.0f, 0.0f, static_cast<float>(dst->width),
+                            static_cast<float>(dst->height)));
+  s.command_list->setScissors(plume::RenderRect(
+      0, 0, static_cast<i32>(dst->width), static_cast<i32>(dst->height)));
+  s.command_list->clearColor(0, color);
+  s.command_list->setFramebuffer(nullptr);
+  s.draw_framebuffer_bound = false;
+
+  plume::RenderTextureBarrier post(dst->texture,
+                                   plume::RenderTextureLayout::SHADER_READ);
+  s.command_list->barriers(plume::RenderBarrierStage::GRAPHICS, &post, 1);
+  NoteBarrierCall(1, BarrierSite::Resolve);
+  MarkResolve(s.command_list);
+  dst->layout = plume::RenderTextureLayout::SHADER_READ;
+  return true;
+}
+
 } // namespace
+
+void Video::ClearTexture(GuestTexture *texture, u32 color_argb) {
+  if (!texture || !texture->texture)
+    return;
+  auto &s = state();
+  std::lock_guard lock(s.mutex);
+  ClearColorTargetLocked(s, texture, ArgbToRenderColor(color_argb));
+}
 
 // Copy every pending destination out of 'source' and drop the links. A failed
 // copy keeps its link so substitution still serves reads, and retries the next

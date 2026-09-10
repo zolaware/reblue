@@ -65,6 +65,9 @@ public:
   // bound.
   static void RequestClear(u32 flags, u32 color_argb, float depth, u32 stencil);
 
+  // Flat-fill a texture. Takes state().mutex.
+  static void ClearTexture(GuestTexture *texture, u32 color_argb);
+
   static void Present(GuestTexture *frontBuffer = nullptr);
 
   static void SkipPresent();

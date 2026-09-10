@@ -34,6 +34,7 @@ constexpr u32 kVisualRenderEA = 0x82DC9848;
 constexpr u32 kVisualRenderRateOff = 0x1BC4;
 constexpr u32 kScreenUVScaleReg = 50;
 constexpr u32 kSsScatterBlurEA = 0x82DF4344;
+constexpr u32 kOpaqueBlackArgb = 0xFF000000u;
 
 f64 BloomTargetScale() {
   switch (bd::gpu::Settings::Get().PostQuality()) {
@@ -136,6 +137,15 @@ void bdReflectionSurfaceTagHook(PPCRegister &r3) {
       bd::gpu::HostResourceHeap::FromGuest<bd::gpu::GuestTexture>(r3.u32);
   if (surface)
     surface->reflection = true;
+}
+
+void bdReflectionTextureSeedHook(PPCRegister &r3) {
+  auto *texture =
+      bd::gpu::HostResourceHeap::FromGuest<bd::gpu::GuestTexture>(r3.u32);
+  if (!texture)
+    return;
+  texture->reflection = true;
+  bd::gpu::Video::ClearTexture(texture, kOpaqueBlackArgb);
 }
 
 // The light frustum is world-space and receivers sample by UV, so a larger map

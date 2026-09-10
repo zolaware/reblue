@@ -36,8 +36,14 @@ registers = ["r3"]
 after_instruction = true
 
 [[midasm_hook]]
+address = 0x82177CCC
+name = "bdReflectionTextureSeedHook"
+registers = ["r3"]
+after_instruction = true
+
+[[midasm_hook]]
 address = 0x821786D0
-name = "bdReflectionSurfaceTagHook"
+name = "bdReflectionTextureSeedHook"
 registers = ["r3"]
 after_instruction = true
 
