@@ -343,7 +343,16 @@ void Video::Present(GuestTexture *frontBuffer) {
     if (!s.swap_chain->acquireTexture(
             s.acquire_semaphores[s.frame.load(std::memory_order_relaxed)].get(),
             &texture_index)) {
-      return;
+      RebuildSwapChain(s);
+      if (s.framebuffers.empty() ||
+          !s.swap_chain->acquireTexture(
+              s.acquire_semaphores[s.frame.load(std::memory_order_relaxed)]
+                  .get(),
+              &texture_index)) {
+        CheckDeviceRemoved("swapchain acquire");
+        AbandonFrame(s, lock);
+        return;
+      }
     }
     pb.acquire_ms = ms_since(t0);
   }
@@ -404,7 +413,8 @@ void Video::Present(GuestTexture *frontBuffer) {
     // returns (removal signals every fence), so without this the next D3D12
     // call is the one that reports the loss.
     if (!s.swap_chain->present(texture_index, signals, 1)) {
-      CheckDeviceRemoved("swapchain present");
+      if (!CheckDeviceRemoved("swapchain present"))
+        s.resize_requested.store(true, std::memory_order_release);
     }
     pb.present_ms = ms_since(t0);
   }
@@ -481,6 +491,7 @@ void Video::PresentOverlayFrame() {
   u32 texture_index = 0;
   if (!s.swap_chain->acquireTexture(s.acquire_semaphores[cur].get(),
                                     &texture_index)) {
+    s.resize_requested.store(true, std::memory_order_release);
     return;
   }
   plume::RenderTexture *back = s.swap_chain->getTexture(texture_index);
