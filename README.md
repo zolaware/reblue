@@ -89,6 +89,53 @@ Everything below is new to re:Blue. All of it is configurable in game, from the 
 - UI language and voice language chosen separately
 
 
+### Cheats
+
+A full Cheats page in the config menu, reachable from the title screen or the camp menu. Every setting is live — no restart, no save editing — and each one persists per profile.
+
+**In Battle**
+
+- Invincibility: the party is topped back up continuously, so ordinary fights stop being a threat. A single hit big enough to kill from full HP will still land, and anyone already knocked out stays down
+- Infinite MP: cast freely; MP refills as fast as you spend it
+- Status Immunity: poison, sleep, petrify and the rest simply stop landing, and anything already on your party is cleared
+- One-Hit Kill: enemies are held at 1 HP, so the next hit that connects finishes them. Battles still resolve normally, so you keep the EXP, gold and drops
+
+**Power** — Off / 2x / 5x / 10x
+
+- Attack, Magic Attack, Defence, Magic Defence and Agility: each multiplied independently, so you can turn up exactly what you want
+- Permanent Stat Bonus: Off / +999 / +9999 added across the board, for when a
+  multiplier isn't blunt enough
+
+Multipliers take effect from the next battle or equipment change.
+
+**Progression**
+
+- EXP per Fight: Off / 2x / 3x / 5x. Levels arrive on the battle that earned them, including several at once
+- SP per Fight: Off / 2x / 3x / 5x. Class ranks may not catch up until the following battle
+- Gold per Fight: Off / 2x / 3x / 5x
+- Medals per Fight: Off / 2x / 3x / 5x, for the ruins-only currency
+- Infinite Gold: held at 99,999,999
+- Infinite Medals: held at 9,999
+- Unlock All Classes: all nine jobs open on every party member, reserves included
+
+**Items**
+
+- Give All Items: one of everything the game defines, in a single press
+- Nine targeted grants when you want less than everything: Heal (27), Usable (51), Spellbooks (72), Arm (35), Finger (30), Ear (29), Neck (30), Chest (36) and Valuables (62)
+- Infinite Items: every stack you carry stays full, so nothing is spent by using or selling it
+
+Grants add to what you already hold rather than replacing it, hand you one of each, and skip the unused entries that show up in game as Worthless Junk.
+
+**Encyclopedia**
+
+- Achievements 100%: awards the entire catalogue, all 51
+- Reset Achievements: locks them all again, if you'd rather earn them
+
+**Debug**
+
+- Console: press `` ` `` to open it, then `game_cheat_diag on` to log a line whenever a cheat acts. Off by default. Every cheat also has a console command
+  — `game_cheats` lists the current state of all of them
+
 ### Mods and DLC
 
 - Built-in mod manager

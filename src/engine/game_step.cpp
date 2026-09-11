@@ -11,6 +11,7 @@
 #include <rex/hook.h>
 
 #include "engine/battle.h"
+#include "engine/cheats.h"
 #include "engine/frame_interp.h"
 #include "engine/hud_fade.h"
 
@@ -20,4 +21,5 @@ REX_HOOK_RAW(bdMainGameStep) {
   bd::engine::OnBattleGameStep();
   bd::engine::HudFade::Get().Poll();
   __imp__bdMainGameStep(ctx, base);
+  bd::engine::Cheats::Get().Apply();
 }
