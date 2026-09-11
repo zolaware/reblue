@@ -13,9 +13,8 @@
 #include <fstream>
 #include <sstream>
 
-#include <rex/cvar.h>
+#include <rex/logging.h>
 
-#include "core/app_root.h"
 #include "core/logging.h"
 #include "core/time_util.h"
 #include "vfs/settings.h"
@@ -83,9 +82,7 @@ void AccessLog::Init(const std::filesystem::path &disc_root) {
 
   disc_root_ = disc_root;
 
-  std::string log_file = REXCVAR_GET(log_file);
-  log_dir_ = log_file.empty() ? bd::AppRootFolder() / "logs"
-                              : std::filesystem::path(log_file).parent_path();
+  log_dir_ = rex::LoggingConfig().log_dir;
 
   PruneOldDetailLogsLocked();
   LoadSummaryLocked();

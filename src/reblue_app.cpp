@@ -7,14 +7,11 @@
  */
 #include "reblue_app.h"
 
-#include <algorithm>
-#include <charconv>
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <string>
 #include <string_view>
-#include <vector>
 
 #include <SDL3/SDL_video.h>
 #include <implot.h>
@@ -135,48 +132,7 @@ ResolveSavesRoot(const std::filesystem::path &profile_root) {
   return profile_root / "saves";
 }
 
-#if !defined(_WIN32)
-// Newest N kept. Older runs are deleted before the sink opens.
-constexpr int kMaxRunLogs = 10;
-
-// The SDK numbers logs per run only when 'log_file' is empty, and derives the
-// directory from the exe dir, which is read-only inside an AppImage. Naming the
-// run here keeps both a writable location and one file per session, a constant
-// path would make the rotating sink append across launches.
-std::filesystem::path NextRunLogPath(const std::filesystem::path &dir) {
-  std::error_code ec;
-  std::filesystem::create_directories(dir, ec);
-
-  constexpr std::string_view kPrefix = "reblue_";
-  std::vector<std::filesystem::path> existing;
-  int max_seq = 0;
-  for (const auto &entry : std::filesystem::directory_iterator(dir, ec)) {
-    if (!entry.is_regular_file(ec) || entry.path().extension() != ".log")
-      continue;
-    const std::string stem = entry.path().stem().string();
-    if (!stem.starts_with(kPrefix))
-      continue;
-    existing.push_back(entry.path());
-    const std::string digits = stem.substr(kPrefix.size());
-    int seq = 0;
-    const auto [ptr, parse_ec] =
-        std::from_chars(digits.data(), digits.data() + digits.size(), seq);
-    if (parse_ec == std::errc() && ptr == digits.data() + digits.size())
-      max_seq = std::max(max_seq, seq);
-  }
-
-  // Zero-padded sequence numbers make lexicographic order age order, including
-  // the sink's own mid-run rotations (reblue_007.1.log).
-  if (existing.size() >= static_cast<size_t>(kMaxRunLogs)) {
-    std::sort(existing.begin(), existing.end());
-    const size_t drop = existing.size() - (kMaxRunLogs - 1);
-    for (size_t i = 0; i < drop; ++i)
-      std::filesystem::remove(existing[i], ec);
-  }
-
-  return dir / fmt::format("reblue_{:03d}.log", max_seq + 1);
-}
-#endif
+constexpr u64 kLogDirBudget = u64(50) << 20;
 
 // Created if absent so PSO capture can write into it.
 std::filesystem::path ResolveCacheRoot() {
@@ -491,22 +447,6 @@ void ReblueApp::OnConfigurePaths(rex::PathConfig &paths) {
     paths.config_path = bd::AppRootFolder() / "reblue.toml";
   }
 
-  // <exe_dir>/logs is read-only inside an AppImage mount, so logging init would
-  // throw before a window exists. An explicit log_file in the profile config
-  // still wins through the later LoadConfig.
-#if !defined(_WIN32)
-  if (bd::IsPackagedApplication() &&
-      std::string(REXCVAR_GET(log_file)).empty()) {
-    REXCVAR_SET(log_file,
-                NextRunLogPath(bd::AppRootFolder() / "logs").string());
-  }
-#endif
-
-  // The sink flushes at info and above only, so a crash loses every debug/trace
-  // line before it. Set before LoadConfig so a config value still wins.
-  if (REXCVAR_GET(log_flush_interval) == 0)
-    REXCVAR_SET(log_flush_interval, 1);
-
   auto install_root = EarlyInstallRoot();
   if (!install_root)
     return; // fresh install: FinishInstaller wires the profile
@@ -568,6 +508,16 @@ void ReblueApp::OnConfigurePaths(rex::PathConfig &paths) {
     return;
   }
 #endif
+}
+
+void ReblueApp::OnConfigureLogging(rex::LogConfig &config) {
+  for (const char *name : {"log_file", "log_flush_interval"}) {
+    if (rex::cvar::GetFlagSource(name) == rex::cvar::Source::kConfig)
+      rex::cvar::ResetToDefault(name);
+  }
+  config.log_dir = bd::AppRootFolder() / "logs";
+  config.dir_budget_bytes = kLogDirBudget;
+  config.flush_interval = std::chrono::seconds(1);
 }
 
 rex::PathConfig
