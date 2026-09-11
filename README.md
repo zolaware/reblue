@@ -1,6 +1,9 @@
-<img width="1480" height="662" alt="Untitled-1" src="https://github.com/user-attachments/assets/1779fdfd-bc3a-416d-8b6c-38874d8eae93" />
-
-
+<h1 align="center">
+  <img width="1480" height="662" alt="Untitled-1" src="https://github.com/user-attachments/assets/1779fdfd-bc3a-416d-8b6c-38874d8eae93" />
+  <a href="https://discord.gg/92MCyYDpuY">
+    <img src="https://img.shields.io/badge/Discord-Join%20Server-5865F2?logo=discord&logoColor=white" alt="Discord">
+  </a>
+</h1>
 
 > [!IMPORTANT]
 > re:Blue is an unofficial project
