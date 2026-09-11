@@ -7,12 +7,15 @@
  */
 #include "gpu/gpu_timing.h"
 
+#include <algorithm>
 #include <memory>
 #include <vector>
 
 #include <plume_render_interface.h>
 #if defined(REBLUE_D3D12)
 #include <plume_d3d12.h>
+#else
+#include <plume_vulkan.h>
 #endif
 
 #include "core/logging.h"
@@ -59,12 +62,17 @@ void SetSegment(plume::RenderCommandList *cmd, Cat cat) {
   g_cat = cat;
 }
 
+// Reads the first n timestamps in nanoseconds. Only the written range is
+// read: FrameEnd leaves the tail of the pool reset but unwritten, and on
+// Vulkan vkGetQueryPoolResults reports VK_NOT_READY for the whole call if any
+// query in the range is unavailable, so plume's whole-pool queryResults can
+// never succeed there.
+//
 // D3D12QueryPool::queryResults memcpy's the whole readback buffer from map()
 // without checking it, so a failed ID3D12Resource::Map (device removed, or an
 // allocation failure) turns into a memcpy from null inside vendored plume.
-// Probe the same buffer here first. VulkanQueryPool::queryResults checks its
-// own vkGetQueryPoolResults result, so only D3D12 needs this.
-bool ReadbackIsMappable(plume::RenderQueryPool *pool) {
+// Probe the same buffer here first.
+bool ReadTimestamps(plume::RenderQueryPool *pool, size_t n, u64 *out_ns) {
 #if defined(REBLUE_D3D12)
   auto *d3d_pool = static_cast<plume::D3D12QueryPool *>(pool);
   auto *readback = d3d_pool->readbackBuffer.get();
@@ -73,10 +81,26 @@ bool ReadbackIsMappable(plume::RenderQueryPool *pool) {
   if (!readback->map())
     return false;
   readback->unmap();
-#else
-  (void)pool;
-#endif
+  pool->queryResults();
+  const u64 *r = pool->getResults();
+  std::copy(r, r + n, out_ns);
   return true;
+#else
+  auto *vk_pool = static_cast<plume::VulkanQueryPool *>(pool);
+  const VkResult res = vkGetQueryPoolResults(
+      vk_pool->device->vk, vk_pool->vk, 0, static_cast<u32>(n),
+      sizeof(u64) * n, out_ns, sizeof(u64), VK_QUERY_RESULT_64_BIT);
+  if (res != VK_SUCCESS) {
+    BD_ERROR("gpu timing: vkGetQueryPoolResults({} queries) returned {}", n,
+             static_cast<i32>(res));
+    return false;
+  }
+  const f64 period =
+      vk_pool->device->physicalDeviceProperties.limits.timestampPeriod;
+  for (size_t i = 0; i < n; ++i)
+    out_ns[i] = static_cast<u64>(static_cast<f64>(out_ns[i]) * period);
+  return true;
+#endif
 }
 
 } // namespace
@@ -121,12 +145,12 @@ void FrameEnd(plume::RenderCommandList *cmd) {
     return;
   auto &st = g_slots[g_active_slot];
   WriteMark(st, cmd, g_cat);
-  // No tail padding: writeTimestamp resolves ONE query per call, so padding to
-  // kQueryCount cost 512 EndQuery + ResolveQueryData every frame to fill slots
-  // nothing reads. queryResults still copies and rescales the whole pool, so
-  // the unwritten tail carries stale values that get rescaled again each frame
-  // and saturate. Harmless, since CollectGPUTimings only reads below
-  // journal.size().
+  // No tail padding: on D3D12 writeTimestamp resolves ONE query per call, so
+  // padding to kQueryCount cost 512 EndQuery + ResolveQueryData every frame to
+  // fill slots nothing reads. D3D12's queryResults still copies and rescales
+  // the whole pool, so its unwritten tail carries stale values that get
+  // rescaled again each frame and saturate. Harmless, since ReadTimestamps
+  // only reads below journal.size().
   st.pending = st.journal.size() > 1;
   g_open = false;
 }
@@ -138,17 +162,18 @@ void CollectGPUTimings(u32 slot) {
   if (!st.pending || !st.pool)
     return;
   st.pending = false;
-  if (!ReadbackIsMappable(st.pool.get())) {
-    BD_ERROR("gpu timing: query readback map() null (slot {}), timing disabled",
+  const size_t n = st.journal.size();
+  if (n < 2)
+    return;
+  u64 r[kQueryCount]; // nanoseconds
+  if (!ReadTimestamps(st.pool.get(), n, r)) {
+    BD_ERROR("gpu timing: query readback failed (slot {}), timing disabled",
              slot);
     CheckDeviceRemoved("gpu timing readback");
     g_supported = false;
     return;
   }
-  st.pool->queryResults();
-  const u64 *r = st.pool->getResults(); // nanoseconds
-  const size_t n = st.journal.size();
-  if (n < 2 || r[n - 1] <= r[0])
+  if (r[n - 1] <= r[0])
     return;
   u64 draw_ns = 0, resolve_ns = 0;
   for (size_t i = 1; i < n; ++i) {
