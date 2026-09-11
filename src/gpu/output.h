@@ -12,6 +12,10 @@
 
 #include <rex/types.h>
 
+namespace rex::ui {
+class Window;
+}
+
 namespace bd::gpu {
 
 // Every HUD coordinate, debug text glyph position and 2D quad in the game is
@@ -28,12 +32,8 @@ constexpr double kDesignCanvasAspectEpsilon = 0.01;
 
 class Output {
 public:
-  // The render size BD should target, latched on the first valid call so the
-  // back buffer, the output res hooks and the init-built engine RTs always
-  // agree. Resizes and live bd_aspect_ratio changes only move the present blit.
-  // False before a size is known, where BD keeps its native design canvas and
-  // is upscaled at present.
-  static bool LatchedFit(u32 &w, u32 &h);
+  static void Init(rex::ui::Window *window);
+  static bool RenderSize(u32 &w, u32 &h);
 
   static double RenderDensity();
   static double RenderFraction();
@@ -43,7 +43,7 @@ public:
 
   static bool StretchToFill();
 
-  // The latched rect's own ratio, not the configured one: multiple-of-8
+  // The render rect's own ratio, not the configured one: multiple-of-8
   // rounding moves it, and a live bd_aspect_ratio change does not move the rect.
   static double RenderAspect();
 

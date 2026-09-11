@@ -176,9 +176,9 @@ namespace {
 // swap-sized backbuffer on a non-16:9 output matches none of BD's fit-sized
 // composite RTs.
 void GuestBackBufferDims(u32 &w, u32 &h) {
-  if (!Output::LatchedFit(w, h)) {
-    w = 1280;
-    h = 720;
+  if (!Output::RenderSize(w, h)) {
+    w = static_cast<u32>(kDesignCanvasWidth);
+    h = static_cast<u32>(kDesignCanvasHeight);
   }
 }
 
@@ -303,6 +303,7 @@ bool Video::CreateHostDevice(rex::ui::Window *window) {
   }
 
   if (!s.device) { // pre-Runtime path: no guest memory required
+    Output::Init(window);
     plume::RenderWindow render_window{};
     if (!bd::platform::GetNativeRenderWindow(window, render_window)) {
       return false;

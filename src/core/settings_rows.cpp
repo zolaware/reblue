@@ -52,17 +52,15 @@ double RenderResolutionNum() {
 }
 
 bool SetRenderResolution(const char *preset) {
+  rex::cvar::ResetToDefault("video_mode_width");
+  rex::cvar::ResetToDefault("video_mode_height");
   i32 w = 0, h = 0;
   if (!preset || !*preset ||
       !rex::graphics::video_mode_util::TryParseResolutionPreset(preset, w, h)) {
     rex::cvar::ResetToDefault("resolution");
-    rex::cvar::ResetToDefault("video_mode_width");
-    rex::cvar::ResetToDefault("video_mode_height");
     return true;
   }
-  return rex::cvar::SetFlagByName("resolution", preset) &&
-         rex::cvar::SetFlagByName("video_mode_width", std::to_string(w)) &&
-         rex::cvar::SetFlagByName("video_mode_height", std::to_string(h));
+  return rex::cvar::SetFlagByName("resolution", preset);
 }
 
 constexpr SettingOption kDisplayMode[] = {
@@ -524,8 +522,6 @@ constexpr SettingRow kDisplaySettings[] = {
              }},
      .options = kAspect,
      .count = OptCount(kAspect),
-     // Output::LatchedFit samples the ratio once, so a live change moves
-     // nothing but the present blit's idea of what it is fitting.
      .restart = true,
      .sliderUi = true},
     {.label = "settings.display.cursor_auto_hide.label",

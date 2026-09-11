@@ -106,7 +106,7 @@ void bdReflectionResolutionScaleHook(PPCRegister &r31) {
     return;
   u32 fit_w = 0;
   u32 fit_h = 0;
-  if (!bd::gpu::Output::LatchedFit(fit_w, fit_h))
+  if (!bd::gpu::Output::RenderSize(fit_w, fit_h))
     return;
   auto *info = bd::mem::at<bd::gpu::PlaneReflectInfo>(r31.u32);
   if (!info)

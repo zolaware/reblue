@@ -507,7 +507,7 @@ void MaterializeInboundLocked(VideoState &s, GuestTexture *dst) {
 // X360 aliases one EDRAM tile across scene, posteff and 2D overlay, each pass
 // inheriting the last one's pixels. Output res splits the dims, so membership
 // tests back buffer aspect plus a minimum width rather than dim equality.
-// Aspect matches within ~3% because Output::LatchedFit rounds to a multiple of 8,
+// Aspect matches within ~3% because Output::RenderSize rounds to a multiple of 8,
 // which BD's true 16:9 chain never equals, a square or half-width buffer is
 // >40% off and stays out.
 bool FullscreenChainClassLocked(const VideoState &s, const GuestTexture *t) {

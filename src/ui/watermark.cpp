@@ -36,7 +36,7 @@ void WatermarkOverlay::OnDraw(ImGuiIO &io) {
   // (a fullscreen resolution below the monitor, or a resized window).
   u32 render_w = 0, render_h = 0;
   std::string resolution;
-  if (bd::gpu::Output::LatchedFit(render_w, render_h)) {
+  if (bd::gpu::Output::RenderSize(render_w, render_h)) {
     resolution = std::format("{}x{}", render_w, render_h);
     const u32 out_w = bd::gpu::Video::OutputWidth();
     const u32 out_h = bd::gpu::Video::OutputHeight();

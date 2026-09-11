@@ -104,8 +104,6 @@ void RebuildSwapChain(VideoState &s) {
     if (s.swap_chain->getWidth() && s.swap_chain->getHeight())
       BD_ERROR("Swap chain resize failed"); // minimized 0x0 is benign
   }
-  // Engine-facing dims are latched at boot, so a resize moves only the blit
-  // dest.
 }
 
 // BD renders its whole frame with RT[0] implicit, so the finished image lives
@@ -190,7 +188,7 @@ void RecordPresentPass(VideoState &s, GuestTexture *rt, GuestTexture *chosen,
 
   // Fits what BD actually rendered rather than what the cvar asks for, so a
   // live aspect change or a resize cannot stretch the image: neither moves the
-  // latched render rect. A Sofdec movie is prerendered 16:9 and BD stretches it
+  // render rect. A Sofdec movie is prerendered 16:9 and BD stretches it
   // across that rect, so fitting the present to the design ratio squeezes it
   // back out. Stretch mode asked for the distortion and keeps it.
   const double present_aspect =

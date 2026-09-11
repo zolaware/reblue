@@ -51,7 +51,7 @@ constexpr double kTargetAlignment = 8.0;
 bool IsFullFrameScene(u32 width, u32 height) {
   u32 fit_w = 0;
   u32 fit_h = 0;
-  if (!bd::gpu::Output::LatchedFit(fit_w, fit_h))
+  if (!bd::gpu::Output::RenderSize(fit_w, fit_h))
     return true;
   const double scale =
       bd::gpu::Output::RenderFraction() * bd::gpu::SceneRenderScale();

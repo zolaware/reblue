@@ -92,7 +92,7 @@ bool ScaleDesignDims(f64 &w, f64 &h) {
 // created after this point.
 void bdOutputResScreenDimsHook(PPCRegister &r31) {
   u32 w, h;
-  if (!Output::LatchedFit(w, h))
+  if (!Output::RenderSize(w, h))
     return;
   bd::mem::store<float>(r31.u32 + kVisualRenderScreenWOff,
                         static_cast<float>(w));
@@ -105,7 +105,7 @@ void bdOutputResScreenDimsHook(PPCRegister &r31) {
 // the resolve source rect together.
 void bdOutputResDeviceDimsHook() {
   u32 w, h;
-  if (!Output::LatchedFit(w, h))
+  if (!Output::RenderSize(w, h))
     return;
   bd::mem::store<u32>(kDeviceBackBufferWEA, w);
   bd::mem::store<u32>(kDeviceBackBufferHEA, h);
@@ -115,12 +115,9 @@ void bdOutputResDeviceDimsHook() {
           bd::gpu::Video::OutputWidth(), bd::gpu::Video::OutputHeight());
 }
 
-// Jumping past bdRenderStep's force-to-1280 block keeps the output dims and
-// never raises its D3DDevice_Reset trigger. True exactly when
-// Output::LatchedFit set the dims, so the two can never disagree.
 bool bdOutputResRenderStepNeutralizeHook() {
   u32 w, h;
-  return Output::LatchedFit(w, h);
+  return Output::RenderSize(w, h);
 }
 
 // r3/r4 are the hardcoded 1280x720 the ctor creates its composite/history
@@ -128,7 +125,7 @@ bool bdOutputResRenderStepNeutralizeHook() {
 // output dims keeps that resolve 1:1 against the source rect.
 void bdOutputResCompositeTexScaleHook(PPCRegister &r3, PPCRegister &r4) {
   u32 w, h;
-  if (!Output::LatchedFit(w, h))
+  if (!Output::RenderSize(w, h))
     return;
   r3.u32 = w;
   r4.u32 = h;
@@ -170,7 +167,7 @@ void bdOutputResViewScaleHook(PPCRegister &w, PPCRegister &h) {
 void bdSubViewRenderScaleHook(PPCRegister &r31) {
   u32 fit_w = 0;
   u32 fit_h = 0;
-  if (!Output::LatchedFit(fit_w, fit_h))
+  if (!Output::RenderSize(fit_w, fit_h))
     return;
   const f64 full = std::min(kDesignCanvasWidth * Output::RenderDensity(),
                             fit_w * Output::RenderFraction());
@@ -226,7 +223,7 @@ REX_HOOK_RAW(VisualRender__ctor) {
     return;
   bd::mem::store<float>(self + kVisualRenderSafeRateOff, kSafeAreaRate);
   u32 w, h;
-  if (!Output::LatchedFit(w, h))
+  if (!Output::RenderSize(w, h))
     return;
   bd::mem::store<float>(self + kVisualRenderScreenWOff, kDesignCanvasWidth);
   bd::mem::store<float>(self + kVisualRenderScreenHOff, kDesignCanvasHeight);
@@ -238,7 +235,7 @@ REX_HOOK_RAW(VisualRender__ctor) {
 namespace {
 void OutputResPatchDim(PPCRegister &fr, bool height) {
   u32 w, h;
-  if (!Output::LatchedFit(w, h))
+  if (!Output::RenderSize(w, h))
     return;
   fr.f64 = static_cast<double>(height ? h : w);
 }
@@ -261,12 +258,12 @@ void bdOutputResScreenHf12Hook(PPCRegister &f12) {
 // design canvas coordinates. Pin the dim loads back and leave the struct alone.
 void bdWorldToScreenDesignWf3Hook(PPCRegister &f3) {
   u32 w, h;
-  if (Output::LatchedFit(w, h))
+  if (Output::RenderSize(w, h))
     f3.f64 = kDesignCanvasWidth;
 }
 void bdWorldToScreenDesignHf4Hook(PPCRegister &f4) {
   u32 w, h;
-  if (Output::LatchedFit(w, h))
+  if (Output::RenderSize(w, h))
     f4.f64 = kDesignCanvasHeight;
 }
 
@@ -353,7 +350,7 @@ REX_HOOK_RAW(bdRenderSubmitList) {
   u32 w, h;
   auto *vw = bd::mem::at<be_f32>(kViewportWidthEA);
   auto *vh = bd::mem::at<be_f32>(kViewportHeightEA);
-  const bool pin = Output::LatchedFit(w, h) && vw && vh;
+  const bool pin = Output::RenderSize(w, h) && vw && vh;
 
   float saved_w = 0.0f, saved_h = 0.0f;
   if (pin) {
