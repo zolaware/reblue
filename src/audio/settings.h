@@ -53,6 +53,9 @@ public:
   bool Log() const { return log_; }
   bool SetLog(bool v);
 
+  f64 OutputLimit() const { return outputLimit_; }
+  bool SetOutputLimit(f64 v);
+
 private:
   Settings() = default;
   Settings(const Settings &) = delete;
@@ -67,6 +70,7 @@ private:
   void AdoptCueMonitor();
   void AdoptPeakMeter();
   void AdoptLog();
+  void AdoptOutputLimit();
 
   f64 gain_ = 1.0;
   f64 centerLevel_ = 1.0;
@@ -76,6 +80,7 @@ private:
   i32 cueMonitor_ = 0;
   i32 peakMeter_ = 0;
   bool log_ = false;
+  f64 outputLimit_ = 8.0;
 };
 
 } // namespace bd::audio

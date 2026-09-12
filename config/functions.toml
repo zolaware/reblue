@@ -264,6 +264,7 @@
 0x8213D578 = { name = "bdRenderSortBucketConfig", size = 0x160 }
 0x8213D6D8 = { name = "bdLightDataInit", size = 0xE8 }
 0x8213D7C0 = { name = "bdLightDataDestroy", size = 0x110 }
+0x8213E398 = { name = "X3DVOL_SetX3DVol" }
 0x8213EC10 = { name = "bd__Sound__SndMgr__Dtor", size = 0x88 }
 0x8213EC98 = { name = "bd__Sound__SndMgr__Init", size = 0x7C }
 0x8213ED18 = { name = "bd__Sound__SndMgr__Draw", size = 0x38 }

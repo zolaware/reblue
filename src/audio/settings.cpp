@@ -22,6 +22,7 @@ REXCVAR_DECLARE(i32, bd_audio_qframes);
 REXCVAR_DECLARE(i32, bd_audio_debug);
 REXCVAR_DECLARE(i32, bd_audio_peak);
 REXCVAR_DECLARE(bool, bd_audio_log);
+REXCVAR_DECLARE(double, bd_audio_limit);
 
 // A range alone does not reject NaN: neither NaN < min nor NaN > max is ever
 // true, so it passes validation and multiplies every output sample forever.
@@ -73,6 +74,14 @@ REXCVAR_DEFINE_INT32(bd_audio_peak, 0, kCvarGroup,
     .range(0, 2);
 REXCVAR_DEFINE_BOOL(bd_audio_log, false, kCvarGroup,
                     "Log cue playback and voice pitch changes.");
+REXCVAR_DEFINE_DOUBLE(bd_audio_limit, 8.0, kCvarGroup,
+                      "Peak the final mix may reach before the output guard "
+                      "mutes it: 0 disables the guard.")
+    .range(0.0, 1024.0)
+    .validator([](std::string_view v) {
+      f64 d = 0;
+      return rex::cvar::ParseDouble(v, d) && std::isfinite(d);
+    });
 
 namespace bd::audio {
 namespace {
@@ -129,6 +138,8 @@ void Settings::AdoptPeakMeter() { peakMeter_ = REXCVAR_GET(bd_audio_peak); }
 
 void Settings::AdoptLog() { log_ = REXCVAR_GET(bd_audio_log); }
 
+void Settings::AdoptOutputLimit() { outputLimit_ = REXCVAR_GET(bd_audio_limit); }
+
 // Set: hand the value to the cvar layer and let the callback adopt it back.
 // Going through SetFlagByName rather than REXCVAR_SET keeps the range check,
 // the restart-pending bookkeeping and any callback another subsystem
@@ -163,6 +174,10 @@ bool Settings::SetLog(bool v) {
   return rex::cvar::SetFlagByName("bd_audio_log", FormatCvar(v));
 }
 
+bool Settings::SetOutputLimit(f64 v) {
+  return rex::cvar::SetFlagByName("bd_audio_limit", FormatCvar(v));
+}
+
 void Settings::AdoptCvars() {
   AdoptGain();
   AdoptSurroundMix();
@@ -170,6 +185,7 @@ void Settings::AdoptCvars() {
   AdoptCueMonitor();
   AdoptPeakMeter();
   AdoptLog();
+  AdoptOutputLimit();
 }
 
 void Settings::Init() {
@@ -189,6 +205,7 @@ void Settings::Init() {
   reg("bd_audio_debug", &Settings::AdoptCueMonitor);
   reg("bd_audio_peak", &Settings::AdoptPeakMeter);
   reg("bd_audio_log", &Settings::AdoptLog);
+  reg("bd_audio_limit", &Settings::AdoptOutputLimit);
 }
 
 } // namespace bd::audio
