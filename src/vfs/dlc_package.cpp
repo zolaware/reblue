@@ -12,6 +12,7 @@
 #include "vfs/dlc_catalog.h"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <fstream>
 #include <queue>
@@ -31,6 +32,28 @@ using rex::system::XLanguage;
 namespace bd::vfs {
 
 namespace {
+
+using ContentId = std::array<u8, 0x14>;
+
+constexpr ContentId kUltraHardMod = {0x2E, 0xA1, 0x10, 0xF0, 0xE8, 0xAA, 0x78,
+                                     0x9C, 0x05, 0x0A, 0x34, 0xE2, 0x3B, 0x7A,
+                                     0x6E, 0xDE, 0x65, 0x11, 0xA6, 0xAC};
+constexpr ContentId kSixTreasures = {0x42, 0x89, 0xDC, 0x78, 0xFC, 0xC4, 0x4E,
+                                     0x77, 0x36, 0x7C, 0x73, 0x10, 0x16, 0x2E,
+                                     0x63, 0x99, 0xCE, 0x09, 0xC1, 0xE3};
+constexpr ContentId kShuffleDungeon = {0x54, 0x71, 0x47, 0x7C, 0xA6, 0x38, 0xC7,
+                                       0xC0, 0x2C, 0x1C, 0x9C, 0xF7, 0xFB, 0x65,
+                                       0xDB, 0xB3, 0x42, 0x98, 0xF8, 0x79};
+constexpr std::array<ContentId, 3> kSupportedContentIds = {
+    kUltraHardMod, kSixTreasures, kShuffleDungeon};
+
+bool IsSupportedContent(const u8 *content_id) {
+  return std::any_of(kSupportedContentIds.begin(), kSupportedContentIds.end(),
+                     [&](const ContentId &known) {
+                       return std::equal(known.begin(), known.end(),
+                                         content_id);
+                     });
+}
 
 std::string SanitizeFolderName(const std::string &name) {
   std::string out;
@@ -105,6 +128,12 @@ DLCValidation DLCCatalog::Validate(const std::filesystem::path &package) {
   if (static_cast<rex::system::XContentType>(header->metadata.content_type) !=
       rex::system::XContentType::kMarketplaceContent) {
     result.error = "This package is not downloadable content (DLC).";
+    return result;
+  }
+
+  if (!IsSupportedContent(header->header.content_id)) {
+    BD_ERROR("[dlc] rejecting '{}': not a supported pack", package.string());
+    result.error = "This package is not a supported Blue Dragon DLC.";
     return result;
   }
 
