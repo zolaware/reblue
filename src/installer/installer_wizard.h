@@ -97,9 +97,11 @@ private:
   void DrawRebuildingIndex();
   void DrawDone();
 
-  void PickISO(int index);
+  void PickSource();
+  void AddSource(const std::filesystem::path &file);
+  void RemoveSource(int index);
   void PickInstallDir();
-  void ValidateISO(int index);
+  bool AllDiscsFilled() const;
   bool InputsReady() const;
   void StartInstall();
   void StartIndexRebuild();
@@ -119,12 +121,14 @@ private:
 
   Page page_ = Page::Content;
 
-  std::array<std::filesystem::path, kDiscCount> iso_paths_;
-  std::array<bool, kDiscCount> iso_valid_ = {};
-  std::array<std::string, kDiscCount> iso_status_;
-  std::array<std::string, kDiscCount> iso_fingerprints_;
-  // [Language] codes per validated disc.
-  std::array<std::set<std::string>, kDiscCount> iso_languages_;
+  struct DiscSlot {
+    std::filesystem::path source;
+    std::string fingerprint;
+    std::set<std::string> languages;
+    bool Filled() const { return !source.empty(); }
+  };
+  std::array<DiscSlot, kDiscCount> discs_;
+  std::string sources_status_;
 
   std::filesystem::path
       install_dir_; // install_dir/{game,user} created at install time

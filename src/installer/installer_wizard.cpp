@@ -8,7 +8,6 @@
 #include "installer/installer_wizard.h"
 
 #include <imgui.h>
-#include <rex/filesystem/devices/disc_image_device.h>
 #include <stb_image.h>
 
 #include <algorithm>
@@ -29,6 +28,16 @@
 namespace bd::installer {
 namespace {
 const char *kDiscLabels[kDiscCount] = {"DVD 1", "DVD 2", "DVD 3"};
+
+constexpr ImVec4 kLit(0.30f, 0.90f, 0.30f, 1.0f);
+constexpr ImVec4 kDim(0.32f, 0.34f, 0.40f, 1.0f);
+constexpr ImVec4 kStatus(0.90f, 0.70f, 0.30f, 1.0f);
+
+void Join(std::string &list, const char *item) {
+  if (!list.empty())
+    list += ", ";
+  list += item;
+}
 
 const char *T(const char *key) { return i18n::Text(key).c_str(); }
 
@@ -67,15 +76,14 @@ InstallerWizard::InstallerWizard(
     : ImGuiDialog(drawer), app_context_(app_context),
       immediate_drawer_(immediate_drawer), on_done_(std::move(on_done)),
       repair_(repair), install_dir_(default_install_dir) {
-  // No guest yet, so this resolves to the bd_language cvar or the OS language.
+  // No engine yet, so this resolves to the bd_language cvar or the OS language.
   i18n::SyncLocale();
 
   update_check_ = bd::Settings::Get().UpdateCheck();
 
-  // Repair on an existing install: seed the recorded disc fingerprints so the
-  // user can finish (Done) and boot without re-selecting the DVDs.
   if (existing) {
-    iso_fingerprints_ = existing->iso_fingerprints;
+    for (int i = 0; i < kDiscCount; ++i)
+      discs_[i].fingerprint = existing->iso_fingerprints[i];
     renderer_ = existing->renderer;
   }
 
@@ -98,7 +106,8 @@ void InstallerWizard::Finish(bool completed) {
 
   InstallConfig cfg;
   cfg.install_root = std::filesystem::absolute(install_dir_);
-  cfg.iso_fingerprints = iso_fingerprints_;
+  for (int i = 0; i < kDiscCount; ++i)
+    cfg.iso_fingerprints[i] = discs_[i].fingerprint;
   cfg.renderer = renderer_;
 
   BD_INFO("InstallerWizard: finished, completed={}", completed);
@@ -109,52 +118,67 @@ void InstallerWizard::Finish(bool completed) {
       [cb, completed, cfg, choices]() { cb(completed, cfg, choices); });
 }
 
-void InstallerWizard::ValidateISO(int index) {
-  iso_valid_[index] = false;
-  iso_fingerprints_[index].clear();
-  iso_languages_[index].clear();
-  if (iso_paths_[index].empty()) {
-    iso_status_[index].clear();
+void InstallerWizard::AddSource(const std::filesystem::path &file) {
+  auto image = DiscImage::Open(file);
+  if (!image) {
+    sources_status_ = i18n::Text("installer.status.bad_image");
     return;
   }
 
-  auto disc = OpenDiscImage(iso_paths_[index]);
-  if (!disc) {
-    iso_status_[index] = i18n::Text("installer.status.bad_image");
-    return;
+  std::string carried;
+  std::string added;
+  for (int i = 0; i < kDiscCount; ++i) {
+    auto *root = image->Root(i + 1);
+    if (!root)
+      continue;
+    Join(carried, kDiscLabels[i]);
+    if (discs_[i].Filled())
+      continue;
+    discs_[i].source = file;
+    discs_[i].fingerprint = DiscFingerprint(image->ContentSize(), *root, i + 1);
+    discs_[i].languages = ParseDiscLanguages(*root);
+    Join(added, kDiscLabels[i]);
   }
-  if (!ValidateDisc(*disc, index + 1)) {
-    iso_status_[index] =
-        i18n::Fmt("installer.status.wrong_disc", kDiscLabels[index]);
-    return;
+
+  if (carried.empty())
+    sources_status_ = i18n::Text("installer.status.not_blue_dragon");
+  else if (added.empty())
+    sources_status_ = i18n::Fmt("installer.status.already_added", carried);
+  else
+    sources_status_ = i18n::Fmt("installer.status.added", added);
+}
+
+void InstallerWizard::RemoveSource(int index) {
+  const std::filesystem::path file = discs_[index].source;
+  for (auto &slot : discs_) {
+    if (slot.source == file)
+      slot = {};
   }
-  iso_valid_[index] = true;
-  iso_fingerprints_[index] =
-      DiscFingerprint(iso_paths_[index], *disc, index + 1);
-  iso_languages_[index] = ParseDiscLanguages(*disc).ui;
-  iso_status_[index] = i18n::Text("installer.status.valid");
+  sources_status_.clear();
+}
+
+bool InstallerWizard::AllDiscsFilled() const {
+  return std::all_of(discs_.begin(), discs_.end(),
+                     [](const DiscSlot &s) { return s.Filled(); });
 }
 
 bool InstallerWizard::InputsReady() const {
-  return std::all_of(iso_valid_.begin(), iso_valid_.end(),
-                     [](bool v) { return v; }) &&
-         !install_dir_.empty();
+  return AllDiscsFilled() && !install_dir_.empty();
 }
 
-void InstallerWizard::PickISO(int index) {
-  const std::wstring isoLabel = Utf8ToWide(i18n::Text("installer.filter.iso"));
+void InstallerWizard::PickSource() {
   const std::wstring anyLabel = Utf8ToWide(i18n::Text("installer.filter.any"));
-  const bd::platform::FileFilter kIsoFilters[] = {
-      {isoLabel.c_str(), L"*.iso"},
+  const std::wstring isoLabel = Utf8ToWide(i18n::Text("installer.filter.iso"));
+  const bd::platform::FileFilter kSourceFilters[] = {
       {anyLabel.c_str(), L"*.*"},
+      {isoLabel.c_str(), L"*.iso"},
   };
   auto picked = bd::platform::ShowOpenFileDialog(
-      Utf8ToWide(i18n::Text("installer.dialog.select_iso")).c_str(),
-      kIsoFilters);
+      Utf8ToWide(i18n::Text("installer.dialog.select_source")).c_str(),
+      kSourceFilters);
   if (!picked)
     return;
-  iso_paths_[index] = *picked;
-  ValidateISO(index);
+  AddSource(*picked);
 }
 
 void InstallerWizard::PickInstallDir() {
@@ -169,8 +193,6 @@ void InstallerWizard::PickInstallDir() {
 }
 
 void InstallerWizard::StartInstall() {
-  // InstallProgress is non-assignable (atomics/mutex), so reset fields in
-  // place.
   progress_.files_done.store(0);
   progress_.files_total.store(0);
   progress_.bytes_done.store(0);
@@ -192,7 +214,6 @@ void InstallerWizard::StartInstall() {
   BD_INFO("InstallerWizard:   game data  -> '{}'", abs_game.string());
   BD_INFO("InstallerWizard:   user data  -> '{}'", abs_user.string());
 
-  // Installer thread only touches game data, so create the user tree here.
   std::error_code ec;
   std::filesystem::create_directories(abs_user / "dlc", ec);
   if (ec) {
@@ -200,9 +221,12 @@ void InstallerWizard::StartInstall() {
             (abs_user / "dlc").string(), ec.message());
   }
 
+  std::array<std::filesystem::path, kDiscCount> sources;
+  for (int i = 0; i < kDiscCount; ++i)
+    sources[i] = discs_[i].source;
   try {
     install_thread_ =
-        Installer::RunAsync(iso_paths_, abs_game, repair_, progress_);
+        Installer::RunAsync(sources, abs_game, repair_, progress_);
   } catch (const std::system_error &e) {
     BD_ERROR("Installer::RunAsync failed to spawn worker: {}", e.what());
     progress_.SetError(i18n::Fmt("installer.error.spawn", e.what()));
@@ -342,8 +366,15 @@ void DrawSpinner() {
   ImGui::Dummy(ImVec2(kRadius * 2.0f, kRadius * 2.0f));
 }
 
-// Read-only row: each of the ten language codes lights green when present in
-// the discs' [Language] set, otherwise dim.
+void Light(bool on) {
+  const float h = ImGui::GetFrameHeight();
+  const ImVec2 p = ImGui::GetCursorScreenPos();
+  ImGui::GetWindowDrawList()->AddCircleFilled(
+      ImVec2(p.x + h * 0.5f, p.y + h * 0.5f), h * 0.22f,
+      ImGui::GetColorU32(on ? kLit : kDim));
+  ImGui::Dummy(ImVec2(h, h));
+}
+
 void DrawLanguageLights(const std::set<std::string> &present) {
   static const char *kUpper[] = {"US", "JP", "DE", "FR", "ES",
                                  "IT", "KR", "TW", "CN", "PO"};
@@ -353,9 +384,7 @@ void DrawLanguageLights(const std::set<std::string> &present) {
     if (i)
       ImGui::SameLine(0, 12);
     const bool on = present.count(kLower[i]) != 0;
-    const ImVec4 col = on ? ImVec4(0.30f, 0.90f, 0.30f, 1.0f)  // lit
-                          : ImVec4(0.32f, 0.34f, 0.40f, 1.0f); // dim
-    ImGui::TextColored(col, "%s", kUpper[i]);
+    ImGui::TextColored(on ? kLit : kDim, "%s", kUpper[i]);
   }
 }
 
@@ -464,11 +493,9 @@ void InstallerWizard::DrawContent() {
 
   DrawDiscs();
 
-  // The codes the discs carry, directly under the discs carrying them. Ten
-  // abbreviations lit or dim say what a heading over them would.
   std::set<std::string> detected;
-  for (const auto &s : iso_languages_)
-    detected.insert(s.begin(), s.end());
+  for (const auto &slot : discs_)
+    detected.insert(slot.languages.begin(), slot.languages.end());
   ImGui::Dummy(ImVec2(0, 2));
   DrawLanguageLights(detected);
 
@@ -486,39 +513,55 @@ void InstallerWizard::DrawContent() {
 void InstallerWizard::DrawDiscs() {
   SectionHeader(T("installer.section.sources"));
 
+  const char *remove_label = T("installer.dlc.remove");
+  const float remove_width = ImGui::CalcTextSize(remove_label).x +
+                             ImGui::GetStyle().FramePadding.x * 2.0f + 16.0f;
+
   const ImGuiTableFlags flags =
       ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoBordersInBody;
-  if (!ImGui::BeginTable("##inputs", 3, flags))
-    return;
-  ImGui::TableSetupColumn("##btn", ImGuiTableColumnFlags_WidthFixed, 140.0f);
-  ImGui::TableSetupColumn("##path", ImGuiTableColumnFlags_WidthStretch);
-  ImGui::TableSetupColumn("##status", ImGuiTableColumnFlags_WidthFixed, 100.0f);
+  if (ImGui::BeginTable("##sources", 4, flags)) {
+    ImGui::TableSetupColumn("##light", ImGuiTableColumnFlags_WidthFixed,
+                            ImGui::GetFrameHeight());
+    ImGui::TableSetupColumn("##disc", ImGuiTableColumnFlags_WidthFixed, 70.0f);
+    ImGui::TableSetupColumn("##file", ImGuiTableColumnFlags_WidthStretch);
+    ImGui::TableSetupColumn("##remove", ImGuiTableColumnFlags_WidthFixed,
+                            remove_width);
 
-  for (int i = 0; i < kDiscCount; ++i) {
-    ImGui::PushID(i);
-    ImGui::TableNextRow();
+    for (int i = 0; i < kDiscCount; ++i) {
+      ImGui::PushID(i);
+      ImGui::TableNextRow();
 
-    ImGui::TableSetColumnIndex(0);
-    const std::string btn =
-        i18n::Fmt("installer.button.select_disc", kDiscLabels[i]);
-    if (ImGui::Button(btn.c_str(), ImVec2(-FLT_MIN, 0)))
-      PickISO(i);
+      ImGui::TableSetColumnIndex(0);
+      Light(discs_[i].Filled());
 
-    ImGui::TableSetColumnIndex(1);
-    ImGui::AlignTextToFramePadding();
-    FilenameCell(iso_paths_[i]);
-
-    ImGui::TableSetColumnIndex(2);
-    if (!iso_status_[i].empty()) {
-      const ImVec4 color = iso_valid_[i] ? ImVec4(0.3f, 0.9f, 0.3f, 1.0f)
-                                         : ImVec4(0.9f, 0.3f, 0.3f, 1.0f);
+      ImGui::TableSetColumnIndex(1);
       ImGui::AlignTextToFramePadding();
-      ImGui::TextColored(color, "%s", iso_status_[i].c_str());
-    }
+      ImGui::TextUnformatted(kDiscLabels[i]);
 
-    ImGui::PopID();
+      ImGui::TableSetColumnIndex(2);
+      ImGui::AlignTextToFramePadding();
+      FilenameCell(discs_[i].source);
+
+      ImGui::TableSetColumnIndex(3);
+      if (discs_[i].Filled() &&
+          ImGui::Button(remove_label, ImVec2(remove_width, 0)))
+        RemoveSource(i);
+
+      ImGui::PopID();
+    }
+    ImGui::EndTable();
   }
-  ImGui::EndTable();
+
+  ImGui::Spacing();
+  ImGui::BeginDisabled(AllDiscsFilled());
+  if (ImGui::Button(T("installer.button.add_source"), ImVec2(0, 0)))
+    PickSource();
+  ImGui::EndDisabled();
+  if (!sources_status_.empty()) {
+    ImGui::SameLine(0, 12);
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextColored(kStatus, "%s", sources_status_.c_str());
+  }
 }
 
 void InstallerWizard::DrawOptions() {
@@ -595,8 +638,7 @@ void InstallerWizard::DrawFooter() {
   ImGui::Spacing();
 
   if (!install_status_.empty()) {
-    ImGui::TextColored(ImVec4(0.9f, 0.7f, 0.3f, 1.0f), "%s",
-                       install_status_.c_str());
+    ImGui::TextColored(kStatus, "%s", install_status_.c_str());
     ImGui::Spacing();
   }
 

@@ -7,21 +7,25 @@
  */
 #include "installer/disc_install.h"
 
+#include <rex/filesystem/device.h>
 #include <rex/filesystem/devices/disc_image_device.h>
-#include <rex/filesystem/devices/disc_image_entry.h>
+#include <rex/filesystem/devices/stfs_container_device.h>
 #include <rex/filesystem/entry.h>
-#include <rex/memory/mapped_memory.h>
+#include <rex/system/xcontent.h>
 
 #include <array>
 #include <cctype>
 #include <fstream>
+#include <map>
 #include <set>
 #include <string_view>
 #include <utility>
 #include <vector>
 
 #include "core/app_root.h"
+#include "core/i18n.h"
 #include "core/logging.h"
+#include "core/xcontent.h"
 #include "embedded.h"
 #include "vfs/vfs.h"
 
@@ -29,34 +33,12 @@ namespace bd::installer {
 
 namespace fs = std::filesystem;
 
-std::unique_ptr<rex::filesystem::DiscImageDevice>
-OpenDiscImage(const fs::path &iso_path) {
-  auto disc = std::make_unique<rex::filesystem::DiscImageDevice>("", iso_path);
-  if (!disc->Initialize()) {
-    return nullptr;
-  }
-  return disc;
-}
-
-bool ValidateDisc(rex::filesystem::DiscImageDevice &disc, int disc_number) {
-  const std::string marker = "bd_disc_" + std::to_string(disc_number) + ".xml";
-  return disc.ResolvePath(marker) != nullptr;
-}
-
-std::string DiscFingerprint(const fs::path &iso_path,
-                            rex::filesystem::DiscImageDevice &disc,
-                            int disc_number) {
-  std::error_code ec;
-  const auto file_size = fs::file_size(iso_path, ec);
-  const std::string marker = "bd_disc_" + std::to_string(disc_number) + ".xml";
-  size_t marker_size = 0;
-  if (auto *entry = disc.ResolvePath(marker); entry != nullptr) {
-    marker_size = entry->size();
-  }
-  return std::to_string(ec ? 0 : file_size) + ":" + std::to_string(marker_size);
-}
-
 namespace {
+
+std::string DiscMarker(int disc_number) {
+  return "bd_disc_" + std::to_string(disc_number) + ".xml";
+}
+
 constexpr std::array<std::string_view, 10> kKnownLangCodes = {
     "us", "jp", "de", "fr", "es", "it", "kr", "tw", "cn", "po"};
 
@@ -68,7 +50,6 @@ bool IsKnownLang(std::string_view code) {
   return false;
 }
 
-// Splits the codes after a bd_boot.ini section tag (e.g. "US DE ES") into dst.
 void AddLangCodes(std::string_view rest, std::set<std::string> &dst) {
   size_t p = 0;
   while (p < rest.size()) {
@@ -88,49 +69,94 @@ void AddLangCodes(std::string_view rest, std::set<std::string> &dst) {
     p = q;
   }
 }
+
 } // namespace
 
-DiscLanguages ParseDiscLanguages(rex::filesystem::DiscImageDevice &disc) {
-  DiscLanguages out;
-  out.all.insert("us");
+bool ValidateDisc(rex::filesystem::Entry &root, int disc_number) {
+  return root.ResolvePath(DiscMarker(disc_number)) != nullptr;
+}
 
-  auto *entry = disc.ResolvePath("bd_boot.ini");
+std::string DiscFingerprint(size_t content_size, rex::filesystem::Entry &root,
+                            int disc_number) {
+  size_t marker_size = 0;
+  if (auto *entry = root.ResolvePath(DiscMarker(disc_number)); entry != nullptr)
+    marker_size = entry->size();
+  return std::to_string(content_size) + ":" + std::to_string(marker_size);
+}
+
+std::set<std::string> ParseDiscLanguages(rex::filesystem::Entry &root) {
+  std::set<std::string> out;
+
+  auto *entry = root.ResolvePath("bd_boot.ini");
   if (!entry)
     return out;
-  auto mapped =
-      static_cast<rex::filesystem::DiscImageEntry *>(entry)->OpenMapped(
-          rex::memory::MappedMemory::Mode::kRead, 0, 0);
-  if (!mapped)
-    return out;
+  const std::string text = ReadEntry(*entry);
 
-  std::string_view text(reinterpret_cast<const char *>(mapped->data()),
-                        entry->size());
   size_t start = 0;
   for (size_t i = 0; i <= text.size(); ++i) {
     if (i != text.size() && text[i] != '\n')
       continue;
-    std::string_view line = text.substr(start, i - start);
+    std::string_view line = std::string_view(text).substr(start, i - start);
     start = i + 1;
     if (!line.empty() && line.back() == '\r')
       line.remove_suffix(1);
 
-    const bool is_lang = line.find("[Language]") != std::string_view::npos;
-    const bool is_voice = line.find("[Voice]") != std::string_view::npos;
-    const bool is_bgm = line.find("[BGM]") != std::string_view::npos;
-    if (!is_lang && !is_voice && !is_bgm)
+    if (line.find("[Language]") == std::string_view::npos &&
+        line.find("[Voice]") == std::string_view::npos &&
+        line.find("[BGM]") == std::string_view::npos)
       continue;
 
     const size_t rb = line.find(']');
     if (rb == std::string_view::npos)
       continue;
-    std::string_view rest = line.substr(rb + 1);
-
-    if (is_lang)
-      AddLangCodes(rest, out.ui);
-    AddLangCodes(rest,
-                 out.all); // [Language]/[Voice]/[BGM] all contribute to .all
+    AddLangCodes(line.substr(rb + 1), out);
   }
   return out;
+}
+
+DiscImage::DiscImage(std::unique_ptr<rex::filesystem::Device> device,
+                     size_t content_size)
+    : device_(std::move(device)), content_size_(content_size) {
+  auto *root = device_->ResolvePath("");
+  if (!root)
+    return;
+  for (int n = 1; n <= kDiscCount; ++n) {
+    if (ValidateDisc(*root, n)) {
+      roots_[n - 1] = root;
+      continue;
+    }
+    auto *sub = root->ResolvePath("Disc" + std::to_string(n));
+    if (sub && ValidateDisc(*sub, n))
+      roots_[n - 1] = sub;
+  }
+}
+
+DiscImage::~DiscImage() = default;
+
+std::unique_ptr<DiscImage> DiscImage::Open(const fs::path &file) {
+  std::error_code ec;
+  if (!fs::is_regular_file(file, ec))
+    return nullptr;
+
+  auto disc = std::make_unique<rex::filesystem::DiscImageDevice>("", file);
+  if (disc->Initialize())
+    return std::make_unique<DiscImage>(std::move(disc),
+                                       fs::file_size(file, ec));
+
+  auto header = rex::filesystem::StfsContainerDevice::ReadPackageHeader(file);
+  if (!header || !header->header.is_magic_valid())
+    return nullptr;
+  if (static_cast<rex::system::XContentType>(header->metadata.content_type) !=
+          rex::system::XContentType::kGamesOnDemand ||
+      header->metadata.execution_info.title_id != kBlueDragonTitleId)
+    return nullptr;
+  auto container =
+      std::make_unique<rex::filesystem::StfsContainerDevice>("", file);
+  if (!container->Initialize())
+    return nullptr;
+  return std::make_unique<DiscImage>(
+      std::move(container),
+      static_cast<size_t>(header->metadata.data_file_size));
 }
 
 namespace {
@@ -155,7 +181,6 @@ std::vector<std::string> LoadManifest() {
   return out;
 }
 
-// Rejects "..", absolute, or drive-qualified paths (manifest escape guard).
 bool IsUnsafePath(const std::string &path) {
   if (path.empty())
     return true;
@@ -173,8 +198,6 @@ bool IsUnsafePath(const std::string &path) {
   return false;
 }
 
-// Recursively appends (disc-relative path, entry) for every file under 'dir'.
-// 'prefix' is the disc-relative path of 'dir' itself (e.g. "snd_memory_fr").
 void CollectDiscFiles(
     rex::filesystem::Entry *dir, const std::string &prefix,
     std::vector<std::pair<std::string, rex::filesystem::Entry *>> &out) {
@@ -190,68 +213,57 @@ void CollectDiscFiles(
 
 bool ExtractOne(rex::filesystem::Entry *entry, const fs::path &dest_path,
                 InstallProgress &progress) {
-  auto parent = dest_path.parent_path();
-  if (!parent.empty()) {
-    std::error_code ec;
-    fs::create_directories(parent, ec);
-  }
+  if (CopyEntry(*entry, dest_path))
+    return true;
+  progress.SetError(i18n::Fmt("installer.error.copy_failed", entry->path()));
+  progress.failed.store(true);
+  return false;
+}
 
-  const size_t size = entry->size();
-  auto mapped =
-      static_cast<rex::filesystem::DiscImageEntry *>(entry)->OpenMapped(
-          rex::memory::MappedMemory::Mode::kRead, 0, 0);
-  if (!mapped) {
-    BD_ERROR("OpenMapped failed for '{}'", entry->path());
-    progress.SetError("Failed to read: " + entry->path());
-    progress.failed.store(true);
-    return false;
-  }
+constexpr std::string_view kIPKExt = ".ipk";
+constexpr std::string_view kIPKMagic = "IPK1";
 
-  std::ofstream out(dest_path, std::ios::binary | std::ios::trunc);
-  if (!out) {
-    BD_ERROR("Failed to create '{}'", dest_path.string());
-    progress.SetError("Failed to create: " + dest_path.string());
-    progress.failed.store(true);
+bool IsDamagedIPK(const std::string &relative_path, const fs::path &file) {
+  if (!relative_path.ends_with(kIPKExt))
     return false;
-  }
-  out.write(reinterpret_cast<const char *>(mapped->data()),
-            static_cast<std::streamsize>(size));
-  if (!out) {
-    BD_ERROR("Failed to write '{}'", dest_path.string());
-    progress.SetError("Failed to write: " + dest_path.string());
-    progress.failed.store(true);
-    return false;
-  }
-  return true;
+  char magic[kIPKMagic.size()] = {};
+  std::ifstream in(file, std::ios::binary);
+  in.read(magic, sizeof(magic));
+  return in.gcount() != static_cast<std::streamsize>(sizeof(magic)) ||
+         std::string_view(magic, sizeof(magic)) != kIPKMagic;
 }
 
 } // namespace
 
 std::thread
-Installer::RunAsync(const std::array<fs::path, kDiscCount> &iso_paths,
+Installer::RunAsync(const std::array<fs::path, kDiscCount> &sources,
                     const fs::path &game_data_dest, bool repair,
                     InstallProgress &progress) {
-  return std::thread([iso_paths, game_data_dest, repair, &progress]() {
-    std::vector<std::unique_ptr<rex::filesystem::DiscImageDevice>> discs;
-    for (const auto &iso_path : iso_paths)
-      discs.push_back(OpenDiscImage(iso_path));
-    for (const auto &d : discs) {
-      if (!d) {
-        progress.SetError("Failed to open one or more disc images.");
+  return std::thread([sources, game_data_dest, repair, &progress]() {
+    std::map<fs::path, std::unique_ptr<DiscImage>> images;
+    std::array<rex::filesystem::Entry *, kDiscCount> roots{};
+    for (int i = 0; i < kDiscCount; ++i) {
+      auto &image = images[sources[i]];
+      if (!image)
+        image = DiscImage::Open(sources[i]);
+      if (image)
+        roots[i] = image->Root(i + 1);
+      if (!roots[i]) {
+        progress.SetError(i18n::Fmt("installer.error.open_source",
+                                    sources[i].filename().string(), i + 1));
         progress.failed.store(true);
         progress.complete.store(true);
         return;
       }
     }
 
-    // Languages come from bd_boot.ini (the game's Language Set), not from
-    // scanning the discs' folder layout. The per-language files are walked from
-    // the discs below.
     std::set<std::string> available;
-    for (const auto &d : discs) {
-      DiscLanguages langs = ParseDiscLanguages(*d);
-      available.insert(langs.all.begin(), langs.all.end());
+    for (auto *root : roots) {
+      const std::set<std::string> langs = ParseDiscLanguages(*root);
+      available.insert(langs.begin(), langs.end());
     }
+    if (available.empty())
+      available.insert("us");
     {
       std::string joined;
       for (const auto &l : available)
@@ -261,18 +273,17 @@ Installer::RunAsync(const std::array<fs::path, kDiscCount> &iso_paths,
 
     const auto manifest = LoadManifest();
     if (manifest.empty()) {
-      progress.SetError("Install manifest is empty.");
+      progress.SetError(i18n::Text("installer.error.manifest_missing"));
       progress.failed.store(true);
       progress.complete.store(true);
       return;
     }
 
-    // Pre-resolve everything up front for an accurate total byte count.
     struct PlanItem {
       std::string path;
-      rex::filesystem::Entry *entry; // null = missing on every disc
+      rex::filesystem::Entry *entry;
       size_t size;
-      bool needs_copy; // false = missing entry, or already on disk (repair)
+      bool needs_copy;
     };
     std::vector<PlanItem> plan;
     plan.reserve(manifest.size());
@@ -280,8 +291,6 @@ Installer::RunAsync(const std::array<fs::path, kDiscCount> &iso_paths,
     size_t missing = 0;
     size_t hits_per_disc[kDiscCount] = {};
 
-    // Repair skips any file already on disk whose size matches the disc entry:
-    // this verifies the existing install and limits the copy to missing files.
     auto will_copy = [&](const std::string &path,
                          rex::filesystem::Entry *entry) -> bool {
       if (!entry)
@@ -290,20 +299,21 @@ Installer::RunAsync(const std::array<fs::path, kDiscCount> &iso_paths,
         return true;
       std::error_code ec;
       const auto dest = game_data_dest / fs::path(path);
-      return !(fs::exists(dest, ec) &&
-               fs::file_size(dest, ec) == entry->size());
+      if (!fs::exists(dest, ec) || fs::file_size(dest, ec) != entry->size())
+        return true;
+      return IsDamagedIPK(path, dest);
     };
     for (const auto &path : manifest) {
       if (IsUnsafePath(path)) {
         BD_ERROR("Manifest contains unsafe path: {}", path);
-        progress.SetError("Bad manifest entry: " + path);
+        progress.SetError(i18n::Fmt("installer.error.manifest_bad", path));
         progress.failed.store(true);
         progress.complete.store(true);
         return;
       }
       rex::filesystem::Entry *entry = nullptr;
-      for (size_t i = 0; i < discs.size(); ++i) {
-        if (auto *e = discs[i]->ResolvePath(path); e != nullptr) {
+      for (size_t i = 0; i < roots.size(); ++i) {
+        if (auto *e = roots[i]->ResolvePath(path); e != nullptr) {
           entry = e;
           ++hits_per_disc[i];
           break;
@@ -320,19 +330,15 @@ Installer::RunAsync(const std::array<fs::path, kDiscCount> &iso_paths,
       plan.push_back({path, entry, size, needs_copy});
     }
 
-    // Language assets: the set of languages comes from bd_boot.ini
-    // ('available') and the files come from walking each language's directories
-    // on the discs. The manifest lists no language family, so base and language
-    // paths are disjoint and only cross-disc duplicates need de-duping.
     std::set<std::string> seen_lang;
     for (const auto &lang : available) {
       const std::string packmem = "pack/packmem_" + lang + ".ipk";
       const std::string lang_dirs[] = {"snd_memory_" + lang,
                                        "snd_stream_" + lang};
-      for (size_t di = 0; di < discs.size(); ++di) {
-        auto *dev = discs[di].get();
+      for (size_t di = 0; di < roots.size(); ++di) {
+        auto *root = roots[di];
 
-        if (auto *e = dev->ResolvePath(packmem);
+        if (auto *e = root->ResolvePath(packmem);
             e != nullptr && seen_lang.insert(packmem).second) {
           const bool needs_copy = will_copy(packmem, e);
           if (needs_copy)
@@ -342,7 +348,7 @@ Installer::RunAsync(const std::array<fs::path, kDiscCount> &iso_paths,
         }
 
         for (const auto &dir_name : lang_dirs) {
-          auto *d = dev->ResolvePath(dir_name);
+          auto *d = root->ResolvePath(dir_name);
           if (d == nullptr ||
               !(d->attributes() & rex::filesystem::kFileAttributeDirectory)) {
             continue;
@@ -395,6 +401,15 @@ Installer::RunAsync(const std::array<fs::path, kDiscCount> &iso_paths,
         return;
       }
 
+      if (IsDamagedIPK(item.path, dest_path)) {
+        BD_ERROR("Damaged archive on the install source: {}", item.path);
+        progress.SetError(
+            i18n::Fmt("installer.error.damaged_source", item.path));
+        progress.failed.store(true);
+        progress.complete.store(true);
+        return;
+      }
+
       progress.files_done.fetch_add(1);
       progress.bytes_done.fetch_add(item.size);
     }
@@ -409,8 +424,8 @@ Installer::RunAsync(const std::array<fs::path, kDiscCount> &iso_paths,
     marker << "installed";
     if (!marker) {
       BD_ERROR("Failed to write install marker at '{}'", marker_path.string());
-      progress.SetError(
-          "Failed to write install marker - check disk space / permissions.");
+      progress.SetError(i18n::Fmt("installer.error.finish_failed",
+                                  game_data_dest.string()));
       progress.failed.store(true);
       progress.complete.store(true);
       return;

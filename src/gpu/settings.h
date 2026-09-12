@@ -64,8 +64,6 @@ constexpr const char *ToString(ReflectionQuality quality) {
   return "";
 }
 
-// Cost-ranked bundles over the eight quality settings. Medium is exactly the
-// shipped defaults, so a fresh install reads Medium rather than Custom.
 enum class QualityPreset : u32 {
   Low = 0,
   Medium = 1,
@@ -74,6 +72,42 @@ enum class QualityPreset : u32 {
   Custom = 4,
 };
 inline constexpr u32 kQualityPresetCount = 4; // Custom is a state, not a target
+
+// The eight settings a preset spans, in cost order from Low. The AA path is
+// the expensive one, so Low and Medium stay on multisampling and High and
+// Ultra step onto supersampling on top of it. The 8192 shadow map costs real
+// VRAM and fill, so it is Ultra only. Anisotropic filtering is near-free on
+// modern GPUs and the menus offer it as a plain on/off, so every preset takes
+// the full level.
+struct PresetBundle {
+  i32 superSampling;
+  i32 msaa;
+  i32 anisotropy;
+  f64 shadowDistance;
+  i32 shadowDimension;
+  i32 renderScale;
+  PostQuality postQuality;
+  ReflectionQuality reflectionQuality;
+};
+
+inline constexpr PresetBundle kPresets[kQualityPresetCount] = {
+    /* Low    */ {1, 0, 16, 1.0, 1024, 75, PostQuality::Low,
+                  ReflectionQuality::Off},
+    /* Medium */ {1, 4, 16, 2.0, 4096, 100, PostQuality::Medium,
+                  ReflectionQuality::Low},
+    /* High   */ {2, 4, 16, 2.0, 4096, 100, PostQuality::High,
+                  ReflectionQuality::High},
+    /* Ultra  */ {2, 8, 16, 4.0, 8192, 100, PostQuality::High,
+                  ReflectionQuality::High},
+};
+
+// Every cvar default below comes from this bundle, so the settings a fresh
+// install boots on are a named tier rather than a set of values that happens
+// to sit near one. The installer reads the same row the menu does, so the
+// wizard opens on Medium instead of Custom.
+inline constexpr QualityPreset kDefaultPreset = QualityPreset::Medium;
+inline constexpr PresetBundle kDefaultSettings =
+    kPresets[static_cast<u32>(kDefaultPreset)];
 
 // Catalog keys, so the menu and the installer label a preset from one place.
 constexpr const char *ToString(QualityPreset preset) {
@@ -199,16 +233,19 @@ private:
   void AdoptPostQuality();
   void AdoptReflectionQuality();
 
-  i32 anisotropy_ = 16;
-  i32 superSampling_ = 1;
-  i32 msaa_ = 4;
-  i32 renderScale_ = 100;
-  i32 postQuality_ = static_cast<i32>(PostQuality::Medium);
-  i32 reflectionQuality_ = static_cast<i32>(ReflectionQuality::Low);
+  // Seeded from the same bundle the cvar defaults come from, so a reader that
+  // runs before Init, the installer wizard among them, sees the default preset
+  // rather than a second set of values.
+  i32 anisotropy_ = kDefaultSettings.anisotropy;
+  i32 superSampling_ = kDefaultSettings.superSampling;
+  i32 msaa_ = kDefaultSettings.msaa;
+  i32 renderScale_ = kDefaultSettings.renderScale;
+  i32 postQuality_ = static_cast<i32>(kDefaultSettings.postQuality);
+  i32 reflectionQuality_ = static_cast<i32>(kDefaultSettings.reflectionQuality);
   bool ntscFilter_ = false;
   f64 dofStrength_ = 1.0;
-  i32 shadowDimension_ = 4096;
-  f64 shadowDistance_ = 2.0;
+  i32 shadowDimension_ = kDefaultSettings.shadowDimension;
+  f64 shadowDistance_ = kDefaultSettings.shadowDistance;
   i32 aspectRatio_ = static_cast<i32>(AspectMode::Auto);
   i32 fovOffset_ = 0;
   bool vsync_ = true;

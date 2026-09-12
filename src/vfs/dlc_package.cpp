@@ -8,19 +8,18 @@
  */
 #include "core/encoding.h"
 #include "core/logging.h"
+#include "core/xcontent.h"
 #include "vfs/dlc_catalog.h"
 
 #include <algorithm>
 #include <cctype>
 #include <fstream>
 #include <queue>
-#include <span>
 #include <system_error>
 
 #include <rex/filesystem.h>
 #include <rex/filesystem/devices/stfs_container_device.h>
 #include <rex/filesystem/entry.h>
-#include <rex/filesystem/file.h>
 #include <rex/string.h>
 #include <rex/system/xam/content_manager.h>
 #include <rex/system/xcontent.h>
@@ -32,10 +31,6 @@ using rex::system::XLanguage;
 namespace bd::vfs {
 
 namespace {
-
-// Blue Dragon (NTSC-U) title id. Marketplace DLC carries it in the STFS
-// metadata execution info. It also names the XAM content tree (4D5307DF).
-constexpr u32 kBlueDragonTitleId = 0x4D5307DF;
 
 std::string SanitizeFolderName(const std::string &name) {
   std::string out;
@@ -50,53 +45,8 @@ std::string SanitizeFolderName(const std::string &name) {
   return b == std::string::npos ? std::string() : out.substr(b);
 }
 
-bool ExtractSTFSEntry(rex::filesystem::Entry *entry,
-                      const std::filesystem::path &base) {
-  auto dest =
-      base / rex::to_path(rex::string::utf8_fix_path_separators(entry->path()));
-  std::error_code ec;
-  if (entry->attributes() & rex::filesystem::kFileAttributeDirectory) {
-    std::filesystem::create_directories(dest, ec);
-    return !ec;
-  }
-  std::filesystem::create_directories(dest.parent_path(), ec);
-
-  rex::filesystem::File *in = nullptr;
-  if (entry->Open(rex::filesystem::FileAccess::kFileReadData, &in) != 0 ||
-      !in) {
-    BD_ERROR("[dlc] cannot open package member: {}", entry->path());
-    return false;
-  }
-  std::ofstream out(dest, std::ios::binary);
-  if (!out) {
-    in->Destroy();
-    BD_ERROR("[dlc] cannot write: {}", dest.string());
-    return false;
-  }
-
-  std::vector<u8> buffer(1 << 20);
-  size_t remaining = entry->size();
-  size_t offset = 0;
-  bool ok = true;
-  while (remaining > 0) {
-    size_t bytes_read = 0;
-    size_t to_read = std::min(remaining, buffer.size());
-    in->ReadSync(std::span<u8>(buffer.data(), to_read), offset, &bytes_read);
-    if (!bytes_read) {
-      ok = false;
-      break;
-    }
-    out.write(reinterpret_cast<const char *>(buffer.data()),
-              static_cast<std::streamsize>(bytes_read));
-    offset += bytes_read;
-    remaining -= bytes_read;
-  }
-  in->Destroy();
-  return ok && out.good();
-}
-
 // Publish restores <pack>.header (XCONTENT_AGGREGATE_DATA + license mask)
-// from the store sidecar into the profile XAM tree. Without it the guest's
+// from the store sidecar into the profile XAM tree. Without it the engine's
 // bdIsDownloadPackageInstalled sees license 0 and grants junk.
 bool WriteHeaderSidecar(const std::filesystem::path &sidecar_dir,
                         const std::string &folder,
@@ -223,8 +173,17 @@ bool DLCCatalog::Install(const std::filesystem::path &package) {
     queue.pop();
     for (auto &child : entry->children())
       queue.push(child.get());
-    if (entry != root)
-      ok = ExtractSTFSEntry(entry, dest);
+    if (entry == root)
+      continue;
+    const auto entry_dest =
+        dest /
+        rex::to_path(rex::string::utf8_fix_path_separators(entry->path()));
+    if (entry->attributes() & rex::filesystem::kFileAttributeDirectory) {
+      std::filesystem::create_directories(entry_dest, ec);
+      ok = !ec;
+    } else {
+      ok = CopyEntry(*entry, entry_dest);
+    }
   }
 
   if (!ok) {

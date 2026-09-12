@@ -53,11 +53,13 @@ REXCVAR_DEFINE_BOOL(bd_scene_color_r11g11b10, false, kCvarGroup,
                     "no alpha channel, 6/6/5-bit mantissas. Requires "
                     "restart.");
 
-REXCVAR_DEFINE_INT32(bd_anisotropy, 16, kCvarGroup,
+REXCVAR_DEFINE_INT32(bd_anisotropy, bd::gpu::kDefaultSettings.anisotropy,
+                     kCvarGroup,
                      "Anisotropic texture filtering level.")
     .range(0, 16);
 
-REXCVAR_DEFINE_INT32(bd_supersampling, 1, kCvarGroup,
+REXCVAR_DEFINE_INT32(bd_supersampling, bd::gpu::kDefaultSettings.superSampling,
+                     kCvarGroup,
                      "Render the scene at 2x the output resolution and "
                      "downsample. 1 = off, 2 = on. Requires restart.")
     .range(1, 2)
@@ -68,7 +70,7 @@ REXCVAR_DEFINE_INT32(bd_supersampling, 1, kCvarGroup,
     })
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 
-REXCVAR_DEFINE_INT32(bd_msaa, 4, kCvarGroup,
+REXCVAR_DEFINE_INT32(bd_msaa, bd::gpu::kDefaultSettings.msaa, kCvarGroup,
                      "MSAA sample count for the 3D scene: 0 = off, 2, 4, 8. "
                      "Clamped to device support. Requires restart.")
     .range(0, 8)
@@ -79,7 +81,8 @@ REXCVAR_DEFINE_INT32(bd_msaa, 4, kCvarGroup,
     })
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 
-REXCVAR_DEFINE_INT32(bd_render_scale, 100, kCvarGroup,
+REXCVAR_DEFINE_INT32(bd_render_scale, bd::gpu::kDefaultSettings.renderScale,
+                     kCvarGroup,
                      "Percent of the output resolution the 3D scene renders "
                      "at, upscaled at present. 100 renders at the output "
                      "resolution, and the design canvas of 1280x720 is the "
@@ -89,7 +92,8 @@ REXCVAR_DEFINE_INT32(bd_render_scale, 100, kCvarGroup,
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 
 REXCVAR_DEFINE_INT32(bd_post_quality,
-                     static_cast<i32>(bd::gpu::PostQuality::Medium), kCvarGroup,
+                     static_cast<i32>(bd::gpu::kDefaultSettings.postQuality),
+                     kCvarGroup,
                      "Resolution the bloom and depth-of-field chain runs at: "
                      "0 = half the scene, 1 = the scene, 2 = the widened "
                      "bloom target the native renderer builds. Requires "
@@ -98,13 +102,12 @@ REXCVAR_DEFINE_INT32(bd_post_quality,
            static_cast<i32>(bd::gpu::PostQuality::High))
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 
-REXCVAR_DEFINE_INT32(bd_reflection_quality,
-                     static_cast<i32>(bd::gpu::ReflectionQuality::Low),
-                     kCvarGroup,
-                     "How far a planar reflection grows past the size BD "
-                     "authored: 0 = not at all, 1 = with the render "
-                     "resolution, 2 = with supersampling too. Requires "
-                     "restart.")
+REXCVAR_DEFINE_INT32(
+    bd_reflection_quality,
+    static_cast<i32>(bd::gpu::kDefaultSettings.reflectionQuality), kCvarGroup,
+    "How far a planar reflection grows past the size BD authored: 0 = not at "
+    "all, 1 = with the render resolution, 2 = with supersampling too. "
+    "Requires restart.")
     .range(static_cast<i32>(bd::gpu::ReflectionQuality::Off),
            static_cast<i32>(bd::gpu::ReflectionQuality::High))
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
@@ -125,7 +128,8 @@ REXCVAR_DEFINE_DOUBLE(bd_dof_strength, 1.0, kCvarGroup,
       return rex::cvar::ParseDouble(v, d) && std::isfinite(d);
     });
 
-REXCVAR_DEFINE_INT32(bd_shadow_dimension, 4096, kCvarGroup,
+REXCVAR_DEFINE_INT32(bd_shadow_dimension,
+                     bd::gpu::kDefaultSettings.shadowDimension, kCvarGroup,
                      "Sun shadow-map resolution in pixels. Only "
                      "512/1024/2048/4096/8192, requires restart.")
     .range(512, 8192)
@@ -140,7 +144,8 @@ REXCVAR_DEFINE_INT32(bd_shadow_dimension, 4096, kCvarGroup,
 // A range alone does not reject NaN: neither NaN < min nor NaN > max is ever
 // true, so it passes validation and reaches shadowPcfScale, where clamp and
 // max propagate it into the uploaded constant.
-REXCVAR_DEFINE_DOUBLE(bd_shadow_distance, 2.0, kCvarGroup,
+REXCVAR_DEFINE_DOUBLE(bd_shadow_distance,
+                      bd::gpu::kDefaultSettings.shadowDistance, kCvarGroup,
                       "Sun shadow draw-distance multiplier (1.0 = X360 "
                       "native).")
     .range(1.0, 4.0)
@@ -179,28 +184,6 @@ std::string FormatCvar(i32 v) { return std::to_string(v); }
 std::string FormatCvar(bool v) { return v ? "true" : "false"; }
 
 constexpr f64 kShadowDistanceEpsilon = 0.01;
-
-struct PresetBundle {
-  i32 superSampling;
-  i32 msaa;
-  i32 anisotropy;
-  f64 shadowDistance;
-  i32 shadowDimension;
-  i32 renderScale;
-  PostQuality postQuality;
-  ReflectionQuality reflectionQuality;
-};
-
-constexpr PresetBundle kPresets[kQualityPresetCount] = {
-    /* Low    */ {1, 0, 16, 1.0, 1024, 75, PostQuality::Low,
-                  ReflectionQuality::Off},
-    /* Medium */ {1, 2, 16, 2.0, 2048, 100, PostQuality::Medium,
-                  ReflectionQuality::Low},
-    /* High   */ {2, 2, 16, 2.0, 4096, 100, PostQuality::High,
-                  ReflectionQuality::High},
-    /* Ultra  */ {2, 8, 16, 4.0, 8192, 100, PostQuality::High,
-                  ReflectionQuality::High},
-};
 
 } // namespace
 
