@@ -93,7 +93,9 @@ public:
   static std::thread
   RunAsync(const std::array<std::filesystem::path, kDiscCount> &iso_paths,
            const std::filesystem::path &game_data_dest, bool repair,
-           InstallProgress &progress);
+           InstallProgress &progress,
+           const std::array<std::filesystem::path, kDiscCount>
+               &korean_iso_paths = {});
 };
 
 } // namespace bd::installer

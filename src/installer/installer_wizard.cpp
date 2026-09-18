@@ -131,14 +131,61 @@ void InstallerWizard::ValidateISO(int index) {
   iso_valid_[index] = true;
   iso_fingerprints_[index] =
       DiscFingerprint(iso_paths_[index], *disc, index + 1);
-  iso_languages_[index] = ParseDiscLanguages(*disc).ui;
+  const auto languages = ParseDiscLanguages(*disc);
+  if (languages.ui.contains("kr")) {
+    iso_status_[index] = i18n::Text("installer.status.korean_use_import");
+    iso_valid_[index] = false;
+    iso_fingerprints_[index].clear();
+    return;
+  }
+  iso_languages_[index] = languages.ui;
   iso_status_[index] = i18n::Text("installer.status.valid");
 }
 
+void InstallerWizard::ValidateKoreanISO(int index) {
+  korean_iso_valid_[index] = false;
+  korean_iso_languages_[index].clear();
+  if (korean_iso_paths_[index].empty()) {
+    korean_iso_status_[index].clear();
+    return;
+  }
+
+  auto disc = OpenDiscImage(korean_iso_paths_[index]);
+  if (!disc) {
+    korean_iso_status_[index] = i18n::Text("installer.status.bad_image");
+    return;
+  }
+  if (!ValidateDisc(*disc, index + 1)) {
+    korean_iso_status_[index] =
+        i18n::Fmt("installer.status.wrong_disc", kDiscLabels[index]);
+    return;
+  }
+  const auto languages = ParseDiscLanguages(*disc);
+  if (!languages.ui.contains("kr")) {
+    korean_iso_status_[index] =
+        i18n::Text("installer.status.not_korean_retail");
+    return;
+  }
+  korean_iso_valid_[index] = true;
+  korean_iso_languages_[index] = languages.ui;
+  korean_iso_status_[index] = i18n::Text("installer.status.valid");
+}
+
+bool InstallerWizard::AnyKoreanISOSelected() const {
+  return std::any_of(korean_iso_paths_.begin(), korean_iso_paths_.end(),
+                     [](const auto &p) { return !p.empty(); });
+}
+
+bool InstallerWizard::AllKoreanISOsValid() const {
+  return std::all_of(korean_iso_valid_.begin(), korean_iso_valid_.end(),
+                     [](bool v) { return v; });
+}
+
 bool InstallerWizard::InputsReady() const {
-  return std::all_of(iso_valid_.begin(), iso_valid_.end(),
-                     [](bool v) { return v; }) &&
-         !install_dir_.empty();
+  const bool base_ready =
+      std::all_of(iso_valid_.begin(), iso_valid_.end(), [](bool v) { return v; });
+  const bool korean_ready = !AnyKoreanISOSelected() || AllKoreanISOsValid();
+  return base_ready && korean_ready && !install_dir_.empty();
 }
 
 void InstallerWizard::PickISO(int index) {
@@ -155,6 +202,22 @@ void InstallerWizard::PickISO(int index) {
     return;
   iso_paths_[index] = *picked;
   ValidateISO(index);
+}
+
+void InstallerWizard::PickKoreanISO(int index) {
+  const std::wstring isoLabel = Utf8ToWide(i18n::Text("installer.filter.iso"));
+  const std::wstring anyLabel = Utf8ToWide(i18n::Text("installer.filter.any"));
+  const bd::platform::FileFilter kIsoFilters[] = {
+      {isoLabel.c_str(), L"*.iso"},
+      {anyLabel.c_str(), L"*.*"},
+  };
+  auto picked = bd::platform::ShowOpenFileDialog(
+      Utf8ToWide(i18n::Text("installer.dialog.select_korean_iso")).c_str(),
+      kIsoFilters);
+  if (!picked)
+    return;
+  korean_iso_paths_[index] = *picked;
+  ValidateKoreanISO(index);
 }
 
 void InstallerWizard::PickInstallDir() {
@@ -200,9 +263,10 @@ void InstallerWizard::StartInstall() {
             (abs_user / "dlc").string(), ec.message());
   }
 
+  choices_.korean_import = AllKoreanISOsValid();
   try {
-    install_thread_ =
-        Installer::RunAsync(iso_paths_, abs_game, repair_, progress_);
+    install_thread_ = Installer::RunAsync(iso_paths_, abs_game, repair_,
+                                          progress_, korean_iso_paths_);
   } catch (const std::system_error &e) {
     BD_ERROR("Installer::RunAsync failed to spawn worker: {}", e.what());
     progress_.SetError(i18n::Fmt("installer.error.spawn", e.what()));
@@ -463,11 +527,15 @@ void InstallerWizard::DrawContent() {
   }
 
   DrawDiscs();
+  ImGui::Dummy(ImVec2(0, 8));
+  DrawKoreanDiscs();
 
   // The codes the discs carry, directly under the discs carrying them. Ten
   // abbreviations lit or dim say what a heading over them would.
   std::set<std::string> detected;
   for (const auto &s : iso_languages_)
+    detected.insert(s.begin(), s.end());
+  for (const auto &s : korean_iso_languages_)
     detected.insert(s.begin(), s.end());
   ImGui::Dummy(ImVec2(0, 2));
   DrawLanguageLights(detected);
@@ -519,6 +587,54 @@ void InstallerWizard::DrawDiscs() {
     ImGui::PopID();
   }
   ImGui::EndTable();
+}
+
+void InstallerWizard::DrawKoreanDiscs() {
+  SectionHeader(T("installer.section.korean_import"));
+  ImGui::TextWrapped("%s", T("installer.korean_import_notice"));
+  ImGui::Spacing();
+
+  const ImGuiTableFlags flags =
+      ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoBordersInBody;
+  if (!ImGui::BeginTable("##korean_inputs", 3, flags))
+    return;
+  ImGui::TableSetupColumn("##kr_btn", ImGuiTableColumnFlags_WidthFixed, 140.0f);
+  ImGui::TableSetupColumn("##kr_path", ImGuiTableColumnFlags_WidthStretch);
+  ImGui::TableSetupColumn("##kr_status", ImGuiTableColumnFlags_WidthFixed,
+                          160.0f);
+
+  for (int i = 0; i < kDiscCount; ++i) {
+    ImGui::PushID(100 + i);
+    ImGui::TableNextRow();
+
+    ImGui::TableSetColumnIndex(0);
+    const std::string btn =
+        i18n::Fmt("installer.button.select_disc", kDiscLabels[i]);
+    if (ImGui::Button(btn.c_str(), ImVec2(-FLT_MIN, 0)))
+      PickKoreanISO(i);
+
+    ImGui::TableSetColumnIndex(1);
+    ImGui::AlignTextToFramePadding();
+    FilenameCell(korean_iso_paths_[i]);
+
+    ImGui::TableSetColumnIndex(2);
+    if (!korean_iso_status_[i].empty()) {
+      const ImVec4 color = korean_iso_valid_[i]
+                               ? ImVec4(0.3f, 0.9f, 0.3f, 1.0f)
+                               : ImVec4(0.9f, 0.3f, 0.3f, 1.0f);
+      ImGui::AlignTextToFramePadding();
+      ImGui::TextColored(color, "%s", korean_iso_status_[i].c_str());
+    }
+
+    ImGui::PopID();
+  }
+  ImGui::EndTable();
+
+  if (AnyKoreanISOSelected() && !AllKoreanISOsValid()) {
+    ImGui::Spacing();
+    ImGui::TextColored(ImVec4(0.9f, 0.7f, 0.3f, 1.0f), "%s",
+                       T("installer.status.korean_all_three"));
+  }
 }
 
 void InstallerWizard::DrawOptions() {

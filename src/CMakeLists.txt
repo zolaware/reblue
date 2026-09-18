@@ -32,6 +32,8 @@ set(reblue_d3d12_only
 set(reblue_installer_only
     installer/disc_install.cpp
     installer/disc_install.h
+    installer/korean_import.cpp
+    installer/korean_import.h
     installer/installer_wizard.cpp
     installer/installer_wizard.h
     installer/self_install.cpp
