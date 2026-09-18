@@ -10,6 +10,8 @@
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <string_view>
 
@@ -44,6 +46,7 @@
 #include "generated/reblue_init.h"
 #include "gpu/gpu.h"
 #include "installer/installer.h"
+#include "installer/korean_import.h"
 #include "platform/platform.h"
 #include "vfs/vfs.h"
 
@@ -810,7 +813,7 @@ void ReblueApp::FinishInstaller(rex::PathConfig defaults,
   // was not the one loaded this session is read back first, so saving keeps the
   // settings it already held.
   if (choices.reset_config || !choices.settings.empty() ||
-      choices.update_check.has_value()) {
+      choices.update_check.has_value() || choices.korean_import) {
     const auto profile_cfg = bd::platform::ConfigFilePath();
     if (choices.reset_config) {
       rex::cvar::ResetAllToDefaults();
@@ -826,7 +829,35 @@ void ReblueApp::FinishInstaller(rex::PathConfig defaults,
     }
     if (choices.update_check.has_value())
       bd::Settings::Get().SetUpdateCheck(*choices.update_check);
+    if (choices.korean_import) {
+      rex::cvar::SetFlagByName("user_language", "7");
+      rex::cvar::SetFlagByName("bd_language", "kr");
+      const int voice_index = bd::installer::KoreanVoiceIndex(cfg.game_data_path());
+      if (voice_index > 0)
+        rex::cvar::SetFlagByName("bd_opt_voice_type",
+                                 std::to_string(voice_index));
+      rex::cvar::SetFlagByName("bd_opt_subtitles", "1");
+    }
     rex::cvar::SaveConfig(profile_cfg);
+  }
+
+  if (choices.korean_import) {
+    const auto order_path = profile_root_ / "mod_order.txt";
+    std::string order_body;
+    {
+      std::ifstream in(order_path);
+      if (in)
+        order_body.assign(std::istreambuf_iterator<char>(in),
+                          std::istreambuf_iterator<char>());
+    }
+    if (order_body.find("bd_asia_text") == std::string::npos) {
+      std::ofstream out(order_path, std::ios::app);
+      if (out) {
+        if (!order_body.empty() && order_body.back() != '\n')
+          out << '\n';
+        out << "bd_asia_text\n";
+      }
+    }
   }
 
 #if defined(_WIN32)

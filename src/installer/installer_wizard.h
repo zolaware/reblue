@@ -54,6 +54,7 @@ struct WizardChoices {
   std::optional<bool> update_check;
   bool create_shortcut = false;
   bool reset_config = false;
+  bool korean_import = false;
 };
 
 // ImGuiDialog::Close() does 'delete this' and its destructor is not virtual.
@@ -87,6 +88,7 @@ private:
   void DrawContent();
   void DrawOptions();
   void DrawDiscs();
+  void DrawKoreanDiscs();
   void DrawDLCSection();
   void DrawPreferences();
   void DrawFooter();
@@ -98,8 +100,12 @@ private:
   void DrawDone();
 
   void PickISO(int index);
+  void PickKoreanISO(int index);
   void PickInstallDir();
   void ValidateISO(int index);
+  void ValidateKoreanISO(int index);
+  bool AnyKoreanISOSelected() const;
+  bool AllKoreanISOsValid() const;
   bool InputsReady() const;
   void StartInstall();
   void StartIndexRebuild();
@@ -125,6 +131,11 @@ private:
   std::array<std::string, kDiscCount> iso_fingerprints_;
   // [Language] codes per validated disc.
   std::array<std::set<std::string>, kDiscCount> iso_languages_;
+
+  std::array<std::filesystem::path, kDiscCount> korean_iso_paths_;
+  std::array<bool, kDiscCount> korean_iso_valid_ = {};
+  std::array<std::string, kDiscCount> korean_iso_status_;
+  std::array<std::set<std::string>, kDiscCount> korean_iso_languages_;
 
   std::filesystem::path
       install_dir_; // install_dir/{game,user} created at install time

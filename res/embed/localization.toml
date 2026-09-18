@@ -1143,6 +1143,7 @@ start.label.po = "Botão Start"
 
 [installer]
 repair_notice.us = "An existing install was detected. Select your discs to add or repair language files; files already installed are left in place."
+korean_import_notice.us = "Optional: owners of the Korean retail release can import Korean UI, subtitles and voices. The NTSC-U executable remains the base."
 repair_notice.de = "Eine bereits vorhandene Installation wurde gefunden. Wähle deine Disks aus um Sprachdateien hinzuzufügen oder zu reparieren, bereits installierte Dateien bleiben bestehen."
 repair_notice.es = "Se detectó una instalación existente. Selecciona tus discos para agregar o reparar archivos de idioma; los archivos ya instalados se mantienen."
 repair_notice.fr = "Une installation préexistante a été détectée. Sélectionnez des disques pour ajouter ou réparer des fichiers de langue; les fichiers déjà installés ne seront pas affectés"
@@ -1189,6 +1190,7 @@ options.po = "re:Blue - Opções"
 
 [installer.section]
 sources.us = "Install Sources"
+korean_import.us = "Optional Korean Retail Import"
 sources.de = "Quellen installieren"
 sources.es = "Fuentes de instalación"
 sources.fr = "Sources de l'installation"
@@ -1278,6 +1280,9 @@ wrong_disc.es = "Disco incorrecto - se esperaba {}"
 wrong_disc.fr = "Mauvais disque - cherche {}"
 wrong_disc.it = "Disco errato - atteso {}"
 wrong_disc.po = "Disco incorreto - esperado {}"
+korean_use_import.us = "Korean/Asian retail discs cannot be used as the NTSC-U base. Add them under Korean Retail Import instead."
+not_korean_retail.us = "This disc does not advertise Korean retail content."
+korean_all_three.us = "Korean retail import requires DVD 1, DVD 2 and DVD 3."
 
 [installer.button]
 select_disc.us = "Select {}"
@@ -1415,6 +1420,7 @@ spawn.po = "Falha ao iniciar a instalação: {}"
 
 [installer.dialog]
 select_iso.us = "Select Xbox 360 Disc Image"
+select_korean_iso.us = "Select Korean retail Xbox 360 Disc Image"
 select_iso.de = "Wähle Xbox 360 Disk Image"
 select_iso.es = "Seleccionar una imagen de disco de Xbox 360"
 select_iso.fr = "Sélectionnez un fichier d'image de disque Xbox 360"
