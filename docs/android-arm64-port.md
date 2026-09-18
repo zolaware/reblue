@@ -23,6 +23,22 @@ The current prototype uses:
 - a shared re:Blue host library named `libmain.so`;
 - the matching ReXGlue `librexruntime.so` packaged in the APK.
 
+## Current tested device baseline
+
+The Android prototype should currently be treated as targeting **Snapdragon 8
+Gen-series class hardware or newer**, rather than older Snapdragon flagship
+parts.
+
+Results verified so far:
+
+- Snapdragon 865: **failed** to run the current prototype successfully;
+- Snapdragon 8 Gen 2: **working**;
+- Snapdragon Elite-class Fold8 test device: **working**.
+
+This is a practical compatibility baseline from the devices tested so far, not
+a claim that every Snapdragon 8 Gen-series device is already validated. In
+particular, Snapdragon 8 Gen 1 has not yet been independently verified.
+
 For Android, the CMake target is a shared library rather than the desktop
 executable. SDLActivity loads `librexruntime` and `libmain`, then enters the
 normal native re:Blue startup path. The built-in desktop disc installer is
@@ -106,9 +122,12 @@ Android port work to run re:Blue on ARM64/Vulkan hardware.
 ## Remaining work before calling Android supported
 
 The largest remaining concern is driver coverage. Android Vulkan
-implementations vary substantially in descriptor-indexing limits and behavior,
-so the fallback paths should be tested on a broader set of Adreno, Mali and
-other GPUs before upstream support is advertised.
+implementations vary substantially in descriptor-indexing limits and behavior.
+The currently observed floor is newer than Snapdragon 865, with successful
+tests on Snapdragon 8 Gen 2 and a Snapdragon Elite-class Fold8 device. Broader
+testing is still needed across Snapdragon 8 Gen-series generations and other
+Adreno, Mali and Android Vulkan implementations before upstream support is
+advertised.
 
 Controller mappings, vibration behavior, lifecycle restoration, file access on
 newer Android storage models, and performance/shader-cache coverage also need
