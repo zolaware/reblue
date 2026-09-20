@@ -76,6 +76,10 @@ public:
   // stays on the render thread at the frame boundary.
   static void RequestResize();
 
+  static void SyncBackBufferSizeLocked();
+
+  static void ResizeTexture(GuestTexture *tex, u32 width, u32 height);
+
   static void NotifyTextureDestroyed(GuestTexture *dead);
 
   static void ReissueSurface(GuestTexture *surface);

@@ -28,6 +28,7 @@ struct VisualRender_t {
   /* 0x1B58 */ be_f32 safeRate;
   /* 0x1B5C */ u8 _pad1B5C[0x1BC4 - 0x1B5C];
   /* 0x1BC4 */ be_f32 renderRate;
+  /* 0x1BC8 */ be_u32 fsaa;
 };
 static_assert(offsetof(VisualRender_t, screenW) == 0x1A38);
 static_assert(offsetof(VisualRender_t, screenH) == 0x1A3C);
@@ -36,6 +37,7 @@ static_assert(offsetof(VisualRender_t, screenPosX) == 0x1B44);
 static_assert(offsetof(VisualRender_t, screenPosY) == 0x1B48);
 static_assert(offsetof(VisualRender_t, safeRate) == 0x1B58);
 static_assert(offsetof(VisualRender_t, renderRate) == 0x1BC4);
+static_assert(offsetof(VisualRender_t, fsaa) == 0x1BC8);
 
 } // namespace
 
@@ -108,6 +110,14 @@ bool VisualRender::SetRenderRate(f32 v) {
   if (!self)
     return false;
   self->renderRate = v;
+  return true;
+}
+
+bool VisualRender::SetFSAA(bool on) {
+  auto *self = Self<VisualRender_t>();
+  if (!self)
+    return false;
+  self->fsaa = on ? 1u : 0u;
   return true;
 }
 

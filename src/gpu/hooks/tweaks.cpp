@@ -34,6 +34,26 @@ constexpr u32 kScreenUVScaleReg = 50;
 constexpr u32 kSsScatterBlurEA = 0x82DF4344;
 constexpr u32 kOpaqueBlackArgb = 0xFF000000u;
 
+constexpr u32 kBloomPoolSlotDims[] = {0x30A8, 0x30F4};
+constexpr u32 kDOFPoolSlotDims[] = {0x268, 0x318};
+
+bool PostQualityChanged(u32 owner) {
+  static std::unordered_map<u32, bd::gpu::PostQuality> applied;
+  const bd::gpu::PostQuality quality = bd::gpu::Settings::Get().PostQuality();
+  auto &entry = applied.try_emplace(owner, quality).first->second;
+  if (entry == quality)
+    return false;
+  entry = quality;
+  return true;
+}
+
+void InvalidatePoolKeys(u32 owner, const u32 (&slots)[2]) {
+  for (const u32 slot : slots) {
+    bd::mem::store<u32>(owner + slot, 0);
+    bd::mem::store<u32>(owner + slot + 4, 0);
+  }
+}
+
 f64 BloomTargetScale() {
   switch (bd::gpu::Settings::Get().PostQuality()) {
   case bd::gpu::PostQuality::Low:
@@ -54,7 +74,7 @@ f64 DOFIntermediateScale() {
 
 void ScaleBlurTapStep(PPCRegister &w, PPCRegister &h, f64 grown) {
   const f64 s = bd::gpu::SceneRenderScale() * grown;
-  if (s <= 0.0 || s == 1.0)
+  if (s == 1.0)
     return;
   w.f64 /= s;
   h.f64 /= s;
@@ -85,46 +105,48 @@ f32 SceneRenderScale() {
 
 } // namespace bd::gpu
 
-void bdSceneFSAASeedHook(PPCRegister &r11) {
-  r11.u32 = bd::gpu::Settings::Get().MSAA() > 0 ? 1u : 0u;
-}
-
 bool bdSceneTilingSuppressHook() { return true; }
 
 void bdSceneRenderScaleHook(PPCRegister &r31) {
-  bd::engine::VisualRender(r31.u32).SetRenderRate(
-      static_cast<f32>(bd::gpu::Settings::Get().SuperSampling()));
+  bd::engine::VisualRender render(r31.u32);
+  const f32 rate = static_cast<f32>(bd::gpu::Settings::Get().SuperSampling());
+  if (render.RenderRate() != rate)
+    render.SetRenderRate(rate);
+  render.SetFSAA(bd::gpu::Settings::Get().MSAA() > 0);
 }
 
 void bdReflectionResolutionScaleHook(PPCRegister &r31) {
-  const bd::gpu::ReflectionQuality quality =
-      bd::gpu::Settings::Get().ReflectionQuality();
-  if (quality == bd::gpu::ReflectionQuality::Off)
-    return;
-  u32 fit_w = 0;
-  u32 fit_h = 0;
-  if (!bd::gpu::Output::RenderSize(fit_w, fit_h))
-    return;
   auto *info = bd::mem::at<bd::gpu::PlaneReflectInfo>(r31.u32);
   if (!info)
     return;
 
-  const f64 rate = quality == bd::gpu::ReflectionQuality::High
-                       ? bd::gpu::SceneRenderScale()
-                       : 1.0;
-  const f64 density = bd::gpu::Output::RenderDensity();
-  const u32 scene_w =
-      static_cast<u32>(fit_w * bd::gpu::Output::RenderFraction() * rate) & ~31u;
   const u32 stock = static_cast<u32>(info->width);
-  const u32 width = std::min(
-      static_cast<u32>(stock * density * rate + 0.5) & ~31u, scene_w);
-  if (width > stock)
-    info->width = width;
+  u32 width = stock;
+
+  const bd::gpu::ReflectionQuality quality =
+      bd::gpu::Settings::Get().ReflectionQuality();
+  u32 fit_w = 0;
+  u32 fit_h = 0;
+  if (quality != bd::gpu::ReflectionQuality::Off &&
+      bd::gpu::Output::RenderSize(fit_w, fit_h)) {
+    const f64 rate = quality == bd::gpu::ReflectionQuality::High
+                         ? bd::gpu::SceneRenderScale()
+                         : 1.0;
+    const f64 density = bd::gpu::Output::RenderDensity();
+    const u32 scene_w =
+        static_cast<u32>(fit_w * bd::gpu::Output::RenderFraction() * rate) &
+        ~31u;
+    const u32 scaled = std::min(
+        static_cast<u32>(stock * density * rate + 0.5) & ~31u, scene_w);
+    if (scaled > stock)
+      width = scaled;
+  }
+  info->width = width;
 
   static std::unordered_map<u32, u32> forced;
   u32 &last = forced[r31.u32];
-  if (last != static_cast<u32>(info->width)) {
-    last = info->width;
+  if (last != width) {
+    last = width;
     info->lastScale = -1.0f;
   }
 }
@@ -151,6 +173,18 @@ void bdShadowResolutionScaleHook(PPCRegister &r3, PPCRegister &r4) {
   const u32 d = static_cast<u32>(bd::gpu::Settings::Get().ShadowDimension());
   r3.u32 = d;
   r4.u32 = d;
+}
+
+void bdShadowMapTextureResizeHook(PPCRegister &r31) {
+  auto *info = bd::mem::at<bd::gpu::ShadowMapInfo>(r31.u32);
+  if (!info)
+    return;
+  auto *texture = bd::gpu::HostResourceHeap::FromGuest<bd::gpu::GuestTexture>(
+      info->texture);
+  if (!texture)
+    return;
+  const u32 d = static_cast<u32>(bd::gpu::Settings::Get().ShadowDimension());
+  bd::gpu::Video::ResizeTexture(texture, d, d);
 }
 
 // f1 is the sun frustum's coverage scale, and BD's own curve saturates at a
@@ -187,6 +221,16 @@ void bdBloomBlurTapStepHook(PPCRegister &f0, PPCRegister &f13) {
 
 void bdBloomTargetSizeHook(PPCRegister &r4, PPCRegister &r5) {
   ScaleTargetDims(r4, r5, BloomTargetScale());
+}
+
+void bdBloomPoolInvalidateHook(PPCRegister &r31) {
+  if (PostQualityChanged(r31.u32))
+    InvalidatePoolKeys(r31.u32, kBloomPoolSlotDims);
+}
+
+void bdDOFPoolInvalidateHook(PPCRegister &r31) {
+  if (PostQualityChanged(r31.u32))
+    InvalidatePoolKeys(r31.u32, kDOFPoolSlotDims);
 }
 
 void bdDOFIntermediateScaleHook(PPCRegister &r28, PPCRegister &r26) {

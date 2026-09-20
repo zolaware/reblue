@@ -60,12 +60,15 @@ bool SetRenderResolution(const char *preset) {
   rex::cvar::ResetToDefault("video_mode_width");
   rex::cvar::ResetToDefault("video_mode_height");
   i32 w = 0, h = 0;
+  bool ok = true;
   if (!preset || !*preset ||
       !rex::graphics::video_mode_util::TryParseResolutionPreset(preset, w, h)) {
     rex::cvar::ResetToDefault("resolution");
-    return true;
+  } else {
+    ok = rex::cvar::SetFlagByName("resolution", preset);
   }
-  return rex::cvar::SetFlagByName("resolution", preset);
+  gpu::Output::Recompute();
+  return ok;
 }
 
 constexpr SettingOption kDisplayMode[] = {
@@ -499,12 +502,10 @@ constexpr SettingRow kDisplaySettings[] = {
                  .cvar = "fullscreen",
                  .cvar2 = "fullscreen_exclusive"},
      .options = kDisplayMode,
-     .count = OptCount(kDisplayMode),
-     .restart = true},
+     .count = OptCount(kDisplayMode)},
     {.label = "settings.display.monitor.label",
      .group = "menu.header.window",
      .binding = {.cvar = "monitor"},
-     .restart = true,
      .sliderUi = true,
      .special = SettingSpecial::Monitor},
     {.label = "settings.display.resolution.label",
@@ -512,14 +513,12 @@ constexpr SettingRow kDisplaySettings[] = {
      .binding = {.get = RenderResolutionNum, .setText = SetRenderResolution},
      .options = kResolution,
      .count = OptCount(kResolution),
-     .restart = true,
      .sliderUi = true},
     {.label = "settings.display.window_size.label",
      .group = "menu.header.window",
      .binding = {.cvar = "window_width", .cvar2 = "window_height"},
      .options = kWindowSize,
      .count = OptCount(kWindowSize),
-     .restart = true,
      .sliderUi = true,
      .windowedGated = true},
     {.label = "settings.display.aspect_ratio.label",
@@ -535,7 +534,6 @@ constexpr SettingRow kDisplaySettings[] = {
              }},
      .options = kAspect,
      .count = OptCount(kAspect),
-     .restart = true,
      .sliderUi = true},
     {.label = "settings.display.cursor_auto_hide.label",
      .group = "menu.header.window",
@@ -550,7 +548,6 @@ constexpr SettingRow kDisplaySettings[] = {
                            static_cast<i32>(v));
                      }},
      .kind = SettingKind::Slider,
-     .restart = true,
      .smin = 0.0,
      .smax = 30.0,
      .sstep = 1.0,
@@ -620,7 +617,6 @@ constexpr SettingRow kGraphicsSettings[] = {
                      }},
      .options = kPresetOpts,
      .count = OptCount(kPresetOpts),
-     .restart = true,
      .optionDisabled =
          [](const SettingOption &o) {
            return static_cast<int>(o.num) == kPresetCustom &&
@@ -639,8 +635,7 @@ constexpr SettingRow kGraphicsSettings[] = {
                            static_cast<i32>(v));
                      }},
      .options = kMSAA,
-     .count = OptCount(kMSAA),
-     .restart = true},
+     .count = OptCount(kMSAA)},
     {.label = "settings.graphics.supersampling.label",
      .group = "menu.header.anti_aliasing",
      .binding = {.get =
@@ -654,8 +649,7 @@ constexpr SettingRow kGraphicsSettings[] = {
                            static_cast<i32>(v));
                      }},
      .options = kSuperSampling,
-     .count = OptCount(kSuperSampling),
-     .restart = true},
+     .count = OptCount(kSuperSampling)},
     {.label = "settings.graphics.render_scale.label",
      .group = "menu.header.detail",
      .binding = {.get =
@@ -670,7 +664,6 @@ constexpr SettingRow kGraphicsSettings[] = {
                      }},
      .options = kRenderScale,
      .count = OptCount(kRenderScale),
-     .restart = true,
      .sliderUi = true},
     {.label = "settings.graphics.anisotropic.label",
      .group = "menu.header.detail",
@@ -697,7 +690,6 @@ constexpr SettingRow kGraphicsSettings[] = {
                      }},
      .options = kShadowQuality,
      .count = OptCount(kShadowQuality),
-     .restart = true,
      .sliderUi = true},
     {.label = "settings.graphics.reflections.label",
      .group = "menu.header.detail",
@@ -713,7 +705,6 @@ constexpr SettingRow kGraphicsSettings[] = {
                      }},
      .options = kReflectionQuality,
      .count = OptCount(kReflectionQuality),
-     .restart = true,
      .sliderUi = true},
     {.label = "settings.graphics.post_processing.label",
      .group = "menu.header.detail",
@@ -729,7 +720,6 @@ constexpr SettingRow kGraphicsSettings[] = {
                      }},
      .options = kPostQuality,
      .count = OptCount(kPostQuality),
-     .restart = true,
      .sliderUi = true},
     // Counted in percent, so the row reads as how much of the effect is left
     // rather than as the multiplier the setting stores.

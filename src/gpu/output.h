@@ -33,6 +33,10 @@ constexpr double kDesignCanvasAspectEpsilon = 0.01;
 class Output {
 public:
   static void Init(rex::ui::Window *window);
+
+  static bool Recompute();
+  static u32 Generation();
+
   static bool RenderSize(u32 &w, u32 &h);
 
   static double RenderDensity();

@@ -34,6 +34,7 @@ public:
   bool SetSafeRate(f32 v);
   f32 RenderRate() const;
   bool SetRenderRate(f32 v);
+  bool SetFSAA(bool on);
 };
 
 } // namespace bd::engine

@@ -328,6 +328,7 @@ void Video::Present(GuestTexture *frontBuffer) {
   s.frame_present_committed = true;
   BD_FRAME_MARK();
   UpdateFrameStats();
+  Video::SyncBackBufferSizeLocked();
   lock.unlock();
   {
     BD_CPU_ZONE("DrainSlot");

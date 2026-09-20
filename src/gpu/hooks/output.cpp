@@ -23,6 +23,7 @@
 #include "engine/engine.h"
 #include "gpu/d3d.h"
 #include "gpu/device.h"
+#include "gpu/host_resource_heap.h"
 #include "gpu/settings.h"
 #include "gpu/hooks/tweaks.h"
 
@@ -62,6 +63,17 @@ constexpr u32 kDisplayFloatDimsEA = 0x82DDA5E8; // {width, height} f32 pair
 constexpr u32 kViewportWidthEA = 0x82DE8918;
 constexpr u32 kViewportHeightEA = 0x82DE891C;
 
+constexpr u32 kVisualRenderScreens[] = {0x1A28, 0x1B14, 0x1B1C};
+
+constexpr u32 kCompositeScreenEA = 0x82DC98D0;
+
+constexpr u32 kScreenFormat = 0x28280106;
+constexpr u32 kCompositeFormat = 0x182801B6;
+
+constexpr u32 kRenderTargetNextOff = 0x08;
+constexpr u32 kRenderTargetOwnerOff = 0x0C;
+constexpr u32 kRenderTargetTextureOff = 0x04;
+
 // An authored sequence sizes its screen-covering effect quads to just span the
 // fov the game frames itself at, so a wider frame leaves them short of the
 // edges. Battle carries the summon and corporeal sequences, which run off the
@@ -69,6 +81,13 @@ constexpr u32 kViewportHeightEA = 0x82DE891C;
 bool AuthoredFraming() {
   return bd::engine::IssEvent::LiveCount() > 0 ||
          static_cast<bool>(bd::engine::Game::Get().BattleCameraTask());
+}
+
+void WriteGuestOutputDims(u32 w, u32 h) {
+  bd::mem::store<u32>(kDeviceBackBufferWEA, w);
+  bd::mem::store<u32>(kDeviceBackBufferHEA, h);
+  bd::mem::store<float>(kDisplayFloatDimsEA, static_cast<float>(w));
+  bd::mem::store<float>(kDisplayFloatDimsEA + 4, static_cast<float>(h));
 }
 
 bool ScaleDesignDims(f64 &w, f64 &h) {
@@ -102,10 +121,7 @@ void bdOutputResDeviceDimsHook() {
   u32 w, h;
   if (!Output::RenderSize(w, h))
     return;
-  bd::mem::store<u32>(kDeviceBackBufferWEA, w);
-  bd::mem::store<u32>(kDeviceBackBufferHEA, h);
-  bd::mem::store<float>(kDisplayFloatDimsEA, static_cast<float>(w));
-  bd::mem::store<float>(kDisplayFloatDimsEA + 4, static_cast<float>(h));
+  WriteGuestOutputDims(w, h);
   BD_INFO("[output-res] BD render dims -> {}x{} (swapchain {}x{})", w, h,
           bd::gpu::Video::OutputWidth(), bd::gpu::Video::OutputHeight());
 }
@@ -124,6 +140,67 @@ void bdOutputResCompositeTexScaleHook(PPCRegister &r3, PPCRegister &r4) {
     return;
   r3.u32 = w;
   r4.u32 = h;
+}
+
+REX_IMPORT(__imp__bdCreateDynamicTexture, CreateDynamicTexture,
+           u32(u32, u32, u32, u32, u32));
+REX_IMPORT(__imp__bdCameraViewInit, CameraViewInit, void(u32, u32));
+
+namespace {
+
+void ResizeStaleRenderTargets(rex::CallFrame &frame, u8 *base, u32 node, u32 w,
+                              u32 h) {
+  if (!w || !h)
+    return;
+  for (u32 guard = 0; node && guard < 256; ++guard) {
+    const u32 owner = bd::mem::load<u32>(node + kRenderTargetOwnerOff);
+    if (owner) {
+      const auto *texture =
+          bd::gpu::HostResourceHeap::FromGuest<bd::gpu::GuestTexture>(
+              bd::mem::load<u32>(owner + kRenderTargetTextureOff));
+      if (texture && (texture->width != w || texture->height != h))
+        CreateDynamicTexture(frame, base, owner, w, h, 1, kScreenFormat);
+    }
+    node = bd::mem::load<u32>(node + kRenderTargetNextOff);
+  }
+}
+
+void RebuildForOutputSize(rex::CallFrame &frame, u8 *base, u32 w, u32 h) {
+  const u32 render = bd::engine::VisualRender::Get().Address();
+  if (!render)
+    return;
+
+  WriteGuestOutputDims(w, h);
+  for (const u32 screen : kVisualRenderScreens)
+    CreateDynamicTexture(frame, base, render + screen, w, h, 1, kScreenFormat);
+  CreateDynamicTexture(frame, base, kCompositeScreenEA, w, h, 1,
+                       kCompositeFormat);
+
+  CameraViewInit(frame, base, render, 0);
+  BD_INFO("[output-res] engine surfaces rebuilt at {}x{}", w, h);
+}
+
+} // namespace
+
+REX_EXTERN(__imp__bdCreateRenderTargetTextures);
+REX_HOOK_RAW(bdCreateRenderTargetTextures) {
+  u32 w = 0;
+  u32 h = 0;
+  if (Output::RenderSize(w, h)) {
+    const u32 head = ctx.r3.u32;
+    const u32 want_w = (static_cast<u32>(ctx.f1.f64) + 7) & ~7u;
+    const u32 want_h = (static_cast<u32>(ctx.f2.f64) + 7) & ~7u;
+
+    rex::CallFrame frame(ctx);
+    static u32 applied = Output::Generation();
+    const u32 generation = Output::Generation();
+    if (generation != applied) {
+      applied = generation;
+      RebuildForOutputSize(frame, base, w, h);
+    }
+    ResizeStaleRenderTargets(frame, base, head, want_w, want_h);
+  }
+  __imp__bdCreateRenderTargetTextures(ctx, base);
 }
 
 // The projection aspect is a camera field seeded with a literal 16:9, never

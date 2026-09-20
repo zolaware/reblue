@@ -28,8 +28,6 @@ public:
   void AdoptCvars();
 
   // Seconds of mouse inactivity over the window before the cursor hides.
-  // 0 = never hide. Restart-bound: the value updates here as soon as it is
-  // set, but the cursor keeps the timeout it booted with.
   i32 CursorHideSeconds() const { return cursorHideSeconds_; }
   bool SetCursorHideSeconds(i32 v);
 
@@ -46,6 +44,8 @@ public:
   // and from then on every stage change reaches it, including one typed at
   // the console.
   void SetOverlayApplier(std::function<void(i32)> applier);
+
+  void SetCursorApplier(std::function<void(i32)> applier);
 
 private:
   Settings() = default;
@@ -64,6 +64,7 @@ private:
   i32 perfOverlayAlpha_ = 35;
 
   std::function<void(i32)> overlayApplier_;
+  std::function<void(i32)> cursorApplier_;
 };
 
 } // namespace bd::ui

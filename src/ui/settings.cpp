@@ -16,9 +16,8 @@ REXCVAR_DECLARE(i32, bd_perf_overlay_alpha);
 
 REXCVAR_DEFINE_INT32(bd_cursor_hide_seconds, 5, kCvarGroup,
                      "Seconds of mouse inactivity over the window before the "
-                     "cursor hides. 0 = never hide. Requires restart.")
-    .range(0, 300)
-    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+                     "cursor hides. 0 = never hide.")
+    .range(0, 300);
 
 REXCVAR_DEFINE_INT32(bd_perf_overlay, 0, kCvarGroup,
                      "F3 overlay stage: 0 off, 1 KPI strip, 2 graphs.")
@@ -44,6 +43,8 @@ Settings &Settings::Get() {
 // This is the only place either of those happens.
 void Settings::AdoptCursorHideSeconds() {
   cursorHideSeconds_ = REXCVAR_GET(bd_cursor_hide_seconds);
+  if (cursorApplier_)
+    cursorApplier_(cursorHideSeconds_);
 }
 
 // The overlay stage has no host state of its own. The applier ReblueApp
@@ -81,6 +82,12 @@ void Settings::SetOverlayApplier(std::function<void(i32)> applier) {
   overlayApplier_ = std::move(applier);
   if (overlayApplier_)
     overlayApplier_(perfOverlay_);
+}
+
+void Settings::SetCursorApplier(std::function<void(i32)> applier) {
+  cursorApplier_ = std::move(applier);
+  if (cursorApplier_)
+    cursorApplier_(cursorHideSeconds_);
 }
 
 void Settings::AdoptCvars() {

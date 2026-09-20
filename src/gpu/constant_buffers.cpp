@@ -84,11 +84,6 @@ UploadState &upload_state() {
   return s;
 }
 
-// Shrink the sun shadow PCF kernel inversely to the coverage box so its
-// world-space penumbra stays constant as ShadowCoverageScale widens the light
-// frustum, floored at one texel of the actual shadow map. Once per frame, not
-// per draw, so a distance change applies without a restart (the dimension term
-// lags a pending restart-gated change until the map is recreated).
 void RecomputeShadowPcfScale(UploadState &s) {
   const f64 dist = std::clamp(ShadowCoverageScale(), 1.0, 4.0);
   const f64 dim = std::max(512, Settings::Get().ShadowDimension());

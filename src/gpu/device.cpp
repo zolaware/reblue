@@ -116,10 +116,9 @@ bool BuildPresentSemaphores(VideoState &s) {
 }
 
 plume::RenderSampleCounts Video::CvarMSAASampleCount() {
-  static const i32 boot_msaa = Settings::Get().MSAA();
   auto &s = state();
   plume::RenderSampleCounts requested;
-  switch (boot_msaa) {
+  switch (Settings::Get().MSAA()) {
   case 2:
     requested = plume::RenderSampleCount::COUNT_2;
     break;
@@ -478,6 +477,85 @@ bool Video::CreateHostDevice(rex::ui::Window *window) {
   // not exist yet are deferred until CreateShader/CreateVertexDeclaration.
   ReplayBootCache();
   return true;
+}
+
+void Video::SyncBackBufferSizeLocked() {
+  auto &s = state();
+  GuestTexture *bb = s.back_buffer_surface;
+  if (!bb)
+    return;
+  u32 w = 0;
+  u32 h = 0;
+  GuestBackBufferDims(w, h);
+  if (bb->width == w && bb->height == h)
+    return;
+
+  SubmitOpenListLocked(s);
+  for (u32 i = 0; i < kNumFrames; ++i) {
+    if (s.command_list_submitted[i]) {
+      s.queue->waitForCommandFence(s.fences[i].get());
+      s.command_list_submitted[i] = false;
+    }
+  }
+
+  if (!CreateBackBufferTexture(s, bb, w, h)) {
+    BD_ERROR("Back-buffer resize to {}x{} failed", w, h);
+    return;
+  }
+  if (bb->descriptorIndex != kInvalidDescriptorIndex) {
+    s.texture_descriptor_set->setTexture(
+        bb->descriptorIndex, bb->texture,
+        plume::RenderTextureLayout::SHADER_READ, bb->textureView.get());
+  }
+  s.viewport.width = static_cast<float>(w);
+  s.viewport.height = static_cast<float>(h);
+  s.dirtyStates.viewport = true;
+  BD_INFO("[output-res] back buffer -> {}x{}", w, h);
+}
+
+void Video::ResizeTexture(GuestTexture *tex, u32 width, u32 height) {
+  if (!tex || !tex->texture || (tex->width == width && tex->height == height))
+    return;
+  if (tex->viewDimension != plume::RenderTextureViewDimension::TEXTURE_2D)
+    return;
+  auto *device = HostDevice();
+  if (!device)
+    return;
+
+  NotifyTextureDestroyed(tex);
+  ParkTextureGPUObjects(tex);
+
+  const bool is_depth = IsDepthFormat(tex->format);
+  plume::RenderTextureDesc desc;
+  desc.dimension = plume::RenderTextureDimension::TEXTURE_2D;
+  desc.width = width;
+  desc.height = height;
+  desc.depth = 1;
+  desc.mipLevels = tex->mipLevels ? tex->mipLevels : 1;
+  desc.arraySize = 1;
+  desc.format = tex->format;
+  if (is_depth) {
+    desc.flags = plume::RenderTextureFlag::DEPTH_TARGET;
+  } else if (IsRenderTargetCapable(tex->format)) {
+    desc.flags = plume::RenderTextureFlag::RENDER_TARGET;
+  } else {
+    desc.flags = plume::RenderTextureFlag::NONE;
+  }
+  desc.multisampling.sampleCount = tex->sampleCount;
+  desc.committed = false;
+
+  tex->textureHolder = CreateHostTexture(device, desc, "resized-texture");
+  tex->texture = tex->textureHolder.get();
+  if (!tex->texture) {
+    BD_ERROR("Texture resize to {}x{} failed", width, height);
+    return;
+  }
+  tex->width = width;
+  tex->height = height;
+  tex->layout = plume::RenderTextureLayout::UNKNOWN;
+  tex->framebufferAttached = false;
+  if (!is_depth)
+    BindTextureSRV(tex);
 }
 
 void Video::BeginShutdown() {

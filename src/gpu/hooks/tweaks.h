@@ -32,6 +32,12 @@ static_assert(offsetof(PlaneReflectInfo, width) == 0xA8);
 static_assert(offsetof(PlaneReflectInfo, height) == 0xAC);
 static_assert(offsetof(PlaneReflectInfo, lastScale) == 0x114);
 
+struct ShadowMapInfo {
+  be_u32 pad_00[3];
+  be_u32 texture;
+};
+static_assert(offsetof(ShadowMapInfo, texture) == 0x0C);
+
 // Sun shadow coverage multiplier in force right now. The light frustum hook and
 // the PCF kernel compensation must read the same value or the kernel shrink
 // stops matching the coverage box.

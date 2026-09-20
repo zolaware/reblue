@@ -340,12 +340,18 @@ void ReblueApp::OnCreateDialogs(rex::ui::ImGuiDrawer *drawer) {
   bd::platform::Keyboard().Attach(window());
   bd::platform::Mouse().Attach(window());
 
-  i32 cursor_hide_s = bd::ui::Settings::Get().CursorHideSeconds();
-  if (cursor_hide_s > 0) {
-    window()->SetCursorAutoHideDelayMs(u32(cursor_hide_s) * 1000u);
-    window()->SetCursorVisibility(
-        rex::ui::Window::CursorVisibility::kAutoHidden);
-  }
+  bd::ui::Settings::Get().SetCursorApplier([this](i32 seconds) {
+    app_context().CallInUIThread([this, seconds] {
+      if (seconds > 0) {
+        window()->SetCursorAutoHideDelayMs(u32(seconds) * 1000u);
+        window()->SetCursorVisibility(
+            rex::ui::Window::CursorVisibility::kAutoHidden);
+      } else {
+        window()->SetCursorVisibility(
+            rex::ui::Window::CursorVisibility::kVisible);
+      }
+    });
+  });
 
   ImPlot::CreateContext();
   // Sized for the 120 fps cap. An uncapped run covers proportionally less time.
