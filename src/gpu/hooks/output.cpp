@@ -289,7 +289,13 @@ namespace {
 // Authored extents this far apart still count as the same edge.
 constexpr float kEdgeTolerance = 8.0f;
 
+bool MaxMatches(float max_x, float max_y, double w, double h) {
+  return std::fabs(max_x - static_cast<float>(w)) <= kEdgeTolerance &&
+         std::fabs(max_y - static_cast<float>(h)) <= kEdgeTolerance;
+}
+
 void RenormalizeSizedQuads(u32 node, u32 out_w, u32 out_h) {
+  const double density = Output::RenderDensity();
   for (int guard = 0; node && guard < 4096; ++guard) {
     const auto *n = bd::mem::at<const Bd2DCommandNode>(node);
     if (!n) {
@@ -315,8 +321,9 @@ void RenormalizeSizedQuads(u32 node, u32 out_w, u32 out_h) {
       const bool spans_surface =
           std::fabs(min_x) <= kEdgeTolerance &&
           std::fabs(min_y) <= kEdgeTolerance &&
-          std::fabs(max_x - static_cast<float>(out_w)) <= kEdgeTolerance &&
-          std::fabs(max_y - static_cast<float>(out_h)) <= kEdgeTolerance;
+          (MaxMatches(max_x, max_y, out_w, out_h) ||
+           MaxMatches(max_x, max_y, kDesignCanvasWidth * density,
+                      kDesignCanvasHeight * density));
       if (spans_surface) {
         // Onto the canvas the pinned basis expects, flush to its edges, so
         // the drain's per-draw fit reads it as a backdrop.
