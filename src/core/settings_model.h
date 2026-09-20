@@ -12,31 +12,36 @@
 #include <cstddef>
 #include <string>
 
+#include <rex/types.h>
+
+namespace bd::engine {
+enum class Action : int;
+enum class ActionContext : u8;
+} // namespace bd::engine
+
 namespace bd {
 
-// Keybinds is not a sidebar section. It is a dedicated screen reached from
-// the Controls page's "Keyboard Binds" action row.
 enum class SettingsPage : int {
   Gameplay = 0,
   Display = 1,
   Graphics = 2,
   Audio = 3,
   Controls = 4,
-  Keybinds = 5,
 };
-inline constexpr int kSettingsPageCount = 6;
+inline constexpr int kSettingsPageCount = 5;
 inline constexpr int kSettingsSectionCount = 5; // pages shown in the sidebar
+
+inline constexpr int kBindPageCount = 4;
 
 // How a row is rendered and driven.
 enum class RowUi : int {
   Buttons,     // horizontal strip of value buttons
   Slider,      // continuous fill-bar slider
   SliderSteps, // discrete options presented as a fill-bar slider
-  Keybind,     // rebindable key button
-  Action,      // navigation button (e.g. open the keybind screen)
+  Action,
 };
 
-enum class SettingAction { None, Keybinds, PadLayout, MechatLayout };
+enum class SettingAction { None, Keybinds };
 
 const char *SettingsPageLabel(SettingsPage page);
 
@@ -52,9 +57,6 @@ const char *SettingsLabel(SettingsPage page, int index);
 // menu name the rows it wants instead of holding positions that move.
 int SettingsFindRow(SettingsPage page, const char *label);
 
-// A page is drawn as titled sections, the way the keybind screen groups its
-// binds. A slot is a position in the drawn list: a section title takes one of
-// its own and its rows follow it, so a slot is not a row index.
 size_t SettingsSlotCount(SettingsPage page);
 
 // Section title at a slot, empty for a slot carrying a row.
@@ -86,8 +88,6 @@ SettingAction SettingsRowAction(SettingsPage page, int index);
 // True when any row on the page is restart-bound (footnote visibility).
 bool SettingsPageHasRestart(SettingsPage page);
 
-// True when the row is shown grayed-out and cannot be changed. Keybind rows are
-// gated on mnk_mode, mouse rows on mnk_mouse.
 bool SettingsDisabled(SettingsPage page, int index);
 
 // True when the row is a continuous slider (RowUi::Slider).
@@ -119,26 +119,20 @@ bool SetSelectedOption(SettingsPage page, int index, int option);
 // range). Returns true on success.
 bool SetSliderValue(SettingsPage page, int index, double value);
 
-// Keybind rows: the alternate key shown in the row's second slot.
-std::string SettingsKeybindAlt(SettingsPage page, int index);
+engine::ActionContext BindPageContext(int page);
+const char *BindPageLabel(int page);
 
-// Keybind rows: the stored token of one slot ('Shift+Up'), before the menu's
-// display aliasing, for the renderer that turns a key into cap art. Empty
-// when the slot is unbound.
-std::string SettingsKeybindToken(SettingsPage page, int index, bool alt);
+size_t BindRowCount(engine::ActionContext context);
+engine::Action BindRowAction(engine::ActionContext context, int index);
+const char *BindRowLabel(engine::Action action);
 
-// Keybind rows: store the captured key name into the row's cvar. 'alt' picks
-// the second comma-separated slot instead of the first.
-bool SetKeybind(SettingsPage page, int index, const std::string &keyName,
-                bool alt);
+std::string SettingsKeybindToken(engine::Action action, int slot);
+std::string SettingsKeybindAlt(engine::Action action, int slot);
 
-// Empties both slots of a keybind row. Stepping SetKeybind over them one at a
-// time cannot do this: clearing the primary promotes the alternate into it.
-bool ClearKeybind(SettingsPage page, int index);
-
-// Puts every keybind row on the page back to the default the app registered.
-// The write goes through the cvar setter rather than the SDK's ResetToDefault
-// so the change callbacks that repaint the prompt glyphs still fire.
-bool ResetKeybinds(SettingsPage page);
+bool SetKeybind(engine::Action action, int slot, const std::string &token,
+                engine::Action *conflict);
+bool ClearKeybindSlot(engine::Action action, int slot);
+bool ClearKeybind(engine::Action action);
+bool ResetKeybinds(engine::ActionContext context);
 
 } // namespace bd

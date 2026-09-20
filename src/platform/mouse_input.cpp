@@ -38,6 +38,8 @@ void MouseInput::Detach() {
   hasPosition_.store(false, std::memory_order_relaxed);
   moved_.store(false, std::memory_order_relaxed);
   wheelAccum_.store(0, std::memory_order_relaxed);
+  deltaX_.store(0.0f, std::memory_order_relaxed);
+  deltaY_.store(0.0f, std::memory_order_relaxed);
   buttons_.store(0, std::memory_order_relaxed);
 }
 
@@ -59,6 +61,21 @@ bool MouseInput::MovedSince() {
 int MouseInput::TakeWheelDetents() {
   const int detents = wheelAccum_.exchange(0, std::memory_order_relaxed);
   return bd::Settings::Get().Mnk() ? detents : 0;
+}
+
+int MouseInput::WheelDetents() const {
+  const int detents = wheelAccum_.load(std::memory_order_relaxed);
+  return bd::Settings::Get().Mnk() ? detents : 0;
+}
+
+bool MouseInput::TakeDelta(f32 &dx, f32 &dy) {
+  const f32 x = deltaX_.exchange(0.0f, std::memory_order_relaxed);
+  const f32 y = deltaY_.exchange(0.0f, std::memory_order_relaxed);
+  if (!bd::Settings::Get().Mnk() || (x == 0.0f && y == 0.0f))
+    return false;
+  dx = x;
+  dy = y;
+  return true;
 }
 
 bool MouseInput::WindowSize(f32 &w, f32 &h) const {
@@ -102,9 +119,14 @@ void MouseInput::OnMouseMove(rex::ui::MouseEvent &e) {
   f32 prevY = y_.load(std::memory_order_relaxed);
   x_.store(x, std::memory_order_relaxed);
   y_.store(y, std::memory_order_relaxed);
-  if (!hasPosition_.exchange(true, std::memory_order_relaxed) || x != prevX ||
-      y != prevY)
+  const bool hadPosition =
+      hasPosition_.exchange(true, std::memory_order_relaxed);
+  if (!hadPosition || x != prevX || y != prevY)
     moved_.store(true, std::memory_order_relaxed);
+  if (hadPosition && (x != prevX || y != prevY)) {
+    deltaX_.fetch_add(x - prevX, std::memory_order_relaxed);
+    deltaY_.fetch_add(y - prevY, std::memory_order_relaxed);
+  }
 }
 
 void MouseInput::OnMouseWheel(rex::ui::MouseEvent &e) {
@@ -148,6 +170,9 @@ void MouseInput::OnLostFocus(rex::ui::UISetupEvent &) {
   ApplyGameCursorState();
   moved_.store(false, std::memory_order_relaxed);
   wheelAccum_.store(0, std::memory_order_relaxed);
+  deltaX_.store(0.0f, std::memory_order_relaxed);
+  deltaY_.store(0.0f, std::memory_order_relaxed);
+  hasPosition_.store(false, std::memory_order_relaxed);
   buttons_.store(0, std::memory_order_relaxed);
 }
 

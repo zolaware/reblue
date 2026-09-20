@@ -45,48 +45,6 @@ constexpr int kNoticeWrapChars = 50;
 
 double DimFor(bool disabled) { return disabled ? kDimAlpha : kFullAlpha; }
 
-constexpr int kPadTypes = PadLayoutTemplate::kTypeCount;
-
-constexpr const char *kPadGeneralLabels[kPadTypes]
-                                       [PadLayoutTemplate::kGeneralSlots] = {
-    {"settings.pad.reset_camera", "settings.pad.move", "settings.pad.world_map",
-     "settings.pad.field_menu", "settings.pad.field_skill_2",
-     "settings.pad.field_skill_1", "settings.pad.check", "settings.pad.view",
-     "settings.pad.dash_attack", "settings.pad.main_menu",
-     "settings.pad.cancel"},
-    {"settings.pad.reset_camera", "settings.pad.move", "settings.pad.world_map",
-     "settings.pad.field_menu", "settings.pad.field_skill_2",
-     "settings.pad.field_skill_1", "settings.pad.cancel", "settings.pad.view",
-     "settings.pad.dash_attack", "settings.pad.main_menu",
-     "settings.pad.check"},
-    {"settings.pad.reset_camera", "settings.pad.move", "settings.pad.world_map",
-     "settings.pad.field_menu", "settings.pad.field_skill_2",
-     "settings.pad.field_skill_1", "settings.pad.check", "settings.pad.view",
-     "settings.pad.main_menu", "settings.pad.dash_attack",
-     "settings.pad.cancel"},
-    {"settings.pad.reset_camera", "settings.pad.move", "settings.pad.main_menu",
-     "settings.pad.field_menu", "settings.pad.field_skill_2",
-     "settings.pad.field_skill_1", "settings.pad.check", "settings.pad.view",
-     "settings.pad.dash_attack", "settings.pad.world_map",
-     "settings.pad.cancel"}};
-
-constexpr const char *kPadMechatLabels[kPadTypes]
-                                      [PadLayoutTemplate::kMechatSlots] = {
-    {"settings.pad.turn_left", "settings.pad.aim", "settings.pad.turn_right",
-     "settings.pad.missile", "settings.pad.machine_gun"},
-    {"settings.pad.turn_left", "settings.pad.aim", "settings.pad.machine_gun",
-     "settings.pad.turn_right", "settings.pad.missile"},
-    {"settings.pad.turn_left", "settings.pad.aim", "settings.pad.turn_right",
-     "settings.pad.missile", "settings.pad.machine_gun"},
-    {"settings.pad.turn_left", "settings.pad.aim", "settings.pad.machine_gun",
-     "settings.pad.turn_right", "settings.pad.missile"}};
-
-constexpr bool kPadMechatInverts[kPadTypes] = {false, false, true, true};
-
-constexpr const char *kPadTypeKeys[kPadTypes] = {
-    "settings.pad.type_a", "settings.pad.type_b", "settings.pad.type_c",
-    "settings.pad.type_d"};
-
 } // namespace
 
 void ConfigMenu::UpdateDetailPanel(int index) {
@@ -182,48 +140,6 @@ void ConfigMenu::UpdateAchvRowDesc(int cursor) {
                  : std::string());
 }
 
-void ConfigMenu::RefreshPadLayout() {
-  const bool mechat = pad_action_ == SettingAction::MechatLayout;
-  auto &opts = GameOptions::Get();
-  int type = mechat ? opts.CtlMechattType() : opts.CtlNormalType();
-  if (type < 0 || type >= kPadTypes)
-    type = 0;
-  const bool invert = mechat && kPadMechatInverts[type];
-
-  task_.SetFloat("pad.start", 1.0);
-  task_.SetText("pad.TypeName", i18n::Text(kPadTypeKeys[type]));
-  task_.SetFloat("pad.GeneralVis", mechat ? -1.0 : 1.0);
-  task_.SetFloat("pad.MechatVis", mechat ? 1.0 : -1.0);
-  task_.SetFloat("pad.AimShortVis", mechat && !invert ? 1.0 : -1.0);
-  task_.SetFloat("pad.AimTallVis", invert ? 1.0 : -1.0);
-  const bool altArt = mechat && (type % 2) != 0;
-  task_.SetFloat("pad.ArtGeneralVis", mechat ? -1.0 : 1.0);
-  task_.SetFloat("pad.ArtMechatVis", mechat && !altArt ? 1.0 : -1.0);
-  task_.SetFloat("pad.ArtMechatAltVis", altArt ? 1.0 : -1.0);
-
-  const int slots = mechat ? PadLayoutTemplate::kMechatSlots
-                           : PadLayoutTemplate::kGeneralSlots;
-  for (int i = 0; i < PadLayoutTemplate::kSlots; ++i) {
-    const char *key = i >= slots ? nullptr
-                      : mechat   ? kPadMechatLabels[type][i]
-                                 : kPadGeneralLabels[type][i];
-    task_.SetText(fmt::format("pad.Lbl{}", i).c_str(),
-                  key ? i18n::Text(key) : std::string());
-  }
-  if (invert)
-    task_.SetText(
-        fmt::format("pad.Lbl{}", PadLayoutTemplate::kInvertSlot).c_str(),
-        i18n::Text("settings.pad.invert"));
-}
-
-void ConfigMenu::HidePadLayout() {
-  for (const char *v :
-       {"pad.start", "pad.GeneralVis", "pad.MechatVis", "pad.AimShortVis",
-        "pad.AimTallVis", "pad.ArtGeneralVis", "pad.ArtMechatVis",
-        "pad.ArtMechatAltVis"})
-    task_.SetFloat(v, -1.0);
-}
-
 void ConfigMenu::UpdateFooter() {
   switch (state_) {
   case State::SECTION:
@@ -295,12 +211,7 @@ void ConfigMenu::UpdateFooter() {
                .back = "footer.reset_binds"});
     break;
   case State::KEYBIND_CAPTURE:
-    // No prompt: every key is a bind here, so a pad button is the only way out
-    // and naming it would be wrong for the keyboard player the screen is for.
     SetFooter({});
-    break;
-  case State::PADLAYOUT:
-    SetFooter({.b = "footer.back"});
     break;
   case State::REORDER:
     SetFooter({.a = "footer.place", .b = "footer.cancel"});
@@ -487,33 +398,22 @@ void ConfigMenu::RefreshSettingsVisuals() {
   CurrentSettingsList().ForEachRow(SettingsSlotCount(page), row);
 }
 
-// Keybind rows: label + the bound key's cap art, with a modifier prefix drawn
-// as a second cap beside it. The row being rebound shows a lit yellow "..."
-// button until a key is captured. The centered text carries only what a
-// cap cannot: the capture ellipsis, the unbound word, and the display name of
-// a config-typed bind the sheet has no art for. The grid slots that carry no
-// bind (see kKeybindSlotBind) blank out every frame, WndType included, so
-// the engine's cursor frame never lights an empty cell.
 void ConfigMenu::RefreshKeybindVisuals() {
-  constexpr auto page = SettingsPage::Keybinds;
   constexpr const char *kCapturing = "...";
 
-  // The sectioned layout moves rows off the grid the menu lays its cursor out
-  // by, so the arrow would float between the halves. The FRAME01 cell window
-  // is the selection marker here.
-  keybind_menu_.SetCursorShown(false);
+  AnimeMenu &list = CurrentBindList();
+  const ActionContext context = BindContext();
+  const int count = BindRows();
 
-  // The row under the pointer grows an empty alternate box while it has none,
-  // so the click target for adding one is visible before it is clicked.
-  int hoverSlot = -1;
+  list.SetCursorShown(false);
+
+  int hoverRow = -1;
   f32 hoverX = 0.0f;
   if (state_ == State::KEYBINDS && MenuMouse::Get().MouseHasCursor())
-    keybind_menu_.PointerRowX(hoverSlot, hoverX);
+    list.PointerRowX(hoverRow, hoverX);
 
-  const int count = static_cast<int>(SettingsCount(page));
-  keybind_menu_.ForEachTemplate([&](int gridSlot, AnimeData vb) {
-    const int i = KeybindSlotToIndex(gridSlot);
-    if (i < 0 || i >= count) {
+  list.ForEachTemplate([&](int gridSlot, AnimeData vb) {
+    if (gridSlot < 0 || gridSlot >= count) {
       vb.SetText("Name", "");
       vb.SetString("WndType", "NOWINDOW");
       vb.SetFloat("RowVis", -1.0);
@@ -525,13 +425,14 @@ void ConfigMenu::RefreshKeybindVisuals() {
         vb.SetFloat(vis, -1.0);
       return;
     }
-    const bool disabled = SettingsDisabled(page, i);
-    const bool capturing =
-        state_ == State::KEYBIND_CAPTURE && i == capture_index_;
-    const bool hovered = gridSlot == hoverSlot && !disabled;
 
-    vb.SetText("Name", SettingsLabel(page, i));
-    vb.SetFloat("Dim", DimFor(disabled));
+    const Action action = BindRowAction(context, gridSlot);
+    const bool capturing =
+        state_ == State::KEYBIND_CAPTURE && action == capture_action_;
+    const bool hovered = gridSlot == hoverRow;
+
+    vb.SetText("Name", BindRowLabel(action));
+    vb.SetFloat("Dim", DimFor(false));
     vb.SetFloat("RowVis", 1.0);
 
     const auto setUv = [&](const char *uvVar, const UVRect &r) {
@@ -541,23 +442,20 @@ void ConfigMenu::RefreshKeybindVisuals() {
       vb.SetFloat(fmt::format("{}.h", uvVar).c_str(), r.v1);
     };
 
-    const auto slot = [&](bool alt, const char *textVar, const char *wndVar,
+    const auto slot = [&](int index, const char *textVar, const char *wndVar,
                           const char *colVar, const char *capVar,
                           const char *uvVar, const char *pairVar,
                           const char *modUvVar) {
-      const bool on = capturing && capture_alt_ == alt;
-      const std::string token = SettingsKeybindToken(page, i, alt);
-      // The hovered row offers its missing alternate as an empty '+' box.
-      const bool offered = alt && token.empty() && !on && hovered;
+      const bool on = capturing && capture_slot_ == index;
+      const std::string token = SettingsKeybindToken(action, index);
+      const bool offered = index > 0 && token.empty() && !on && hovered;
       std::string text;
       int key = -1;
       int mod = -1;
       if (on) {
         text = kCapturing;
       } else if (token.empty()) {
-        // An unset alternate draws nothing at all: a second row of empty
-        // boxes is most of what made the grid unreadable.
-        if (!alt)
+        if (index == 0)
           text = i18n::Text("settings.keybind.unbound");
         else if (offered)
           text = "+";
@@ -574,7 +472,7 @@ void ConfigMenu::RefreshKeybindVisuals() {
             key = -1;
         }
         if (key < 0)
-          text = alt ? SettingsKeybindAlt(page, i) : SettingsValueText(page, i);
+          text = SettingsKeybindAlt(action, index);
       }
 
       vb.SetText(textVar, text);
@@ -586,20 +484,18 @@ void ConfigMenu::RefreshKeybindVisuals() {
           setUv(modUvVar, Glyphs::ModifierArtUV(mod));
       }
       vb.SetString(wndVar,
-                   alt && token.empty() && !on && !offered ? "NOWINDOW"
-                   : on                                    ? "BTN01_ON"
-                                                           : "BTN01_OF");
+                   index > 0 && token.empty() && !on && !offered ? "NOWINDOW"
+                   : on                                          ? "BTN01_ON"
+                                                                 : "BTN01_OF");
       vb.SetColor(colVar, on ? kHighlightYellow : kWhite);
     };
-    slot(false, "Key", "KeyWnd", "KeyCol", "KeyCap", "KeyUv", "KeyPair",
+    slot(0, "Key", "KeyWnd", "KeyCol", "KeyCap", "KeyUv", "KeyPair",
          "KeyModUv");
-    slot(true, "Key2", "KeyWnd2", "KeyCol2", "KeyCap2", "KeyUv2", "KeyPair2",
+    slot(1, "Key2", "KeyWnd2", "KeyCol2", "KeyCap2", "KeyUv2", "KeyPair2",
          "KeyModUv2");
 
-    // With no alternate bound the row closes after its one key, unless it is
-    // the hovered row holding its box open as the add-alternate target.
-    const bool pair = !SettingsKeybindToken(page, i, true).empty() ||
-                      (capturing && capture_alt_) || hovered;
+    const bool pair = !SettingsKeybindToken(action, 1).empty() ||
+                      (capturing && capture_slot_ == 1) || hovered;
     vb.SetFloat("RowW", pair ? kKeybindRowPairW : kKeybindRowSoloW);
   });
 }

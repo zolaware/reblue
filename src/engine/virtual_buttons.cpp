@@ -6,6 +6,7 @@
 
 #include <atomic>
 
+#include <rex/cvar.h>
 #include <rex/hook.h>
 #include <rex/input/mnk/mnk_input_driver.h>
 #include <rex/types.h>
@@ -17,6 +18,8 @@
 #include "reblue_init.h"
 
 REX_EXTERN(__imp__bdInputCheckButton);
+
+REXCVAR_DECLARE(bool, bd_input_bindings);
 
 namespace bd::engine {
 
@@ -76,6 +79,8 @@ void SetMenuOwnsInput(bool owns) {
 void SampleButtonEdges() {
   g_pressActive = g_pressQueued;
   g_pressQueued = -1;
+  if (REXCVAR_GET(bd_input_bindings))
+    return;
   for (int i = 0; i < kMenuArrowCount; ++i) {
     const bool down = platform::Keyboard().IsDown(kMenuArrows[i].key);
     g_arrowEdge[i].store(down && !g_arrowPrevDown[i],
@@ -96,6 +101,9 @@ bool SynthesizedButton(Button btn) {
   if (static_cast<int>(btn) == g_pressActive)
     return true;
 
+  if (REXCVAR_GET(bd_input_bindings))
+    return false;
+
   if (!MenuOwnsInput())
     return false;
 
@@ -114,6 +122,8 @@ bool SynthesizedButton(Button btn) {
 // every sweep-while-held reader moves one step per press. Read live rather than
 // off a latch: this answers 'is it down now', with nothing to consume.
 bool SynthesizedButtonHeld(Button btn) {
+  if (REXCVAR_GET(bd_input_bindings))
+    return false;
   if (!MenuOwnsInput())
     return false;
   for (int i = 0; i < kMenuArrowCount; ++i)

@@ -14,7 +14,7 @@
 
 namespace bd {
 
-enum class SettingKind { Buttons, Slider, Keybind, Action };
+enum class SettingKind { Buttons, Slider, Action };
 
 // The rows whose options are not known at compile time: Language narrows to
 // what the install declared, VoiceLanguage to the voice tracks it carries.
@@ -56,10 +56,6 @@ struct SettingBinding {
 // label and group are catalog keys, not text.
 struct SettingRow {
   const char *label;
-  // The titled section this row sits under. Rows naming the same section have
-  // to be adjacent: the run is what the section is. Null leaves the row
-  // untitled, as the keybind page wants, its own screen drawing the sections
-  // itself.
   const char *group = nullptr;
   SettingBinding binding;
   SettingKind kind = SettingKind::Buttons;
@@ -84,11 +80,6 @@ struct SettingRow {
   // conditions.
   bool (*hidden)() = nullptr;
   SettingAction action = SettingAction::None;
-  // Keybind rows: the pad button this row's key presses, as an anime_input
-  // Button value. Set only where the engine's action table gives the button a
-  // name worth more than the letter on it, so the row can be labeled by what it
-  // does. Negative means label the row by its own string.
-  int padButton = -1;
 };
 
 struct SettingsPageTable {

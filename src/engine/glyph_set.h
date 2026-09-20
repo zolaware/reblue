@@ -8,13 +8,13 @@
  */
 #pragma once
 
-#include <atomic>
 #include <string_view>
 #include <vector>
 
 #include <rex/types.h>
 
 #include "engine/d2anime/anime_layout.h"
+#include "engine/input/actions.h"
 #include "engine/live_texture_stamp.h"
 
 namespace bd::engine {
@@ -45,11 +45,7 @@ inline constexpr i32 kPadSetLast = static_cast<i32>(PadSet::SteamDeck);
 const char *ToString(GlyphSet set);
 const char *ToString(PadSet set);
 
-// Index into bd::platform::kBindableKeys of the key a keybind cvar currently
-// names, or -1 when it is unbound or names a key no cap art covers. The footer
-// sheet and the runtime cap library both order their cells this way, so this is
-// the one place a bind turns into a picture.
-int BoundKeyIndex(const char *keybindCvar);
+int BoundKeyIndex(Action action);
 
 // The same lookup for a bare key name ("Up", "LMB"), with any modifier prefix
 // already stripped.
@@ -118,8 +114,6 @@ public:
 private:
   Glyphs() = default;
 
-  // Serves the sheet and subscribes to the keybind cvars. Called on the first
-  // tick because the VFS has to be up and no prompt can have drawn yet.
   void InitOnce();
   void Apply();
   void WriteCell(u32 va, int cell) const;
@@ -143,8 +137,7 @@ private:
   PadSet pad_ = PadSet::Xbox360;
   u32 generation_ = 0;
   LiveTextureStamp sheetStamp_;
-  // Set from whichever thread wrote the cvar, read on the engine tick.
-  std::atomic<bool> bindsDirty_{false};
+  u32 bindGeneration_ = 0;
 };
 
 } // namespace bd::engine

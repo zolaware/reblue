@@ -24,26 +24,6 @@
 
 namespace bd::engine {
 
-namespace {
-
-int PadArrowUnderPointer() {
-  f32 x = 0.0f, y = 0.0f;
-  if (!CursorInMenuSpace(x, y))
-    return 0;
-  constexpr f32 kSlop = 16.0f;
-  if (y < f32(kPadArrowY) - kSlop || y > f32(kPadArrowY + kPadArrowSize) + kSlop)
-    return 0;
-  if (x >= f32(kPadArrowLeftX) - kSlop &&
-      x <= f32(kPadArrowLeftX + kPadArrowSize) + kSlop)
-    return -1;
-  if (x >= f32(kPadArrowRightX) - kSlop &&
-      x <= f32(kPadArrowRightX + kPadArrowSize) + kSlop)
-    return 1;
-  return 0;
-}
-
-} // namespace
-
 // The pointer, not the cursor, says which list a click is meant for. Without
 // this the sidebar and the list beside it disagree the moment the mouse crosses
 // between them, and a click hits whichever row the other one was holding.
@@ -295,15 +275,8 @@ void ConfigMenu::HandleSettings() {
           sfx::Play(sfx::kDisabled);
           return;
       }
-      const SettingAction action = SettingsRowAction(page, row);
-      if (!SettingsDisabled(page, row)) {
-        if (action == SettingAction::Keybinds) {
-          Transition(State::KEYBINDS);
-        } else if (action != SettingAction::None) {
-          pad_action_ = action;
-          Transition(State::PADLAYOUT);
-        }
-      }
+      if (SettingsRowAction(page, row) == SettingAction::Keybinds)
+        Transition(State::KEYBINDS);
       return;
     }
 
@@ -343,114 +316,59 @@ void ConfigMenu::HandleSettings() {
     Transition(State::SECTION);
 }
 
-void ConfigMenu::HandlePadLayout() {
-  MenuMouse::Get().MarkInputOwned();
+void ConfigMenu::HandleKeybinds() {
+  const ActionContext context = BindContext();
+  const int count = BindRows();
+  AnimeMenu &list = CurrentBindList();
 
-  int step = 0;
-  if (CheckButton(Button::Right) || CheckButton(Button::LSRight) ||
-      CheckButton(Button::RB))
-    step = 1;
-  else if (CheckButton(Button::Left) || CheckButton(Button::LSLeft) ||
-           CheckButton(Button::LB))
-    step = -1;
-  else if (CheckAction(GameAction::Confirm) && MenuMouse::Get().PointerActive())
-    step = PadArrowUnderPointer();
-
-  if (step != 0) {
-    constexpr int kTypes = PadLayoutTemplate::kTypeCount;
-    auto &opts = GameOptions::Get();
-    const bool mechat = pad_action_ == SettingAction::MechatLayout;
-    int type = mechat ? opts.CtlMechattType() : opts.CtlNormalType();
-    if (type < 0 || type >= kTypes)
-      type = 0;
-    type = (type + step + kTypes) % kTypes;
-    if (mechat)
-      opts.SetCtlMechattType(type);
-    else
-      opts.SetCtlNormalType(type);
-    sfx::Play(sfx::kCursor);
-    settings_dirty_ = true;
-    RefreshPadLayout();
+  int pageStep = 0;
+  if (CheckButton(Button::RB))
+    pageStep = 1;
+  else if (CheckButton(Button::LB))
+    pageStep = -1;
+  if (pageStep != 0) {
+    list.SetActive(false);
+    SetBindPage(bind_page_ + pageStep);
+    Transition(State::KEYBINDS);
     return;
   }
 
-  if (CheckAction(GameAction::Cancel))
-    Transition(State::SETTINGS);
-}
-
-void ConfigMenu::HandleKeybinds() {
-  constexpr auto page = SettingsPage::Keybinds;
-  const int gridSlot = keybind_menu_.CursorIndex();
-
-  // The empty cells are selectable, since the engine bounds the cursor by the
-  // entry count alone, so step the cursor over them in the direction it was
-  // traveling, column preserved. Off the grid's edge it backs out the way it
-  // came. The pointer stands down: hover parks wherever the mouse is, and
-  // fighting it would oscillate.
-  if (KeybindSlotIsSpacer(gridSlot)) {
-    if (!MenuMouse::Get().MouseHasCursor()) {
-      const int dir = last_keybind_slot_ <= gridSlot ? 2 : -2;
-      int to = gridSlot + dir;
-      while (to >= 0 && to < kKeybindSlotCount && KeybindSlotIsSpacer(to))
-        to += dir;
-      if (to < 0 || to >= kKeybindSlotCount) {
-        to = gridSlot - dir;
-        while (to >= 0 && to < kKeybindSlotCount && KeybindSlotIsSpacer(to))
-          to -= dir;
-      }
-      if (to >= 0 && to < kKeybindSlotCount)
-        keybind_menu_.SetCursorIndex(to);
-    }
-  } else {
-    last_keybind_slot_ = gridSlot;
-  }
-
-  const int count = static_cast<int>(SettingsCount(page));
-  const int cursor = KeybindSlotToIndex(gridSlot);
-  const bool onRow =
-      cursor >= 0 && cursor < count && !SettingsDisabled(page, cursor);
+  const int cursor = list.CursorIndex();
+  const bool onRow = cursor >= 0 && cursor < count;
 
   // The key box under the pointer, which a click rebinds and Delete empties.
   const bool pointer = MenuMouse::Get().MouseHasCursor();
-  int hoverSlot = -1, hoverChip = -1;
+  int hoverRow = -1, hoverChip = -1;
   f32 hoverX = 0.0f;
-  if (pointer && keybind_menu_.PointerRowX(hoverSlot, hoverX))
+  if (pointer && list.PointerRowX(hoverRow, hoverX))
     hoverChip = KeybindItemTemplate::ChipAt(hoverX);
-  const int hoverIndex = KeybindSlotToIndex(hoverSlot);
-  const bool onHover = hoverIndex >= 0 && hoverIndex < count &&
-                       !SettingsDisabled(page, hoverIndex);
+  const bool onHover = hoverRow >= 0 && hoverRow < count;
 
-  // Left/Right move the cursor across the 2-column grid (engine-driven).
   // A click captures into the key box it lands on, the primary from anywhere
   // else on its row. A pad press reads the cursor row instead of a pointer.
   if (CheckAction(GameAction::Confirm)) {
-    const int target = pointer ? (onHover ? hoverIndex : -1)
-                               : (onRow ? cursor : -1);
+    const int hit = onHover ? hoverRow : -1;
+    const int target = pointer ? hit : (onRow ? cursor : -1);
     if (target >= 0) {
-      capture_index_ = target;
-      capture_alt_ = pointer && hoverChip == 1;
+      capture_action_ = BindRowAction(context, target);
+      capture_slot_ = (pointer && hoverChip == 1) ? 1 : 0;
+      conflict_shown_ = false;
       bd::platform::BeginKeyCapture();
       Transition(State::KEYBIND_CAPTURE);
     }
     return;
   }
 
-  // Hover plus Delete empties one key box. The bind list stores primary then
-  // alternate, so an emptied primary promotes the alternate beside it.
   const bool delDown =
       bd::platform::Keyboard().IsDown(rex::ui::VirtualKey::kDelete);
   if (delDown && !del_held_ && onHover && hoverChip >= 0) {
-    if (!SettingsKeybindToken(page, hoverIndex, hoverChip == 1).empty() &&
-        SetKeybind(page, hoverIndex, "", hoverChip == 1))
+    if (ClearKeybindSlot(BindRowAction(context, hoverRow), hoverChip))
       settings_dirty_ = true;
   }
   del_held_ = delDown;
 
-  // Emptying a whole row lives here rather than inside the capture, so it
-  // costs no key: a capture that read Delete as 'clear' would be a Delete
-  // nobody could bind.
   if (CheckButton(Button::X)) {
-    if (onRow && ClearKeybind(page, cursor))
+    if (onRow && ClearKeybind(BindRowAction(context, cursor)))
       settings_dirty_ = true;
     return;
   }
@@ -460,7 +378,6 @@ void ConfigMenu::HandleKeybinds() {
     return;
   }
 
-  // settings_page_ is still Input, so return to the page that opened this.
   if (CheckAction(GameAction::Cancel))
     Transition(State::SETTINGS);
 }
@@ -667,24 +584,24 @@ void ConfigMenu::HandleLangNotice() {
 }
 
 void ConfigMenu::HandleKeybindCapture() {
-  const std::string key = bd::platform::PollKeyCapture();
-  if (!key.empty()) {
-    if (SetKeybind(SettingsPage::Keybinds, capture_index_, key, capture_alt_))
+  const std::string token = bd::platform::PollKeyCapture();
+  if (!token.empty()) {
+    Action owner = capture_action_;
+    if (SetKeybind(capture_action_, capture_slot_, token, &owner)) {
       settings_dirty_ = true;
-    capture_index_ = -1;
-    capture_alt_ = false;
+      conflict_shown_ = false;
+    } else if (owner != capture_action_) {
+      conflict_action_ = owner;
+      conflict_shown_ = true;
+      sfx::Play(sfx::kDisabled);
+    }
+    capture_slot_ = -1;
     Transition(State::KEYBINDS);
     return;
   }
 
-  // A pad button is the only thing that can back out, because every key press
-  // is a bind. Reserving one to mean cancel would be one key nobody could bind,
-  // the case clearing from the list behind this exists to avoid. While a
-  // hit waits for its release, cancel stands down: a captured RMB or Escape is
-  // also the cancel bind, and the driver's press out of it is not a cancel.
   if (!bd::platform::KeyCapturePending() && CheckAction(GameAction::Cancel)) {
-    capture_index_ = -1;
-    capture_alt_ = false;
+    capture_slot_ = -1;
     Transition(State::KEYBINDS);
     BD_DEBUG("[config] rebind canceled");
   }
@@ -788,11 +705,11 @@ void ConfigMenu::HandleConfirmResetBinds() {
   confirm_popup_.Kill();
 
   if (confirmed) {
-    if (ResetKeybinds(SettingsPage::Keybinds))
+    if (ResetKeybinds(BindContext()))
       settings_dirty_ = true;
-    BD_DEBUG("[config] keybinds reset to defaults");
+    BD_DEBUG("[config] binds reset to defaults");
   } else {
-    BD_DEBUG("[config] keybind reset declined");
+    BD_DEBUG("[config] bind reset declined");
   }
 
   Transition(State::KEYBINDS);

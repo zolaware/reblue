@@ -22,9 +22,6 @@ constexpr int kFooterLabelY = 654, kFooterFontW = 27, kFooterFontH = 30;
 constexpr int kHeaderY = 110, kHeaderFontW = 18, kHeaderFontH = 22;
 constexpr int kHeaderPri = 4;
 
-// A titled block on the keybind screen: a black panel behind it, the title in
-// the band across its top, and a rule closing that band. The panel sits behind
-// the rows the list draws, the title and its rule in front of it.
 constexpr int kSectionPanelPri = 4;
 constexpr int kSectionTitlePri = 3;
 constexpr int kSectionTitleH = 30;
@@ -33,22 +30,16 @@ constexpr int kSectionFontW = 19, kSectionFontH = 25;
 // inset, which the titles line up with.
 constexpr int kSectionPad = 8;
 constexpr int kSectionLabelX = 22;
-constexpr int kKeybindCompatRows = 4;
-constexpr int kKeybindCompatRowY =
-    kKeybindGridY + (kKeybindTopRows + 2) * kKeybindRowH;
-// Panels: the top pair closes just under its last row, and the compat panel
-// opens far enough below them to read as its own block.
 constexpr int kSectionTopY = 98;
-constexpr int kSectionTopH =
-    kKeybindGridY + kKeybindTopRows * kKeybindRowH + 2 - kSectionTopY;
-constexpr int kSectionCompatY = 436;
-constexpr int kSectionCompatH = kKeybindCompatRowY +
-                                kKeybindCompatRows * kKeybindRowH + 4 -
-                                kSectionCompatY;
-// Between the two columns of the compat block, which has no panel gap to
-// separate them.
+constexpr int kBindPanelX = kKeybindGridX - kSectionPad;
+constexpr int kBindPanelW =
+    kKeybindColStride + kKeybindCellW + 2 * kSectionPad;
 constexpr int kKeybindColSplitX =
     kKeybindGridX + kKeybindCellW + (kKeybindColStride - kKeybindCellW) / 2;
+
+constexpr int BindPanelH(int rows) {
+  return kKeybindGridY + rows * kKeybindRowH + 2 - kSectionTopY;
+}
 
 // Longest list a settings page may carry before its rows run past the
 // row description line.
@@ -112,32 +103,6 @@ constexpr int kKeyPairGap = 2;
 static_assert(kKeybindSlots[0].x + kKeybindSlots[0].w + 8 == kKeybindRowSoloW);
 static_assert(kKeybindSlots[1].x + kKeybindSlots[1].w + 8 == kKeybindRowPairW);
 
-struct PadAnchor {
-  int x, y, w;
-};
-
-constexpr PadAnchor kPadGeneralAnchors[PadLayoutTemplate::kGeneralSlots] = {
-    {126, 190, 277}, {228, 435, 114}, {330, 557, 233}, {636, 120, 246},
-    {77, 312, 266},  {879, 190, 266}, {934, 465, 195}, {656, 553, 114},
-    {858, 553, 233}, {934, 282, 233}, {934, 374, 195}};
-
-constexpr PadAnchor kPadMechatAnchors[PadLayoutTemplate::kMechatSlots] = {
-    {96, 207, 231}, {96, 385, 231}, {947, 207, 231}, {947, 331, 231},
-    {947, 448, 231}};
-
-constexpr int kPadAimSlot = 1;
-constexpr int kPadLabelH = 42;
-constexpr int kPadAimTallH = 74;
-constexpr int kPadLineH = 30;
-constexpr int kPadLabelInsetY = 9;
-constexpr int kPadFontW = 21, kPadFontH = 27;
-constexpr int kPadBoxPri = 1, kPadLabelPri = 0, kPadArtPri = 2;
-constexpr int kPadBandY = 98, kPadBandH = 519, kPadBandPri = 4;
-constexpr int kPadScreenW = 1280;
-constexpr int kPadArtX = 128, kPadArtY = -154, kPadArtSize = 1024;
-constexpr int kPadBadgeX = 126, kPadBadgeY = 122;
-constexpr int kPadBadgeW = 138, kPadBadgeH = 43;
-constexpr int kPadBadgeLabelX = 151, kPadBadgeLabelY = 131;
 } // namespace
 
 SectionTemplate::SectionTemplate() : RowTemplate(110, 121, 150, kSectionRowH) {
@@ -247,130 +212,6 @@ void DetailTemplate::build(CsvBuilder &b) {
   for (size_t i = 0; i < std::size(fields); ++i)
     b.message(PanelLine(10 + 25 * static_cast<int>(i), fields[i]->name()));
   PanelDivider(b, 110);
-}
-
-void PadLayoutTemplate::build(CsvBuilder &b) {
-  const auto box = [&](const FloatV &vis, const PadAnchor &a, int h) {
-    b.window(AnimeWindow{.frameStart = vis.name(),
-                         .x = a.x,
-                         .y = a.y,
-                         .w = a.w,
-                         .h = h,
-                         .priority = kPadBoxPri,
-                         .wndTypeVar = nullptr,
-                         .wndTypeLiteral = "FRAME01",
-                         .alpha = 255});
-  };
-  const auto text = [&](const FloatV &vis, int cx, int y, const char *var) {
-    b.message(AnimeMessageAbs{.frameStart = vis.name(),
-                              .x = cx,
-                              .y = y,
-                              .fontW = kPadFontW,
-                              .fontH = kPadFontH,
-                              .priority = kPadLabelPri,
-                              .contentVar = var,
-                              .posType = "center"});
-  };
-
-  b.comment("variable definitions")
-      .vars(start, alpha, generalVis, mechatVis, aimShortVis, aimTallVis,
-            artGeneralVis, artMechatVis, artMechatAltVis, typeName);
-  for (const auto &l : label)
-    b.var(l);
-  b.blank();
-
-  b.comment("backdrop band")
-      .comment(kColsFrame)
-      .frame(AnimeFrame{.frameStart = start.name(),
-                        .x = 0,
-                        .y = kPadBandY,
-                        .w = kPadScreenW,
-                        .h = kPadBandH,
-                        .priority = kPadBandPri,
-                        .alphaRef = "alpha-200",
-                        .r = 0,
-                        .g = 0,
-                        .b = 0})
-      .blank();
-
-  const struct {
-    const FloatV *vis;
-    const char *file;
-  } kArt[] = {{&artGeneralVis, kPadGeneralTex},
-              {&artMechatVis, kPadMechatTex},
-              {&artMechatAltVis, kPadMechatAltTex}};
-
-  b.comment("controller art and page arrows").comment(kColsTex);
-  for (const auto &art : kArt)
-    b.tex(AnimeTexAbs{.frameStart = art.vis->name(),
-                      .x = kPadArtX,
-                      .y = kPadArtY,
-                      .w = kPadArtSize,
-                      .h = kPadArtSize,
-                      .priority = kPadArtPri,
-                      .file = art.file});
-  b.tex(AnimeTexAbs{.frameStart = start.name(),
-                    .x = kPadArrowRightX,
-                    .y = kPadArrowY,
-                    .w = kPadArrowSize,
-                    .h = kPadArrowSize,
-                    .priority = kPadLabelPri,
-                    .file = kPadArrowTex})
-      .tex(AnimeTexAbs{.frameStart = start.name(),
-                       .x = kPadArrowLeftX + kPadArrowSize,
-                       .y = kPadArrowY,
-                       .w = -kPadArrowSize,
-                       .h = kPadArrowSize,
-                       .priority = kPadLabelPri,
-                       .file = kPadArrowTex})
-      .blank();
-
-  b.comment("type badge").comment(kColsWindow);
-  b.window(AnimeWindow{.frameStart = start.name(),
-                       .x = kPadBadgeX,
-                       .y = kPadBadgeY,
-                       .w = kPadBadgeW,
-                       .h = kPadBadgeH,
-                       .priority = kPadBoxPri,
-                       .wndTypeVar = nullptr,
-                       .wndTypeLiteral = "BTN01_ON",
-                       .alpha = 255});
-  b.comment(kColsMessage)
-      .message(AnimeMessageAbs{.frameStart = start.name(),
-                               .x = kPadBadgeLabelX,
-                               .y = kPadBadgeLabelY,
-                               .fontW = kPadFontW,
-                               .fontH = kPadFontH,
-                               .priority = kPadLabelPri,
-                               .contentVar = typeName.name()})
-      .blank();
-
-  b.comment("general diagram").comment(kColsWindow);
-  for (const auto &a : kPadGeneralAnchors)
-    box(generalVis, a, kPadLabelH);
-  b.comment(kColsMessage);
-  for (int i = 0; i < kGeneralSlots; ++i) {
-    const PadAnchor &a = kPadGeneralAnchors[i];
-    text(generalVis, a.x + a.w / 2, a.y + kPadLabelInsetY, label[i].name());
-  }
-  b.blank();
-
-  b.comment("mecha shooting diagram").comment(kColsWindow);
-  for (int i = 0; i < kMechatSlots; ++i) {
-    if (i == kPadAimSlot)
-      continue;
-    box(mechatVis, kPadMechatAnchors[i], kPadLabelH);
-  }
-  box(aimShortVis, kPadMechatAnchors[kPadAimSlot], kPadLabelH);
-  box(aimTallVis, kPadMechatAnchors[kPadAimSlot], kPadAimTallH);
-  b.comment(kColsMessage);
-  for (int i = 0; i < kMechatSlots; ++i) {
-    const PadAnchor &a = kPadMechatAnchors[i];
-    text(mechatVis, a.x + a.w / 2, a.y + kPadLabelInsetY, label[i].name());
-  }
-  const PadAnchor &aim = kPadMechatAnchors[kPadAimSlot];
-  text(aimTallVis, aim.x + aim.w / 2, aim.y + kPadLabelInsetY + kPadLineH,
-       label[kInvertSlot].name());
 }
 
 void SettingItemTemplate::declareVars(CsvBuilder &b) {
@@ -690,6 +531,8 @@ void KeybindItemTemplate::buildValue(CsvBuilder &b) {
 ConfigLayout::ConfigLayout() {
   for (int p = 0; p < kSettingsSectionCount; ++p)
     settingsList[p] = PageList(kSettingsListNames[p], "l_modmgr_setting.csv");
+  for (int p = 0; p < kBindPageCount; ++p)
+    bindList[p] = BindList(kBindListNames[p]);
 }
 
 void ConfigLayout::SetSectionCount(int count) {
@@ -744,7 +587,8 @@ void ConfigLayout::SetAchievementCount(size_t count) {
 }
 
 void ConfigLayout::SetSettingsCounts(
-    const size_t (&pageCounts)[kSettingsSectionCount], size_t keybinds) {
+    const size_t (&pageCounts)[kSettingsSectionCount],
+    const size_t (&bindCounts)[kBindPageCount]) {
   for (int p = 0; p < kSettingsSectionCount; ++p) {
     const int n = static_cast<int>(std::min(pageCounts[p], kMaxSettingsRows));
     settingsList[p].h = n * kSettingRowH + 20;
@@ -754,17 +598,15 @@ void ConfigLayout::SetSettingsCounts(
     settingsList[p].defaultItem = 0;
   }
 
-  // The grid carries the binds plus the spacer slots of the band between the
-  // sections (see KeybindSlotToIndex), and the cursor bound runs through the
-  // last bind's slot.
-  const int kbSlots = KeybindIndexToSlot(static_cast<int>(keybinds) - 1) + 1;
-  const int kbRows = (kbSlots + 1) / 2;
-  // Exactly the rows, with nothing over: the engine spreads the extent across
-  // the cell count, so any slack here widens the pitch the section panels are
-  // measured against.
-  keybindList.h = kbRows * kKeybindRowH;
-  keybindList.rows = kbRows;
-  keybindList.defaultItem = kbSlots;
+  for (int p = 0; p < kBindPageCount; ++p) {
+    const int rows = std::min(
+        (static_cast<int>(bindCounts[p]) + 1) / 2, kKeybindMaxRows);
+    const int slots =
+        std::min(static_cast<int>(bindCounts[p]), rows * 2);
+    bindList[p].h = rows * kKeybindRowH;
+    bindList[p].rows = rows;
+    bindList[p].defaultItem = slots;
+  }
 }
 
 void ConfigLayout::build(CsvBuilder &b) {
@@ -781,24 +623,7 @@ void ConfigLayout::build(CsvBuilder &b) {
   // The two rules bracketing the content area.
   constexpr int kRuleY[] = {95, 617};
 
-  // The keybind screen's three blocks: the two grid columns and the compat
-  // band under them. Each is a panel with a title over it, and the titles line
-  // up with the row labels inside.
-  const struct {
-    int x, y, w, h, titleX;
-    const char *titleVar;
-  } kKeybindSections[] = {
-      {kKeybindGridX - kSectionPad, kSectionTopY,
-       kKeybindCellW + 2 * kSectionPad, kSectionTopH,
-       kKeybindGridX + kSectionLabelX, hdrActions.name()},
-      {kKeybindGridX + kKeybindColStride - kSectionPad, kSectionTopY,
-       kKeybindCellW + 2 * kSectionPad, kSectionTopH,
-       kKeybindGridX + kKeybindColStride + kSectionLabelX,
-       hdrMovement.name()},
-      {kKeybindGridX - kSectionPad, kSectionCompatY,
-       kKeybindColStride + kKeybindCellW + 2 * kSectionPad, kSectionCompatH,
-       kKeybindGridX + kSectionLabelX, hdrCompat.name()},
-  };
+
 
   // One footer prompt: its icon cell in res\cmn_help_menue and the two vars
   // driving its visibility and label. B is always shown, so it gates on the
@@ -849,13 +674,14 @@ void ConfigLayout::build(CsvBuilder &b) {
   b.panel(cfgIcon).blank();
   b.panel(detail).blank();
   b.panel(dlcDetail).blank();
-  b.panel(pad).blank();
 
   b.comment("variable definitions").vars(start, alpha);
   Declare(b, title, hdrSections, hdrMods, hdrDetails, ftrA, ftrB, ftrX, ftrY,
           ftrBack, ftrAVis, ftrXVis, ftrYVis, ftrBackVis, restartVis,
-          restartNote, rowDesc0, rowDesc1, rowDescC, hdrActions, hdrMovement,
-          hdrCompat, kbHint, kbChromeVis);
+          restartNote, rowDesc0, rowDesc1, rowDescC, hdrBinds, kbHint,
+          kbChromeVis);
+  for (const auto &v : bindPanelVis)
+    b.var(v);
   b.blank();
 
   if (standalone_)
@@ -884,58 +710,48 @@ void ConfigLayout::build(CsvBuilder &b) {
                               .priority = kHeaderPri,
                               .contentVar = h.var});
 
-  // Keybind screen chrome, hidden everywhere else. Sectioned the way the game
-  // sections its own tables: a black panel behind each block, as its key
-  // config draws behind the controller diagram, and a title closed by a rule
-  // over a boxed cell per row, as the camp skill table does.
-  b.blank().comment("keybind screen sections").comment(kColsFrame);
-  for (const auto &s : kKeybindSections)
-    b.frame(AnimeFrame{.frameStart = kbChromeVis.name(),
-                       .x = s.x,
-                       .y = s.y,
-                       .w = s.w,
-                       .h = s.h,
+  b.blank().comment("binding screen panels").comment(kColsFrame);
+  for (int p = 0; p < kBindPageCount; ++p)
+    b.frame(AnimeFrame{.frameStart = bindPanelVis[p].name(),
+                       .x = kBindPanelX,
+                       .y = kSectionTopY,
+                       .w = kBindPanelW,
+                       .h = BindPanelH(bindList[p].rows),
                        .priority = kSectionPanelPri,
                        .alphaRef = "alpha-200",
                        .r = 0,
                        .g = 0,
                        .b = 0,
                        .tag = "#panel"});
-  for (const auto &s : kKeybindSections)
-    b.frame(AnimeFrame{.frameStart = kbChromeVis.name(),
-                       .x = s.x + kSectionPad,
-                       .y = s.y + kSectionTitleH,
-                       .w = s.w - 2 * kSectionPad,
-                       .h = 2,
+  for (int p = 0; p < kBindPageCount; ++p)
+    b.frame(AnimeFrame{.frameStart = bindPanelVis[p].name(),
+                       .x = kKeybindColSplitX,
+                       .y = kKeybindGridY,
+                       .w = 1,
+                       .h = bindList[p].rows * kKeybindRowH,
                        .priority = kSectionTitlePri,
                        .alphaRef = "alpha-127",
-                       .tag = "#title rule"});
-  // The compat block runs both columns, so it needs the divider the two
-  // panels above it get from the gap between them.
+                       .tag = "#column rule"});
   b.frame(AnimeFrame{.frameStart = kbChromeVis.name(),
-                     .x = kKeybindColSplitX,
-                     .y = kKeybindCompatRowY,
-                     .w = 1,
-                     .h = kKeybindCompatRows * kKeybindRowH,
+                     .x = kBindPanelX + kSectionPad,
+                     .y = kSectionTopY + kSectionTitleH,
+                     .w = kBindPanelW - 2 * kSectionPad,
+                     .h = 2,
                      .priority = kSectionTitlePri,
                      .alphaRef = "alpha-127",
-                     .tag = "#column rule"});
+                     .tag = "#title rule"});
 
   b.blank().comment(kColsMessage);
-  for (const auto &s : kKeybindSections)
-    b.message(AnimeMessageAbs{.frameStart = kbChromeVis.name(),
-                              .x = s.titleX,
-                              .y = s.y + 3,
-                              .fontW = kSectionFontW,
-                              .fontH = kSectionFontH,
-                              .priority = kSectionTitlePri,
-                              .contentVar = s.titleVar});
-  // Beside the last title rather than over the grid: the band it used to sit
-  // in carries a section title now.
   b.message(AnimeMessageAbs{.frameStart = kbChromeVis.name(),
-                            .x = kKeybindSections[2].x + kKeybindSections[2].w -
-                                 kSectionLabelX,
-                            .y = kKeybindSections[2].y + 10,
+                            .x = kKeybindGridX + kSectionLabelX,
+                            .y = kSectionTopY + 3,
+                            .fontW = kSectionFontW,
+                            .fontH = kSectionFontH,
+                            .priority = kSectionTitlePri,
+                            .contentVar = hdrBinds.name()});
+  b.message(AnimeMessageAbs{.frameStart = kbChromeVis.name(),
+                            .x = kBindPanelX + kBindPanelW - kSectionLabelX,
+                            .y = kSectionTopY + 10,
                             .fontW = 15,
                             .fontH = 19,
                             .alpha = 200,
@@ -955,7 +771,10 @@ void ConfigLayout::build(CsvBuilder &b) {
   b.comment("settings lists (one per page)").comment(kColsMenu);
   for (const auto &list : settingsList)
     b.menu(list);
-  b.menu(keybindList).blank();
+  b.comment("binding lists (one per context)").comment(kColsMenu);
+  for (const auto &list : bindList)
+    b.menu(list);
+  b.blank();
 
   // The two rules close the header and prompt bands. In camp both bands are
   // the game's own and already carry theirs.
@@ -1034,7 +853,6 @@ void ConfigLayout::build(CsvBuilder &b) {
   // start=-1 hides panels until a row is selected.
   b.set(detail, "start", "-1");
   b.set(dlcDetail, "start", "-1");
-  b.set(pad, "start", "-1");
 
   sysmes.Emit(b);
 }

@@ -10,15 +10,17 @@
 #include <algorithm>
 #include <iterator>
 #include <mutex>
-#include <string_view>
 #include <vector>
 
 #include <stb_image.h>
 
 #include "core/logging.h"
+#include "engine/d2anime/anime_input.h"
 #include "engine/d2anime/anime_mount.h"
 #include "engine/glyph_set.h"
 #include "engine/guest_texture.h"
+#include "engine/input/actions.h"
+#include "engine/input/binding_store.h"
 #include "engine/live_texture_stamp.h"
 #include "embedded.h"
 #include "platform/platform.h"
@@ -36,12 +38,23 @@ constexpr u32 kPadCellBase = u32(bd::platform::kBindableKeyCount) + 1;
 constexpr u32 kPadFaceButtons = 4;
 
 // A prompt texture's cell always stands for a face button.
-int PadOrdinal(const char *keybind) {
-  constexpr const char *kOrder[] = {"keybind_a", "keybind_b", "keybind_x",
-                                    "keybind_y"};
-  for (int i = 0; i < 4; ++i)
-    if (std::string_view(keybind) == kOrder[i])
-      return i;
+int PadOrdinal(Action action) {
+  for (const Source &s : Bindings::Get().Sources(action)) {
+    if (s.kind != SourceKind::PadButton)
+      continue;
+    switch (static_cast<Button>(s.code)) {
+    case Button::A:
+      return 0;
+    case Button::B:
+      return 1;
+    case Button::X:
+      return 2;
+    case Button::Y:
+      return 3;
+    default:
+      return -1;
+    }
+  }
   return -1;
 }
 
@@ -52,10 +65,8 @@ constexpr const char *kMount = "ui:prompt-textures";
 // has to read here, not the shading.
 constexpr float kPressedDim = 0.62f;
 
-// One cell of a served texture: the button it stands for, named by the cvar
-// holding that button's key, and whether it is the pressed frame.
 struct PromptCell {
-  const char *keybind;
+  Action action;
   bool pressed;
 };
 
@@ -81,21 +92,22 @@ struct PromptTex {
   u32 cellCount;
 };
 
-constexpr PromptCell kCellA[] = {{"keybind_a", false}};
-constexpr PromptCell kCellAPsh[] = {{"keybind_a", true}};
-constexpr PromptCell kCellB[] = {{"keybind_b", false}};
-constexpr PromptCell kCellBPsh[] = {{"keybind_b", true}};
-constexpr PromptCell kCellX[] = {{"keybind_x", false}};
-constexpr PromptCell kCellXPsh[] = {{"keybind_x", true}};
-constexpr PromptCell kCellY[] = {{"keybind_y", false}};
-constexpr PromptCell kCellYPsh[] = {{"keybind_y", true}};
+constexpr PromptCell kCellA[] = {{Action::Confirm, false}};
+constexpr PromptCell kCellAPsh[] = {{Action::Confirm, true}};
+constexpr PromptCell kCellB[] = {{Action::Cancel, false}};
+constexpr PromptCell kCellBPsh[] = {{Action::Cancel, true}};
+constexpr PromptCell kCellX[] = {{Action::Attack, false}};
+constexpr PromptCell kCellXPsh[] = {{Action::Attack, true}};
+constexpr PromptCell kCellY[] = {{Action::MainMenu, false}};
+constexpr PromptCell kCellYPsh[] = {{Action::MainMenu, true}};
 
 // ic_btn's own pos rows: posAnr, posApsh, posBnr, posBpsh and so on down the
 // four rows, normal in the left column and pressed in the right.
 constexpr PromptCell kCellsIcBtn[] = {
-    {"keybind_a", false}, {"keybind_a", true}, {"keybind_b", false},
-    {"keybind_b", true},  {"keybind_x", false}, {"keybind_x", true},
-    {"keybind_y", false}, {"keybind_y", true}};
+    {Action::Confirm, false}, {Action::Confirm, true},
+    {Action::Cancel, false},  {Action::Cancel, true},
+    {Action::Attack, false},  {Action::Attack, true},
+    {Action::MainMenu, false}, {Action::MainMenu, true}};
 
 #define BD_PROMPT_TEX(path, w, h, cols, rows, ink, cells)                      \
   { path, w, h, cols, rows, ink, cells, u32(std::size(cells)) }
@@ -280,9 +292,9 @@ std::vector<u8> Compose(const PromptTex &tex) {
   for (u32 i = 0; i < tex.cellCount; ++i) {
     int cell;
     if (keyboard) {
-      cell = BoundKeyIndex(tex.cells[i].keybind);
+      cell = BoundKeyIndex(tex.cells[i].action);
     } else {
-      const int ord = PadOrdinal(tex.cells[i].keybind);
+      const int ord = PadOrdinal(tex.cells[i].action);
       const int set = static_cast<int>(Glyphs::Get().Pad());
       cell = ord < 0 ? -1
                      : int(kPadCellBase) +

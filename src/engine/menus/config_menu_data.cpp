@@ -49,7 +49,6 @@ ListItemTemplate s_dlc_item_tpl{"DLC", 470, 430};
 DlcDetailTemplate s_dlc_detail_tpl;
 SettingItemTemplate s_setting_item_tpl;
 KeybindItemTemplate s_keybind_item_tpl;
-PadLayoutTemplate s_pad_tpl;
 LanguageItemTemplate s_lang_item_tpl;
 bool s_dlc_changed = false;
 bool s_languages_changed = false;
@@ -154,8 +153,10 @@ void RegisterVFS(ConfigMenu::Surface surface) {
   size_t pageSlots[kSettingsSectionCount];
   for (int p = 0; p < kSettingsSectionCount; ++p)
     pageSlots[p] = SettingsSlotCount(static_cast<SettingsPage>(p));
-  s_config_layout.SetSettingsCounts(pageSlots,
-                                    SettingsCount(SettingsPage::Keybinds));
+  size_t bindRows[kBindPageCount];
+  for (int p = 0; p < kBindPageCount; ++p)
+    bindRows[p] = BindRowCount(BindPageContext(p));
+  s_config_layout.SetSettingsCounts(pageSlots, bindRows);
 
   // Providers run per read, so each CSV reflects the layout state at that
   // moment. Nothing here needs re-registering when the data behind it changes.
@@ -169,7 +170,6 @@ void RegisterVFS(ConfigMenu::Surface surface) {
       .Add("l_modmgr_dlcdetail.csv", &s_dlc_detail_tpl)
       .Add("l_modmgr_setting.csv", &s_setting_item_tpl)
       .Add("l_modmgr_keybind.csv", &s_keybind_item_tpl)
-      .Add("l_modmgr_pad.csv", &s_pad_tpl)
       .Add("l_modmgr_langinfo.csv", &s_lang_item_tpl)
       // Full-width rows. The camp Encyclopedia screen serves its own narrower
       // instance beside its CSV, since a template path resolves relative to the

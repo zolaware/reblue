@@ -11,6 +11,7 @@
 
 #include "core/settings_model.h"
 #include "engine/d2anime/d2anime.h"
+#include "engine/input/actions.h"
 
 #include <array>
 #include <initializer_list>
@@ -43,9 +44,8 @@ public:
     LANGNOTICE,
     ACHVLIST,            // achievement list active (read-only)
     SETTINGS,            // a settings page list active, sidebar stays visible
-    KEYBINDS,            // keyboard-binds screen (reached from the Input page)
-    PADLAYOUT,           // controller diagram (reached from the Controls page)
-    KEYBIND_CAPTURE,     // waiting for a host key press to rebind a row
+    KEYBINDS,
+    KEYBIND_CAPTURE,
     REORDER,             // reorder mode (mod list only)
     CONFIRM_DELETE,      // delete confirmation popup active
     CONFIRM_REBOOT,      // restart-to-apply confirmation popup active
@@ -132,7 +132,6 @@ private:
   // Repeat step for a held direction on a bar row, or 0.
   int HeldStep(int cursor);
   void HandleKeybinds();
-  void HandlePadLayout();
   void HandleKeybindCapture();
   void HandleReorder();
   void HandleConfirmDelete();
@@ -154,18 +153,18 @@ private:
   void RefreshAchvVisuals();
   void RefreshSettingsVisuals();
   void RefreshKeybindVisuals();
-  void RefreshPadLayout();
-  void HidePadLayout();
   bool DiscoverMenus();
   bool MenusReady();
   void ResetMenus();
   AnimeMenu &CurrentSettingsList();
+  AnimeMenu &CurrentBindList();
+  ActionContext BindContext() const;
+  int BindRows() const;
+  void SetBindPage(int page);
 
-  // Every list widget this menu owns: the section sidebar, the mod, DLC,
-  // language, achievement and keybind lists, plus one list per settings page.
-  // All point at members, so the array is rebuilt per call rather than cached.
-  static constexpr size_t kFixedMenus = 6;
-  static constexpr size_t kMenuCount = kSettingsSectionCount + kFixedMenus;
+  static constexpr size_t kFixedMenus = 5;
+  static constexpr size_t kMenuCount =
+      kSettingsSectionCount + kFixedMenus + kBindPageCount;
   std::array<AnimeMenu *, kMenuCount> Menus();
 
   State state_ = State::INIT;
@@ -189,19 +188,17 @@ private:
   AnimeMenu langlist_menu_;
   AnimeMenu achvlist_menu_;
   AnimeMenu settings_menus_[kSettingsSectionCount];
-  AnimeMenu keybind_menu_;
+  AnimeMenu bind_menus_[kBindPageCount];
 
   SettingsPage settings_page_ = SettingsPage::Gameplay;
-  SettingAction pad_action_ = SettingAction::PadLayout;
-  int capture_index_ = -1;
-  bool capture_alt_ = false;
+  int bind_page_ = 0;
+  Action capture_action_ = Action::Confirm;
+  int capture_slot_ = -1;
+  Action conflict_action_ = Action::Confirm;
+  bool conflict_shown_ = false;
   // Edge detector for the keybind screen's hover-Delete, a host key with no
   // engine button to edge-gate it.
   bool del_held_ = false;
-  // Last keybind grid slot the cursor held outside the spacer band. It tells
-  // the spacer nudge which way the cursor was traveling.
-  int last_keybind_slot_ = 0;
-  // The same, for the section titles between a settings page's rows.
   int last_settings_slot_ = 0;
   // Held-direction auto-repeat on bar rows, counted in menu frames: a short
   // delay so a tap still moves one step, then a step every other frame.

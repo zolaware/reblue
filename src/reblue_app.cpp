@@ -246,6 +246,7 @@ ReblueApp::Create(rex::ui::WindowedAppContext &ctx) {
 
 ReblueApp::ReblueApp(rex::ui::WindowedAppContext &ctx)
     : rex::ReXApp(ctx, "reblue", PPCImageConfig) {
+  bd::engine::Bindings::Get().Init();
   ApplyReblueCvarDefaults();
 }
 
@@ -264,6 +265,7 @@ void ReblueApp::OnPostInitLogging() {
   bd::vfs::Settings::Get().Init();
   bd::ui::Settings::Get().Init();
   bd::engine::Settings::Get().Init();
+  bd::engine::Bindings::Get().ReportParseErrors();
   bd::engine::GameOptions::Get().Init();
 
   bd::engine::Achievements::Init();

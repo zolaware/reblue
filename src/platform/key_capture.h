@@ -7,6 +7,8 @@
 #include <cstddef>
 #include <string>
 
+#include <rex/types.h>
+
 namespace bd::platform {
 
 // Names must match the rex keybind names (rex::ui::ParseVirtualKey) so a
@@ -41,6 +43,8 @@ inline constexpr const char *kBindableKeys[] = {
 inline constexpr size_t kBindableKeyCount =
     sizeof(kBindableKeys) / sizeof(kBindableKeys[0]);
 
+
+void SetCapturePadButtons(u32 buttons);
 
 // Snapshot current key state. Keys already held are ignored until released.
 void BeginKeyCapture();

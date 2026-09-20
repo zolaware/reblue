@@ -17,8 +17,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include <rex/cvar.h>
 
@@ -114,27 +116,6 @@ bool MouseEnabled() { return rex::cvar::GetFlagByName("mnk_mouse") == "true"; }
 
 bool Windowed() { return rex::cvar::GetFlagByName("fullscreen") != "true"; }
 
-// Bind values are comma-separated alternatives. Slot 0 is the primary key,
-// slot 1 the alternate. Anything past that is preserved by the driver but not
-// editable from the menu.
-std::string BindToken(const std::string &value, int slot) {
-  size_t start = 0;
-  for (int i = 0; i < slot; ++i) {
-    size_t comma = value.find(',', start);
-    if (comma == std::string::npos)
-      return {};
-    start = comma + 1;
-  }
-  size_t comma = value.find(',', start);
-  std::string token = value.substr(
-      start, comma == std::string::npos ? std::string::npos : comma - start);
-  size_t first = token.find_first_not_of(' ');
-  if (first == std::string::npos)
-    return {};
-  size_t last = token.find_last_not_of(' ');
-  return token.substr(first, last - first + 1);
-}
-
 // Menu spelling of one bind token. The cvar stores rex's canonical key names
 // (rex::ui::ParseVirtualKey), which read as words rather than as the key legend
 // a player is looking for, so punctuation shows its printed character and the
@@ -182,7 +163,48 @@ constexpr KeyAlias kKeyAliases[] = {
     {"NumpadStar", "Num *"},
     {"NumpadSlash", "Num /"},
     {"NumpadEnter", "Num Enter"},
+    {"PadA", "A"},
+    {"PadB", "B"},
+    {"PadX", "X"},
+    {"PadY", "Y"},
+    {"PadLB", "LB"},
+    {"PadRB", "RB"},
+    {"PadLT", "LT"},
+    {"PadRT", "RT"},
+    {"PadStart", "Start"},
+    {"PadBack", "Back"},
+    {"PadLS", "L3"},
+    {"PadRS", "R3"},
+    {"PadDUp", "Pad Up"},
+    {"PadDDown", "Pad Down"},
+    {"PadDLeft", "Pad Left"},
+    {"PadDRight", "Pad Right"},
+    {"LStick", "L Stick"},
+    {"RStick", "R Stick"},
+    {"LStickUp", "L Up"},
+    {"LStickDown", "L Down"},
+    {"LStickLeft", "L Left"},
+    {"LStickRight", "L Right"},
+    {"RStickUp", "R Up"},
+    {"RStickDown", "R Down"},
+    {"RStickLeft", "R Left"},
+    {"RStickRight", "R Right"},
+    {"WheelUp", "Wheel Up"},
+    {"WheelDown", "Wheel Dn"},
+    {"MouseXY", "Mouse"},
 };
+
+constexpr engine::ActionContext kBindPages[kBindPageCount] = {
+    engine::ActionContext::Field, engine::ActionContext::Menu,
+    engine::ActionContext::Mechat, engine::ActionContext::System};
+
+constexpr const char *kBindPageKeys[kBindPageCount] = {
+    "settings.binds.field", "settings.binds.menu", "settings.binds.mechat",
+    "settings.binds.system"};
+
+int BindPageIndex(int page) {
+  return (page < 0 || page >= kBindPageCount) ? 0 : page;
+}
 
 std::string KeyDisplay(const std::string &token) {
   // A bind on the '+' key is spelled Plus, so a '+' can only be a separator.
@@ -195,21 +217,6 @@ std::string KeyDisplay(const std::string &token) {
              a.legend;
   }
   return token;
-}
-
-std::string SetBindToken(const std::string &value, int slot,
-                         const std::string &keyName) {
-  std::string primary = BindToken(value, 0);
-  std::string alt = BindToken(value, 1);
-  if (slot == 0)
-    primary = keyName;
-  else
-    alt = keyName;
-  if (primary.empty())
-    return alt;
-  if (alt.empty())
-    return primary;
-  return primary + "," + alt;
 }
 
 // === Language list (SettingSpecial::Language) ===
@@ -543,22 +550,10 @@ int SettingsRowToSlot(SettingsPage page, int row) {
   return (row < 0 || row >= p.rows) ? -1 : p.slot[row];
 }
 
-// A keybind row is stored per pad button but named by what that button does,
-// resolved live so it follows the camp Config controller type option.
-// Binding by action instead would move the player's key between cvars every
-// time they changed that option, which is a worse surprise than a row that
-// renames.
 const char *SettingsLabel(SettingsPage page, int index) {
   if (!InRange(page, index))
     return "";
-  const SettingRow &s = At(page, index);
-  if (s.padButton >= 0) {
-    if (const auto action = engine::ActionMap::Get().ActionFor(s.padButton))
-      return i18n::Text(std::string("settings.action.") +
-                        engine::ToString(*action))
-          .c_str();
-  }
-  return Localized(s.label);
+  return Localized(At(page, index).label);
 }
 
 void SettingsDisableRestartRows(bool disable) { s_disableRestart = disable; }
@@ -576,34 +571,56 @@ std::string SettingsValueText(SettingsPage page, int index) {
     std::snprintf(buf, sizeof(buf), s.sfmt, CurrentNum(s));
     return buf;
   }
-  if (s.kind == SettingKind::Keybind) {
-    std::string v = BindToken(rex::cvar::GetFlagByName(s.binding.cvar), 0);
-    return v.empty() ? i18n::Text("settings.keybind.unbound") : KeyDisplay(v);
-  }
   if (s.kind == SettingKind::Action)
     return "";
   return OptionLabel(OptsOf(s).opts[CurrentIndex(s)]);
 }
 
-std::string SettingsKeybindAlt(SettingsPage page, int index) {
-  if (!InRange(page, index))
-    return "";
-  const SettingRow &s = At(page, index);
-  if (s.kind != SettingKind::Keybind)
-    return "";
-  // Empty means no alternate, which the menu draws as a bare gap rather than
-  // as a box saying 'None'.
-  std::string v = BindToken(rex::cvar::GetFlagByName(s.binding.cvar), 1);
-  return v.empty() ? std::string() : KeyDisplay(v);
+engine::ActionContext BindPageContext(int page) {
+  return kBindPages[BindPageIndex(page)];
 }
 
-std::string SettingsKeybindToken(SettingsPage page, int index, bool alt) {
-  if (!InRange(page, index))
-    return "";
-  const SettingRow &s = At(page, index);
-  if (s.kind != SettingKind::Keybind)
-    return "";
-  return BindToken(rex::cvar::GetFlagByName(s.binding.cvar), alt ? 1 : 0);
+const char *BindPageLabel(int page) {
+  return Localized(kBindPageKeys[BindPageIndex(page)]);
+}
+
+size_t BindRowCount(engine::ActionContext context) {
+  size_t rows = 0;
+  for (int i = 0; i < engine::kActionCount; ++i)
+    if (engine::Describe(static_cast<engine::Action>(i)).context == context)
+      ++rows;
+  return rows;
+}
+
+engine::Action BindRowAction(engine::ActionContext context, int index) {
+  for (int i = 0; i < engine::kActionCount; ++i) {
+    const auto action = static_cast<engine::Action>(i);
+    if (engine::Describe(action).context != context)
+      continue;
+    if (index-- == 0)
+      return action;
+  }
+  return static_cast<engine::Action>(0);
+}
+
+const char *BindRowLabel(engine::Action action) {
+  return Localized(engine::Describe(action).labelKey);
+}
+
+std::string SettingsKeybindToken(engine::Action action, int slot) {
+  const std::vector<engine::Source> &sources =
+      engine::Bindings::Get().Sources(action);
+  if (slot < 0 || static_cast<size_t>(slot) >= sources.size())
+    return {};
+  std::string token;
+  if (!engine::FormatSource(sources[static_cast<size_t>(slot)], token))
+    return {};
+  return token;
+}
+
+std::string SettingsKeybindAlt(engine::Action action, int slot) {
+  const std::string token = SettingsKeybindToken(action, slot);
+  return token.empty() ? std::string() : KeyDisplay(token);
 }
 
 RowUi SettingsRowUi(SettingsPage page, int index) {
@@ -613,8 +630,6 @@ RowUi SettingsRowUi(SettingsPage page, int index) {
   switch (s.kind) {
   case SettingKind::Slider:
     return RowUi::Slider;
-  case SettingKind::Keybind:
-    return RowUi::Keybind;
   case SettingKind::Action:
     return RowUi::Action;
   default:
@@ -715,8 +730,7 @@ bool CycleSetting(SettingsPage page, int index, int dir) {
   if (!InRange(page, index))
     return false;
   const SettingRow &s = At(page, index);
-  if (s.kind == SettingKind::Keybind || s.kind == SettingKind::Action ||
-      SettingsDisabled(page, index))
+  if (s.kind == SettingKind::Action || SettingsDisabled(page, index))
     return false;
 
   if (s.kind == SettingKind::Slider) {
@@ -767,61 +781,58 @@ bool SetSliderValue(SettingsPage page, int index, double value) {
   return WriteSlider(s, next);
 }
 
-bool SetKeybind(SettingsPage page, int index, const std::string &keyName,
-                bool alt) {
-  if (!InRange(page, index))
-    return false;
-  const SettingRow &s = At(page, index);
-  if (s.kind != SettingKind::Keybind)
-    return false;
-  std::string value = SetBindToken(rex::cvar::GetFlagByName(s.binding.cvar),
-                                   alt ? 1 : 0, keyName);
-  if (!rex::cvar::SetFlagByName(s.binding.cvar, value)) {
-    BD_WARN("[config] failed to bind {} = {}", s.binding.cvar, value);
+bool SetKeybind(engine::Action action, int slot, const std::string &token,
+                engine::Action *conflict) {
+  if (conflict)
+    *conflict = action;
+
+  engine::Source source;
+  if (!engine::ParseSource(token, source)) {
+    BD_WARN("[config] '{}' is not a bindable input", token);
     return false;
   }
-  BD_DEBUG("[config] {} = {}", s.binding.cvar, value);
+
+  if (const auto other = engine::Bindings::Get().Conflict(action, source)) {
+    if (conflict)
+      *conflict = *other;
+    BD_DEBUG("[config] {} already owns {}", engine::ToString(*other), token);
+    return false;
+  }
+
+  if (!engine::Bindings::Get().SetSource(action, slot, source)) {
+    BD_WARN("[config] failed to bind {} to {}", token,
+            engine::ToString(action));
+    return false;
+  }
+  BD_DEBUG("[config] {}[{}] = {}", engine::ToString(action), slot, token);
   return true;
 }
 
-bool ClearKeybind(SettingsPage page, int index) {
-  if (!InRange(page, index))
+bool ClearKeybindSlot(engine::Action action, int slot) {
+  engine::Bindings &binds = engine::Bindings::Get();
+  std::vector<engine::Source> kept = binds.Sources(action);
+  if (slot < 0 || static_cast<size_t>(slot) >= kept.size())
     return false;
-  const SettingRow &s = At(page, index);
-  if (s.kind != SettingKind::Keybind)
+  kept.erase(kept.begin() + slot);
+  if (!binds.ClearSources(action))
     return false;
-  if (!rex::cvar::SetFlagByName(s.binding.cvar, "")) {
-    BD_WARN("[config] failed to clear {}", s.binding.cvar);
-    return false;
-  }
-  BD_DEBUG("[config] {} cleared", s.binding.cvar);
+  for (size_t i = 0; i < kept.size(); ++i)
+    binds.SetSource(action, static_cast<int>(i), kept[i]);
+  BD_DEBUG("[config] {} slot {} cleared", engine::ToString(action), slot);
   return true;
 }
 
-bool ResetKeybinds(SettingsPage page) {
-  bool changed = false;
-  const int count = static_cast<int>(SettingsCount(page));
-  for (int i = 0; i < count; ++i) {
-    const SettingRow &s = At(page, i);
-    if (s.kind != SettingKind::Keybind)
-      continue;
-    const rex::cvar::FlagEntry *entry = rex::cvar::GetFlagInfo(s.binding.cvar);
-    if (!entry) {
-      BD_WARN("[config] {} not registered, not reset", s.binding.cvar);
-      continue;
-    }
-    // Copied out of the registry before the write, which takes the same lock.
-    const std::string def = entry->default_value;
-    if (rex::cvar::GetFlagByName(s.binding.cvar) == def)
-      continue;
-    if (!rex::cvar::SetFlagByName(s.binding.cvar, def)) {
-      BD_WARN("[config] failed to reset {}", s.binding.cvar);
-      continue;
-    }
-    BD_DEBUG("[config] {} = {} (default)", s.binding.cvar, def);
-    changed = true;
+bool ClearKeybind(engine::Action action) {
+  if (!engine::Bindings::Get().ClearSources(action)) {
+    BD_WARN("[config] failed to clear {}", engine::ToString(action));
+    return false;
   }
-  return changed;
+  BD_DEBUG("[config] {} cleared", engine::ToString(action));
+  return true;
+}
+
+bool ResetKeybinds(engine::ActionContext context) {
+  return engine::Bindings::Get().ResetContext(context);
 }
 
 } // namespace bd

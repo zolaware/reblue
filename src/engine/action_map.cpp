@@ -9,6 +9,7 @@
 #include "core/memory_helpers.h"
 #include "engine/config.h"
 #include "engine/game_options.h"
+#include "engine/input/button_map.h"
 
 namespace bd::engine {
 
@@ -72,6 +73,8 @@ ActionMap &ActionMap::Get() {
 }
 
 u32 ActionMap::Row() const {
+  if (const u32 derived = ButtonMap::Get().GeneralRowVA())
+    return derived;
   const auto type = static_cast<u32>(GameOptions::Get().CtlNormalType());
   if (type >= kControlTypeCount)
     return 0;

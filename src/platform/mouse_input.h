@@ -35,6 +35,10 @@ public:
   // Signed wheel detents accumulated since the last call, drained by the read.
   int TakeWheelDetents();
 
+  int WheelDetents() const;
+
+  bool TakeDelta(f32 &dx, f32 &dy);
+
   bool IsButtonDown(rex::ui::MouseEvent::Button button) const;
 
   // Buttons only, never motion: a hand resting on the mouse must not claim the
@@ -67,6 +71,8 @@ private:
   std::atomic<bool> hasPosition_{false};
   std::atomic<bool> moved_{false};
   std::atomic<int> wheelAccum_{0};
+  std::atomic<f32> deltaX_{0.0f};
+  std::atomic<f32> deltaY_{0.0f};
   std::atomic<u32> buttons_{0}; // bit per MouseEvent::Button value
   std::atomic<bool> gameCursor_{false};
   std::atomic<rex::ui::Window *> window_{nullptr};

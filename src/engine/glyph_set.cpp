@@ -12,15 +12,18 @@
 #include <string_view>
 #include <vector>
 
-#include <rex/cvar.h>
 #include <rex/graphics/pipeline/texture/util.h>
 #include <rex/hook.h>
 #include <rex/types.h>
+#include <rex/ui/keybinds.h>
 
 #include "core/logging.h"
 #include "core/memory_helpers.h"
+#include "engine/d2anime/anime_input.h"
 #include "engine/d2anime/anime_mount.h"
 #include "engine/d2anime/anime_mouse.h"
+#include "engine/input/actions.h"
+#include "engine/input/binding_store.h"
 #include "engine/prompt_textures.h"
 #include "engine/settings.h"
 #include "engine/virtual_buttons.h"
@@ -84,27 +87,28 @@ static_assert(kPadSetBase + kPadSetLast * kPadSetCells <=
 // honest answer for a button with no key bound to it.
 constexpr int kBlankCell = kSheetCols - 1;
 
-// One prompt: the Uv.csv variable it reads, the controller cell it shows on a
-// pad, and the cvar naming the key it shows on a keyboard. The D-pad has no
-// single cvar because the arrows are synthesized rather than bound.
+constexpr Action kNoAction = Action::Count;
+constexpr int kNoPadButton = -1;
+
 struct GlyphCell {
   const char *name;
   int padCell;
-  const char *keybind;
+  int padButton;
+  Action action;
 };
 
 constexpr GlyphCell kCells[] = {
-    {"Help_A_Uv", 0, "keybind_a"},
-    {"Help_B_Uv", 1, "keybind_b"},
-    {"Help_X_Uv", 2, "keybind_x"},
-    {"Help_Y_Uv", 3, "keybind_y"},
-    {"Help_BACK_Uv", 8, "keybind_back"},
-    {"Help_CROSS_Uv", 9, nullptr},
-    {"Help_LB_Uv", 16, "keybind_left_shoulder"},
-    {"Help_RB_Uv", 17, "keybind_right_shoulder"},
-    {"Help_LT_Uv", 18, "keybind_left_trigger"},
-    {"Help_RT_Uv", 19, "keybind_right_trigger"},
-    {"Help_STARTUv", 24, "keybind_start"},
+    {"Help_A_Uv", 0, int(Button::A), Action::Confirm},
+    {"Help_B_Uv", 1, int(Button::B), Action::Cancel},
+    {"Help_X_Uv", 2, int(Button::X), Action::Attack},
+    {"Help_Y_Uv", 3, int(Button::Y), Action::MainMenu},
+    {"Help_BACK_Uv", 8, int(Button::Back), Action::Back},
+    {"Help_CROSS_Uv", 9, kNoPadButton, kNoAction},
+    {"Help_LB_Uv", 16, int(Button::LB), Action::FieldSkill2},
+    {"Help_RB_Uv", 17, int(Button::RB), Action::FieldSkill1},
+    {"Help_LT_Uv", 18, int(Button::LT), Action::ResetCamera},
+    {"Help_RT_Uv", 19, int(Button::RT), Action::FieldMenu},
+    {"Help_STARTUv", 24, int(Button::Start), Action::WorldMap},
 };
 static_assert(int(sizeof(kCells) / sizeof(kCells[0])) == Glyphs::kHelpCells);
 
@@ -155,17 +159,33 @@ void BlitSheetCell(u8 *dst, const u8 *src, size_t payloadBytes, int dstCell,
 // key, the arrow cluster for the D-pad, or the blank half-cell for a button
 // nobody bound.
 int ArtCell(const GlyphCell &c) {
-  if (!c.keybind)
+  if (c.action == kNoAction)
     return kClusterCell;
-  const int key = BoundKeyIndex(c.keybind);
+  const int key = BoundKeyIndex(c.action);
   return key < 0 ? kBlankCell : kKeyCellBase + key;
 }
 
-// The same question for a pad that is not the 360 the disc drew for: the
-// matching cell of that pad's own block, which is laid out in kCells order.
+int PadGlyphIndex(Action action) {
+  for (const Source &s : Bindings::Get().Sources(action)) {
+    if (s.kind != SourceKind::PadButton)
+      continue;
+    for (int i = 0; i < Glyphs::kHelpCells; ++i) {
+      if (kCells[i].padButton == int(s.code))
+        return i;
+    }
+    return -1;
+  }
+  return -1;
+}
+
 int PadArtCell(PadSet pad, int cellIndex) {
-  const int set = static_cast<int>(pad);
-  return kPadSetBase + (set - 1) * kPadSetCells + cellIndex;
+  const GlyphCell &c = kCells[cellIndex];
+  const int idx = c.action == kNoAction ? cellIndex : PadGlyphIndex(c.action);
+  if (idx < 0)
+    return kBlankCell;
+  if (pad == PadSet::Xbox360)
+    return kCells[idx].padCell;
+  return kPadSetBase + (static_cast<int>(pad) - 1) * kPadSetCells + idx;
 }
 
 // Where a cap inks inside its 64px cell, and the wider band the modifier cells
@@ -176,28 +196,6 @@ constexpr f32 kInkY0 = 12.0f / 64.0f;
 constexpr f32 kInkY1 = 52.0f / 64.0f;
 constexpr f32 kModInkX0 = 4.0f / 64.0f;
 constexpr f32 kModInkX1 = 60.0f / 64.0f;
-
-std::string_view Trim(std::string_view s) {
-  while (!s.empty() && (s.front() == ' ' || s.front() == '\t'))
-    s.remove_prefix(1);
-  while (!s.empty() && (s.back() == ' ' || s.back() == '\t'))
-    s.remove_suffix(1);
-  return s;
-}
-
-// The first alternative of a comma-separated bind, with any modifier prefix
-// dropped. The sheet carries a cap per key, not per combination, so 'Shift+Up'
-// draws the up arrow.
-std::string_view PrimaryKey(std::string_view value) {
-  const size_t comma = value.find(',');
-  if (comma != std::string_view::npos)
-    value = value.substr(0, comma);
-  value = Trim(value);
-  const size_t plus = value.rfind('+');
-  if (plus != std::string_view::npos)
-    value = value.substr(plus + 1);
-  return value;
-}
 
 // The connected pad's own art, for PadSet::Auto. A pad the host cannot place
 // gets the 360's block, which is the one the disc ships.
@@ -240,13 +238,15 @@ int KeyIndex(std::string_view keyName) {
   return -1;
 }
 
-int BoundKeyIndex(const char *keybindCvar) {
-  if (!keybindCvar)
-    return -1;
-  const std::string bind = rex::cvar::GetFlagByName(keybindCvar);
-  if (bind.empty())
-    return -1;
-  return KeyIndex(PrimaryKey(bind));
+int BoundKeyIndex(Action action) {
+  for (const Source &s : Bindings::Get().Sources(action)) {
+    if (s.kind != SourceKind::Key)
+      continue;
+    const std::string name =
+        rex::ui::VirtualKeyToString(static_cast<rex::ui::VirtualKey>(s.code));
+    return name.empty() ? -1 : KeyIndex(name);
+  }
+  return -1;
 }
 
 const char *ToString(GlyphSet set) {
@@ -294,18 +294,7 @@ void Glyphs::InitOnce() {
   mount.AddRaw(kSheetKey, [] { return Glyphs::Get().ComposeSheet(); });
   mount.Publish(kSheetMount);
   PromptTextures::Get().Publish();
-
-  // A rebind has to move the prompt with it. Reading ten cvars every tick would
-  // allocate ten strings a frame for an answer that changes almost never, so
-  // the keybind screen tells us instead.
-  for (const GlyphCell &cell : kCells) {
-    if (!cell.keybind)
-      continue;
-    rex::cvar::RegisterChangeCallback(
-        cell.keybind, [](std::string_view, std::string_view) {
-          Glyphs::Get().bindsDirty_.store(true, std::memory_order_relaxed);
-        });
-  }
+  bindGeneration_ = Bindings::Get().Generation();
 }
 
 void Glyphs::Rebind() {
@@ -417,18 +406,17 @@ void Glyphs::Apply() {
 std::vector<u8> Glyphs::ComposeSheet() const {
   constexpr auto kSheet = bd::Embedded("glyphs/cmn_help_menue.dds");
   std::vector<u8> blob(kSheet.data, kSheet.data + kSheet.size);
-  // The shipped block is a 360 pad's, so that is the one combination with
-  // nothing to substitute.
-  const bool keyboard = resolved_ == GlyphSet::Keyboard;
-  if ((!keyboard && pad_ == PadSet::Xbox360) || blob.size() <= kSheetPayload)
+  if (blob.size() <= kSheetPayload)
     return blob;
+  const bool keyboard = resolved_ == GlyphSet::Keyboard;
   u8 *payload = blob.data() + kSheetPayload;
   const u8 *src = kSheet.data + kSheetPayload;
   const size_t bytes = blob.size() - kSheetPayload;
   for (int i = 0; i < kHelpCells; ++i) {
     const GlyphCell &c = kCells[i];
-    BlitSheetCell(payload, src, bytes, c.padCell,
-                  keyboard ? ArtCell(c) : PadArtCell(pad_, i));
+    const int art = keyboard ? ArtCell(c) : PadArtCell(pad_, i);
+    if (art != c.padCell)
+      BlitSheetCell(payload, src, bytes, c.padCell, art);
   }
   return blob;
 }
@@ -467,10 +455,11 @@ void Glyphs::Tick() {
 
   const GlyphSet want = Wanted();
   const PadSet wantPad = WantedPad();
-  const bool rebound = bindsDirty_.exchange(false, std::memory_order_relaxed);
-  if (want != resolved_ || wantPad != pad_ || rebound) {
+  const u32 bindGen = Bindings::Get().Generation();
+  if (want != resolved_ || wantPad != pad_ || bindGen != bindGeneration_) {
     resolved_ = want;
     pad_ = wantPad;
+    bindGeneration_ = bindGen;
     Apply();
   }
 
