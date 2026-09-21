@@ -110,10 +110,6 @@ const PageSlots &Slots(SettingsPage page) {
 
 const SettingRow &At(SettingsPage page, int index) { return *Find(page, index); }
 
-bool MnkEnabled() { return rex::cvar::GetFlagByName("mnk_mode") == "true"; }
-
-bool MouseEnabled() { return rex::cvar::GetFlagByName("mnk_mouse") == "true"; }
-
 bool Windowed() { return rex::cvar::GetFlagByName("fullscreen") != "true"; }
 
 // Menu spelling of one bind token. The cvar stores rex's canonical key names
@@ -657,9 +653,7 @@ bool SettingsDisabled(SettingsPage page, int index) {
   if (!InRange(page, index))
     return false;
   const SettingRow &s = At(page, index);
-  return (s.restart && s_disableRestart) || (s.kbGated && !MnkEnabled()) ||
-         (s.mouseGated && !(MnkEnabled() && MouseEnabled())) ||
-         (s.windowedGated && !Windowed()) ||
+  return (s.restart && s_disableRestart) || (s.windowedGated && !Windowed()) ||
          (s.special == SettingSpecial::Monitor && SingleDisplay());
 }
 

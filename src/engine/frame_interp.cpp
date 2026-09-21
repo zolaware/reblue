@@ -3134,7 +3134,6 @@ REX_EXTERN(__imp__bdInputSystemUpdate);
 REX_HOOK_RAW(bdInputSystemUpdate) {
   if (!bd::engine::TickDue())
     return;
-  bd::engine::SampleButtonEdges();
   bd::engine::MenuMouse::Get().BeginFrame();
   bd::engine::UpdateMouseLook();
   bd::engine::MouseCursorTick();

@@ -240,8 +240,8 @@ bool UpdatePrompt::Hold(const Task &parent) {
   }
 
   case Phase::kAppFailed:
-    if (now < deadline_ && !CheckAction(GameAction::Confirm) &&
-        !CheckAction(GameAction::Cancel))
+    if (now < deadline_ && !CheckAction(Action::Confirm) &&
+        !CheckAction(Action::Cancel))
       return true;
     notice_.Kill();
     return EnterContentOffer();

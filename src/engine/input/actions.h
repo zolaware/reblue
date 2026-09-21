@@ -39,13 +39,8 @@ enum class Action : int {
   StickPressLeft,
   StickPressRight,
 
-  AreaMap,
-  SkipCutscene,
-
   Overlay,
   Mindows,
-  Screenshot,
-  Fullscreen,
 
   Count,
 };

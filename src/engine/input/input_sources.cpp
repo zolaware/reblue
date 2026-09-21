@@ -3,13 +3,13 @@
 #include <algorithm>
 #include <cmath>
 
+#include <rex/cvar.h>
 #include <rex/ui/virtual_key.h>
 
 #include "core/memory_helpers.h"
 #include "engine/input/actions.h"
 #include "engine/virtual_buttons.h"
-#include "platform/keyboard_input.h"
-#include "platform/mouse_input.h"
+#include "platform/platform.h"
 
 namespace bd::engine {
 
@@ -28,7 +28,11 @@ constexpr u32 kPadButtonBits[24] = {
 
 constexpr f32 kAxisLiveEpsilon = 0.001f;
 
-constexpr f32 kMouseAxisScale = 1.0f / 20.0f;
+f32 MouseAxisScale() {
+  const f64 sensitivity = REXCVAR_QUERY(f64, mnk_sensitivity);
+  return sensitivity > 0.0 ? kMouseAxisScale * static_cast<f32>(sensitivity)
+                           : kMouseAxisScale;
+}
 
 u32 PadButtonBit(u16 id) {
   constexpr u16 kCount = sizeof(kPadButtonBits) / sizeof(kPadButtonBits[0]);
@@ -70,7 +74,9 @@ bool IsMouse(const Source &source) {
 }
 
 bool MouseTaken(const Source &source) {
-  return IsMouse(source) && HostOverlayOwnsPointer();
+  if (IsMouse(source) && HostOverlayOwnsPointer())
+    return true;
+  return source.kind == SourceKind::MouseAxes && MenuOwnsInput();
 }
 
 int PadAxisBase(const Source &source) {
@@ -92,6 +98,7 @@ void InputSources::Sample(u32 padBlock) {
   }
 
   wheel_ = platform::Mouse().WheelDetents();
+  mouseScale_ = MouseAxisScale();
 
   f32 dx = 0.0f;
   f32 dy = 0.0f;
@@ -109,11 +116,13 @@ bool InputSources::Active(const Source &source) const {
     return false;
   switch (source.kind) {
   case SourceKind::Key: {
-    if (platform::Keyboard().Modifiers() != source.mods)
-      return false;
+    const u8 held = platform::Keyboard().Modifiers();
     const rex::ui::MouseEvent::Button button = MouseKeyButton(source.code);
     if (button != rex::ui::MouseEvent::Button::kNone)
-      return platform::Mouse().IsButtonDown(button);
+      return (held & source.mods) == source.mods &&
+             platform::Mouse().IsButtonDown(button);
+    if (held != source.mods)
+      return false;
     return platform::Keyboard().IsDown(
         static_cast<rex::ui::VirtualKey>(source.code));
   }
@@ -146,7 +155,7 @@ f32 InputSources::Axis(const Source &source, int component) const {
                : 0.0f;
   case SourceKind::MouseAxes: {
     const f32 delta = component == 0 ? mouseDx_ : -mouseDy_;
-    return ClampAxis(delta * kMouseAxisScale);
+    return ClampAxis(delta * mouseScale_);
   }
   default:
     break;

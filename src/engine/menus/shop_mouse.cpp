@@ -9,8 +9,9 @@
  */
 #include "engine/d2anime/anime_mouse.h"
 #include "engine/d2anime/d2anime.h"
+#include "engine/input/action_state.h"
+#include "engine/input/actions.h"
 #include "engine/menus/shop_main_task.h"
-#include "engine/virtual_buttons.h"
 #include "reblue_init.h"
 
 #include <rex/hook.h>
@@ -35,9 +36,7 @@ constexpr f32 kUpArrowX1 = 542.0f;
 bool CountArrowClicked(const ShopMainTask &shop) {
   if (!MenuMouse::Get().PointerActive())
     return false;
-  // Confirm is the click, since keybind_a carries LMB. The engine's own edge
-  // keeps this to the frame the button went down.
-  if (!CheckAction(GameAction::Confirm))
+  if (!CheckAction(Action::Confirm))
     return false;
 
   AnimeMenu menu = shop.StateMenu();
@@ -50,9 +49,9 @@ bool CountArrowClicked(const ShopMainTask &shop) {
     return false;
 
   if (x >= kDownArrowX0 && x <= kDownArrowX1)
-    PressButton(static_cast<int>(Button::Left));
+    InputActions::Get().Force(Action::NavLeft);
   else if (x >= kUpArrowX0 && x <= kUpArrowX1)
-    PressButton(static_cast<int>(Button::Right));
+    InputActions::Get().Force(Action::NavRight);
   else
     return false;
   return true;

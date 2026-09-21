@@ -38,10 +38,10 @@
 #include <rex/system/kernel_state.h>
 #include <rex/types.h>
 
+using bd::engine::Action;
 using bd::engine::ActionButton;
 using bd::engine::Button;
 using bd::engine::CheckButton;
-using bd::engine::GameAction;
 using rex::memory::store_and_swap;
 
 REX_IMPORT(__imp__bdColor4fToARGB, Color4fToARGB, u32(u32));
@@ -261,16 +261,12 @@ void DrawTitleLabel(PPCContext &ctx, u8 *base, u32 index,
 
 } // namespace
 
-// The title asks for confirm and cancel by number, so the controller type the
-// rest of the game reads through bdGetCurrentMapPath never reached it and Type
-// B kept the stock A and B here. r5 still carries the number the engine picked,
-// which is what names the action this call site wants.
 void bdTitleActionButtonHook(PPCRegister &r5) {
-  GameAction action;
+  Action action;
   if (r5.u32 == static_cast<u32>(Button::A))
-    action = GameAction::Confirm;
+    action = Action::Confirm;
   else if (r5.u32 == static_cast<u32>(Button::B))
-    action = GameAction::Cancel;
+    action = Action::Cancel;
   else
     return;
   r5.u32 = static_cast<u32>(ActionButton(action));

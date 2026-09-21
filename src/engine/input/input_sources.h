@@ -6,6 +6,8 @@
 
 namespace bd::engine {
 
+inline constexpr f32 kMouseAxisScale = 1.0f / 20.0f;
+
 class InputSources {
 public:
   static InputSources &Get();
@@ -27,6 +29,7 @@ private:
   f32 padAnalog_[4] = {};
   f32 mouseDx_ = 0.0f;
   f32 mouseDy_ = 0.0f;
+  f32 mouseScale_ = kMouseAxisScale;
   int wheel_ = 0;
 };
 

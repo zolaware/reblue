@@ -40,7 +40,7 @@ constexpr ActionDesc kDescs[kActionCount] = {
     {"move", "settings.pad.move", ActionContext::Field, ActionKind::Mapped, -1,
      -1, AxisPair::Left, "W,S,A,D,LStick"},
     {"view", "settings.pad.view", ActionContext::Field, ActionKind::Mapped, -1,
-     -1, AxisPair::Right, "Up,Down,Left,Right,RStick"},
+     -1, AxisPair::Right, "Up,Down,Left,Right,RStick,MouseXY"},
 
     {"machine_gun", "settings.pad.machine_gun", ActionContext::Mechat,
      ActionKind::Mapped, 0, -1, AxisPair::None, "LMB,Ctrl+Space,PadA"},
@@ -62,22 +62,13 @@ constexpr ActionDesc kDescs[kActionCount] = {
      ActionContext::Field, ActionKind::Mapped, -1, 7, AxisPair::None,
      "L,PadRS"},
 
-    {"area_map", "settings.action.area_map", ActionContext::Field,
-     ActionKind::Dispatched, -1, -1, AxisPair::None, ""},
-    {"skip_cutscene", "settings.action.skip_cutscene", ActionContext::Field,
-     ActionKind::Dispatched, -1, -1, AxisPair::None, ""},
-
     {"overlay", "settings.action.overlay", ActionContext::System,
      ActionKind::Dispatched, -1, -1, AxisPair::None, ""},
     {"mindows", "settings.action.mindows", ActionContext::System,
      ActionKind::Dispatched, -1, -1, AxisPair::None, ""},
-    {"screenshot", "settings.action.screenshot", ActionContext::System,
-     ActionKind::Dispatched, -1, -1, AxisPair::None, ""},
-    {"fullscreen", "settings.action.fullscreen", ActionContext::System,
-     ActionKind::Dispatched, -1, -1, AxisPair::None, ""},
 };
 
-static_assert(kDescs[static_cast<int>(Action::Fullscreen)].context ==
+static_assert(kDescs[static_cast<int>(Action::Mindows)].context ==
               ActionContext::System);
 static_assert(kDescs[static_cast<int>(Action::Aim)].axis == AxisPair::Left);
 

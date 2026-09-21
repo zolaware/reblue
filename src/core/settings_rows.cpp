@@ -129,8 +129,6 @@ constexpr SettingOption kFPS[] = {
     {.text = "90", .num = 90},
     {.text = "120", .num = 120},
     {.text = "Unlimited", .num = 0, .key = "opt.unlimited"}};
-// Shared by Settings-bound rows and by the two mnk_* rows still on the name
-// path, so this one keeps its value strings.
 constexpr SettingOption kOnOff[] = {
     {.text = "Off", .num = 0, .value = "false", .key = "opt.off"},
     {.text = "On", .num = 1, .value = "true", .key = "opt.on"}};
@@ -845,25 +843,13 @@ constexpr SettingRow kControlsSettings[] = {
                      }},
      .options = kOnOff,
      .count = OptCount(kOnOff)},
-    {.label = "settings.controls.keyboard_mode.label",
-     .group = "menu.header.keyboard_mouse",
-     .binding = {.cvar = "mnk_mode"},
-     .options = kOnOff,
-     .count = OptCount(kOnOff)},
-    {.label = "settings.controls.mouse_mode.label",
-     .group = "menu.header.keyboard_mouse",
-     .binding = {.cvar = "mnk_mouse"},
-     .options = kOnOff,
-     .count = OptCount(kOnOff),
-     .kbGated = true},
     {.label = "settings.controls.mouse_sensitivity.label",
      .group = "menu.header.keyboard_mouse",
      .binding = {.cvar = "mnk_sensitivity"},
      .kind = SettingKind::Slider,
      .smin = 0.25,
      .smax = 10.0,
-     .sstep = 0.25,
-     .mouseGated = true},
+     .sstep = 0.25},
     {.label = "settings.controls.mouse_cursor_opacity.label",
      .group = "menu.header.keyboard_mouse",
      .binding = {.get =
@@ -880,8 +866,7 @@ constexpr SettingRow kControlsSettings[] = {
      .smin = static_cast<double>(engine::Settings::kMouseCursorOpacityMin),
      .smax = static_cast<double>(engine::Settings::kMouseCursorOpacityMax),
      .sstep = 5.0,
-     .sfmt = "%.0f",
-     .kbGated = true},
+     .sfmt = "%.0f"},
 };
 
 // Order matches SettingsPage, which is also sidebar order.

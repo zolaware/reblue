@@ -10,7 +10,7 @@
 
 #include <rex/types.h>
 
-#include "engine/action_map.h"
+#include "engine/input/actions.h"
 
 namespace bd::engine {
 
@@ -52,8 +52,8 @@ bool ButtonHeld(Button btn);
 // Stick deflection in [-1, 1].
 float StickValue(StickAxis axis);
 
-bool CheckAction(GameAction action);
-bool ActionHeld(GameAction action);
-Button ActionButton(GameAction action);
+bool CheckAction(Action action);
+bool ActionHeld(Action action);
+Button ActionButton(Action action);
 
 } // namespace bd::engine

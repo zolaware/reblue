@@ -214,7 +214,7 @@ PadSet HostPadSet() {
   }
 }
 
-const char *HelpNameForAction(GameAction action) {
+const char *HelpNameForAction(Action action) {
   switch (ActionButton(action)) {
   case Button::A:
     return "Help_A_Uv";
@@ -343,9 +343,9 @@ void Glyphs::WriteCell(u32 va, int cell) const {
 UVRect Glyphs::PromptUV(const PromptGlyph &glyph) const {
   const char *name = nullptr;
   if (std::strcmp(glyph.helpName, "Help_A_Uv") == 0)
-    name = HelpNameForAction(GameAction::Confirm);
+    name = HelpNameForAction(Action::Confirm);
   else if (std::strcmp(glyph.helpName, "Help_B_Uv") == 0)
-    name = HelpNameForAction(GameAction::Cancel);
+    name = HelpNameForAction(Action::Cancel);
   return CellUV(name ? name : glyph.helpName);
 }
 
@@ -440,9 +440,6 @@ void Glyphs::Tick() {
   const bool keyboard = platform::Keyboard().AnyDown() ||
                         platform::Mouse().AnyButtonDown();
 
-  // The keyboard wins a frame that shows both. The MnK driver turns a held key
-  // into pad state, so 'pad and keyboard together' is a keyboard frame with the
-  // driver doing its job, never a genuine second device.
   if (keyboard) {
     lastDevice_ = GlyphSet::Keyboard;
   } else if (pad) {

@@ -56,6 +56,7 @@ public:
   // keyboard belongs to the game again.
   bool MindowsHidden() const;
   void SetMindowsHidden(bool hidden);
+  void ToggleMindows();
 
   engine::ScriptManTask ScriptManTask() const;
   engine::FieldPlayerEntity FieldPlayerEntity() const;

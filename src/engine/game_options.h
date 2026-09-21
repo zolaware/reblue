@@ -60,10 +60,6 @@ public:
   bool SetCamera(i32 v);
   i32 TargetFirst() const;
   bool SetTargetFirst(i32 v);
-  i32 CtlNormalType() const;
-  bool SetCtlNormalType(i32 v);
-  i32 CtlMechattType() const;
-  bool SetCtlMechattType(i32 v);
 
   f64 MusicVolume() const;
   bool SetMusicVolume(f64 v);

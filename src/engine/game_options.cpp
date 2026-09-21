@@ -144,6 +144,7 @@ static_assert(offsetof(SaveConfigBlock_t, brightness) == 0x30);
 constexpr u32 kConfigBlockOffset = 44876;
 constexpr u32 kCtlNormalTypeOffset = 45484;
 constexpr u32 kCtlMechattTypeOffset = 45488;
+constexpr i32 kCtlTypeA = 0;
 constexpr u32 kAudioHintsOffset = 40800;
 
 // Two blocks live in the content task. The restore reads the second only when
@@ -238,8 +239,8 @@ void AdoptCvars() {
   StoreInt(addr::kSkipEvents, REXCVAR_GET(bd_opt_skip_events));
   StoreInt(addr::kCamera, REXCVAR_GET(bd_opt_camera));
   StoreInt(addr::kTargetFirst, REXCVAR_GET(bd_opt_target_first));
-  StoreInt(addr::kCtlNormalType, REXCVAR_GET(bd_opt_ctl_normal_type));
-  StoreInt(addr::kCtlMechattType, REXCVAR_GET(bd_opt_ctl_mechatt_type));
+  StoreInt(addr::kCtlNormalType, kCtlTypeA);
+  StoreInt(addr::kCtlMechattType, kCtlTypeA);
 
   const f64 se = REXCVAR_GET(bd_opt_se_volume);
   StoreFloat(addr::kMusicVolume, REXCVAR_GET(bd_opt_music_volume));
@@ -251,15 +252,11 @@ void AdoptCvars() {
 }
 
 constexpr const char *kOptionCvars[] = {
-    "bd_opt_msg_speed",        "bd_opt_msg_size",
-    "bd_opt_voice_type",       "bd_opt_ruby",
-    "bd_opt_subtitles",        "bd_opt_audio_hints",
-    "bd_opt_battle_hints",     "bd_opt_skip_events",
-    "bd_opt_camera",           "bd_opt_target_first",
-    "bd_opt_ctl_normal_type",  "bd_opt_ctl_mechatt_type",
-    "bd_opt_music_volume",     "bd_opt_se_volume",
-    "bd_opt_brightness",       "bd_opt_screen_pos_x",
-    "bd_opt_screen_pos_y"};
+    "bd_opt_msg_speed",    "bd_opt_msg_size",     "bd_opt_voice_type",
+    "bd_opt_ruby",         "bd_opt_subtitles",    "bd_opt_audio_hints",
+    "bd_opt_battle_hints", "bd_opt_skip_events",  "bd_opt_camera",
+    "bd_opt_target_first", "bd_opt_music_volume", "bd_opt_se_volume",
+    "bd_opt_brightness",   "bd_opt_screen_pos_x", "bd_opt_screen_pos_y"};
 
 } // namespace
 
@@ -299,10 +296,8 @@ void GameOptions::WriteBlock() {
   cfg->screenPosX = static_cast<f32>(REXCVAR_GET(bd_opt_screen_pos_x));
   cfg->screenPosY = static_cast<f32>(REXCVAR_GET(bd_opt_screen_pos_y));
 
-  bd::mem::try_store<i32>(base + kCtlNormalTypeOffset,
-                          REXCVAR_GET(bd_opt_ctl_normal_type));
-  bd::mem::try_store<i32>(base + kCtlMechattTypeOffset,
-                          REXCVAR_GET(bd_opt_ctl_mechatt_type));
+  bd::mem::try_store<i32>(base + kCtlNormalTypeOffset, kCtlTypeA);
+  bd::mem::try_store<i32>(base + kCtlMechattTypeOffset, kCtlTypeA);
   bd::mem::try_store<i32>(base + kAudioHintsOffset,
                           REXCVAR_GET(bd_opt_audio_hints));
 }
@@ -398,20 +393,6 @@ i32 GameOptions::TargetFirst() const { return LoadInt(addr::kTargetFirst); }
 bool GameOptions::SetTargetFirst(i32 v) {
   dirty_ |= WriteCvar("bd_opt_target_first", v);
   return StoreInt(addr::kTargetFirst, v);
-}
-
-i32 GameOptions::CtlNormalType() const { return LoadInt(addr::kCtlNormalType); }
-bool GameOptions::SetCtlNormalType(i32 v) {
-  dirty_ |= WriteCvar("bd_opt_ctl_normal_type", v);
-  return StoreInt(addr::kCtlNormalType, v);
-}
-
-i32 GameOptions::CtlMechattType() const {
-  return LoadInt(addr::kCtlMechattType);
-}
-bool GameOptions::SetCtlMechattType(i32 v) {
-  dirty_ |= WriteCvar("bd_opt_ctl_mechatt_type", v);
-  return StoreInt(addr::kCtlMechattType, v);
 }
 
 f64 GameOptions::MusicVolume() const { return LoadFloat(addr::kMusicVolume); }

@@ -23,6 +23,10 @@ inline constexpr u32 kAttractMode = 0x82DDA860;
 
 namespace {
 
+constexpr u32 kConnectedOffset = 0x00;
+constexpr u32 kConnectEdgeOffset = 0x01;
+constexpr u32 kDisconnectEdgeOffset = 0x02;
+
 constexpr u32 kHeldOffset = 0x0C;
 constexpr u32 kPressedOffset = 0x10;
 constexpr u32 kReleasedOffset = 0x14;
@@ -56,6 +60,7 @@ struct AxisState {
 };
 
 u32 g_prevStick = 0;
+bool g_driving = false;
 
 PadWords ResolveWords() {
   const ButtonMap &map = ButtonMap::Get();
@@ -155,7 +160,12 @@ void StoreWord(u32 va, u32 value, u32 claimed) {
   mem::try_store<u32>(va, kept | value);
 }
 
-void WritePadZero() {
+void WritePadZero(bool route) {
+  if (!route) {
+    g_driving = false;
+    return;
+  }
+
   const u32 attract = mem::try_load<u32>(addr::kAttractMode);
   if (attract == kAttractRecord || attract == kAttractReplay)
     return;
@@ -182,6 +192,12 @@ void WritePadZero() {
                           axes.value[pair][component]);
     }
   }
+
+  if (!g_driving)
+    mem::try_store<u8>(addr::kPadZeroBlock + kConnectEdgeOffset, 1);
+  g_driving = true;
+  mem::try_store<u8>(addr::kPadZeroBlock + kConnectedOffset, 1);
+  mem::try_store<u8>(addr::kPadZeroBlock + kDisconnectEdgeOffset, 0);
 }
 
 } // namespace
@@ -191,6 +207,5 @@ void WritePadZero() {
 REX_HOOK_RAW(bdPadInputPoll) {
   const bool route = REXCVAR_GET(bd_input_bindings);
   __imp__bdPadInputPoll(ctx, base);
-  if (route)
-    bd::engine::WritePadZero();
+  bd::engine::WritePadZero(route);
 }

@@ -41,7 +41,7 @@ constexpr int kRightStickSlot = 14;
 constexpr int kMechatAimXSlot = 7;
 constexpr int kMechatAimYSlot = 8;
 
-constexpr u32 kAxisComponents = 2;
+constexpr u32 kAimAxisBase = 0;
 
 struct PinnedId {
   Action action;
@@ -102,28 +102,6 @@ int PadId(Action action) {
   return -1;
 }
 
-int ShippedId(Action action) {
-  const ActionDesc &desc = Describe(action);
-  const bool mechat = desc.context == ActionContext::Mechat;
-  const int slots = mechat ? kMechatSlots : kGeneralSlots;
-  if (desc.slot < 0 || desc.slot >= slots)
-    return -1;
-  u32 value = 0;
-  if (mechat) {
-    const u32 *row = ShippedMechat();
-    if (!row)
-      return -1;
-    value = row[desc.slot];
-  } else {
-    const auto *p =
-        mem::try_at<const be_u32>(addr::kTypeRows + u32(desc.slot) * kIdBytes);
-    if (!p)
-      return -1;
-    value = static_cast<u32>(*p);
-  }
-  return value < u32(kUnboundId) ? static_cast<int>(value) : -1;
-}
-
 Action Owner(const int (&id)[kActionCount], int wanted, Action except) {
   for (int i = 0; i < kActionCount; ++i) {
     const auto action = static_cast<Action>(i);
@@ -166,7 +144,7 @@ void Assign(int (&id)[kActionCount]) {
     const auto action = static_cast<Action>(i);
     if (id[i] >= 0 || !NeedsId(action))
       continue;
-    const int shipped = ShippedId(action);
+    const int shipped = ButtonMap::ShippedId(action, 0);
     if (shipped >= 0 && Owner(id, shipped, action) == Action::Count) {
       id[i] = shipped;
       continue;
@@ -205,11 +183,8 @@ void BuildRows(const int (&id)[kActionCount], u32 (&general)[kGeneralSlots],
     }
   }
 
-  const u32 base = Describe(Action::Aim).axis == AxisPair::Right
-                       ? kAxisComponents
-                       : 0u;
-  mechat[kMechatAimXSlot] = base;
-  mechat[kMechatAimYSlot] = base + 1;
+  mechat[kMechatAimXSlot] = kAimAxisBase;
+  mechat[kMechatAimYSlot] = kAimAxisBase + 1;
 }
 
 } // namespace
@@ -219,7 +194,33 @@ ButtonMap &ButtonMap::Get() {
   return s;
 }
 
+int ButtonMap::ShippedId(Action action, int controlType) {
+  const ActionDesc &desc = Describe(action);
+  const bool mechat = desc.context == ActionContext::Mechat;
+  const int slots = mechat ? kMechatSlots : kGeneralSlots;
+  if (desc.slot < 0 || desc.slot >= slots)
+    return -1;
+  u32 value = 0;
+  if (mechat) {
+    const u32 *row = ShippedMechat();
+    if (!row)
+      return -1;
+    value = row[desc.slot];
+  } else {
+    if (controlType < 0 || controlType >= kControlTypes)
+      return -1;
+    const auto *p = mem::try_at<const be_u32>(
+        addr::kTypeRows + u32(controlType) * kGeneralRowBytes +
+        u32(desc.slot) * kIdBytes);
+    if (!p)
+      return -1;
+    value = static_cast<u32>(*p);
+  }
+  return value < u32(kUnboundId) ? static_cast<int>(value) : -1;
+}
+
 void ButtonMap::Rebuild() {
+  Bindings::Get().Migrate();
   const u32 generation = Bindings::Get().Generation();
   if (generation == generation_ && installed_)
     return;
@@ -242,6 +243,8 @@ int ButtonMap::Id(Action action) const {
 }
 
 u32 ButtonMap::Mask(Action action) const {
+  if (!installed_)
+    return 0;
   const int id = Id(action);
   if (id < 0 || id >= kIdEnd)
     return 0;

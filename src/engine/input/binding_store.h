@@ -43,6 +43,8 @@ public:
 
   void Init();
 
+  void Migrate();
+
   const std::vector<Source> &Sources(Action action) const;
 
   bool SetSource(Action action, int slot, const Source &source);
@@ -61,6 +63,7 @@ private:
 
   std::vector<Source> sources_[kActionCount];
   u32 generation_ = 0;
+  bool migrated_ = false;
   std::vector<std::string> parseErrors_;
 };
 

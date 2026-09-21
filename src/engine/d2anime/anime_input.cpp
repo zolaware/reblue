@@ -6,7 +6,7 @@
  */
 #include "engine/d2anime/anime_input.h"
 #include "core/memory_helpers.h"
-#include "engine/virtual_buttons.h"
+#include "engine/input/button_map.h"
 #include "reblue_init.h"
 #include <rex/types.h>
 
@@ -23,36 +23,33 @@ namespace addr {
 inline constexpr u32 kInputManager = 0x82DC9844;
 } // namespace addr
 
-// The bdInputCheckButton hook only reaches engine callers. This one calls the
-// original through REX_IMPORT, so without adding it here reblue's own menus
-// would never see a host-synthesized press and the arrow keys would not move a
-// cursor in them.
 bool CheckButton(Button btn) {
   u32 inputMgr = bd::mem::load<u32>(addr::kInputManager);
-  if (inputMgr && InputCheckButton(inputMgr, 0, static_cast<u32>(btn)) != 0)
-    return true;
-  return SynthesizedButton(btn);
+  return inputMgr && InputCheckButton(inputMgr, 0, static_cast<u32>(btn)) != 0;
 }
 
 bool ButtonHeld(Button btn) {
   u32 inputMgr = bd::mem::load<u32>(addr::kInputManager);
-  if (inputMgr && InputIsPressed(inputMgr, 0, static_cast<u32>(btn), 0) != 0)
-    return true;
-  return SynthesizedButtonHeld(btn);
+  return inputMgr &&
+         InputIsPressed(inputMgr, 0, static_cast<u32>(btn), 0) != 0;
 }
 
-Button ActionButton(GameAction action) {
-  const int btn = ActionMap::Get().Button(action);
+Button ActionButton(Action action) {
+  const int btn = ButtonMap::Get().Id(action);
   if (btn >= 0)
     return static_cast<Button>(btn);
-  return action == GameAction::Cancel ? Button::B : Button::A;
+  return action == Action::Cancel ? Button::B : Button::A;
 }
 
-bool CheckAction(GameAction action) {
-  return CheckButton(ActionButton(action));
+bool CheckAction(Action action) {
+  const int btn = ButtonMap::Get().Id(action);
+  return btn >= 0 && CheckButton(static_cast<Button>(btn));
 }
 
-bool ActionHeld(GameAction action) { return ButtonHeld(ActionButton(action)); }
+bool ActionHeld(Action action) {
+  const int btn = ButtonMap::Get().Id(action);
+  return btn >= 0 && ButtonHeld(static_cast<Button>(btn));
+}
 
 float StickValue(StickAxis axis) {
   u32 inputMgr = bd::mem::load<u32>(addr::kInputManager);

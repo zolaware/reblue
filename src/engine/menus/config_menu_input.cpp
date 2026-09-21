@@ -68,14 +68,14 @@ bool ConfigMenu::PointerHop() {
 }
 
 void ConfigMenu::HandleSection() {
-  if (CheckAction(GameAction::Confirm)) {
+  if (CheckAction(Action::Confirm)) {
     const State next = SectionState(section_menu_.CursorIndex());
     if (next != State::SECTION)
       Transition(next);
     return;
   }
 
-  if (CheckAction(GameAction::Cancel)) {
+  if (CheckAction(Action::Cancel)) {
     if (DlcChanged() || LanguagesChanged() || settings_restart_dirty_)
       Transition(State::CONFIRM_REBOOT);
     else
@@ -85,7 +85,7 @@ void ConfigMenu::HandleSection() {
 
 // Read-only, so B is the only input the list takes.
 void ConfigMenu::HandleAchvlist() {
-  if (CheckAction(GameAction::Cancel))
+  if (CheckAction(Action::Cancel))
     Transition(State::SECTION);
 }
 
@@ -202,7 +202,7 @@ void ConfigMenu::HandleSettings() {
   if (SettingsSlotToRow(page, slot) < 0) {
     // A pointer parked on a title leaves the cursor there, so the way back out
     // has to be answered before the nudge returns.
-    if (CheckAction(GameAction::Cancel)) {
+    if (CheckAction(Action::Cancel)) {
       Transition(State::SECTION);
       return;
     }
@@ -247,10 +247,10 @@ void ConfigMenu::HandleSettings() {
   // row it started on: the bands are 34px and a drag along one would otherwise
   // fall off it.
   const bool pointer = MenuMouse::Get().MouseHasCursor();
-  const bool confirmDown = CheckAction(GameAction::Confirm);
+  const bool confirmDown = CheckAction(Action::Confirm);
   if (drag_row_ >= 0) {
     f32 x = 0.0f;
-    if (pointer && ActionHeld(GameAction::Confirm) &&
+    if (pointer && ActionHeld(Action::Confirm) &&
         CurrentSettingsList().RowPointerX(drag_row_, x)) {
       SetRowFromPointer(SettingsSlotToRow(page, drag_row_), x, true);
       return;
@@ -312,7 +312,7 @@ void ConfigMenu::HandleSettings() {
     return;
   }
 
-  if (CheckAction(GameAction::Cancel))
+  if (CheckAction(Action::Cancel))
     Transition(State::SECTION);
 }
 
@@ -346,7 +346,7 @@ void ConfigMenu::HandleKeybinds() {
 
   // A click captures into the key box it lands on, the primary from anywhere
   // else on its row. A pad press reads the cursor row instead of a pointer.
-  if (CheckAction(GameAction::Confirm)) {
+  if (CheckAction(Action::Confirm)) {
     const int hit = onHover ? hoverRow : -1;
     const int target = pointer ? hit : (onRow ? cursor : -1);
     if (target >= 0) {
@@ -378,12 +378,12 @@ void ConfigMenu::HandleKeybinds() {
     return;
   }
 
-  if (CheckAction(GameAction::Cancel))
+  if (CheckAction(Action::Cancel))
     Transition(State::SETTINGS);
 }
 
 void ConfigMenu::HandleModlist() {
-  if (CheckAction(GameAction::Confirm)) {
+  if (CheckAction(Action::Confirm)) {
     Transition(State::REORDER);
     return;
   }
@@ -415,7 +415,7 @@ void ConfigMenu::HandleModlist() {
     return;
   }
 
-  if (CheckAction(GameAction::Cancel))
+  if (CheckAction(Action::Cancel))
     Transition(State::SECTION);
 }
 
@@ -446,7 +446,7 @@ void ConfigMenu::HandleDLCList() {
     return;
   }
 
-  if (CheckAction(GameAction::Cancel))
+  if (CheckAction(Action::Cancel))
     Transition(State::SECTION);
 }
 
@@ -470,7 +470,7 @@ void ConfigMenu::HandleLangList() {
   }
 #endif
 
-  if (CheckAction(GameAction::Cancel))
+  if (CheckAction(Action::Cancel))
     Transition(State::SECTION);
 }
 
@@ -560,7 +560,7 @@ void ConfigMenu::HandleLangJob() {
   std::string error;
   switch (PollLanguageJob(error)) {
   case LanguageJobOutcome::Running:
-    if (CheckAction(GameAction::Cancel) && LanguageJobCancelable())
+    if (CheckAction(Action::Cancel) && LanguageJobCancelable())
       RequestLanguageJobCancel();
     break;
   case LanguageJobOutcome::Canceled:
@@ -579,7 +579,7 @@ void ConfigMenu::HandleLangJob() {
 }
 
 void ConfigMenu::HandleLangNotice() {
-  if (CheckAction(GameAction::Confirm) || CheckAction(GameAction::Cancel))
+  if (CheckAction(Action::Confirm) || CheckAction(Action::Cancel))
     Transition(State::LANGLIST);
 }
 
@@ -600,7 +600,7 @@ void ConfigMenu::HandleKeybindCapture() {
     return;
   }
 
-  if (!bd::platform::KeyCapturePending() && CheckAction(GameAction::Cancel)) {
+  if (!bd::platform::KeyCapturePending() && CheckAction(Action::Cancel)) {
     capture_slot_ = -1;
     Transition(State::KEYBINDS);
     BD_DEBUG("[config] rebind canceled");
@@ -617,13 +617,13 @@ void ConfigMenu::HandleReorder() {
     BD_DEBUG("[config] reorder: swapped to position {}", cursor);
   }
 
-  if (CheckAction(GameAction::Confirm)) {
+  if (CheckAction(Action::Confirm)) {
     Transition(State::MODLIST);
     BD_DEBUG("[config] reorder confirmed at position {}", cursor);
     return;
   }
 
-  if (CheckAction(GameAction::Cancel)) {
+  if (CheckAction(Action::Cancel)) {
     Transition(State::MODLIST);
     BD_DEBUG("[config] reorder canceled");
   }

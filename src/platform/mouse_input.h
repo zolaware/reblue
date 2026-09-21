@@ -14,9 +14,6 @@
 namespace bd::platform {
 
 // Mouse events arrive on the window thread and the menu hooks read them from a
-// guest thread, so every field crosses that boundary as an atomic. Never marks
-// an event handled: MnkInputDriver at z 0 still needs the deltas for camera
-// look.
 class MouseInput final : public rex::ui::WindowInputListener,
                           public rex::ui::WindowListener {
 public:
@@ -71,6 +68,7 @@ private:
   std::atomic<bool> hasPosition_{false};
   std::atomic<bool> moved_{false};
   std::atomic<int> wheelAccum_{0};
+  std::atomic<int> wheelTaken_{0};
   std::atomic<f32> deltaX_{0.0f};
   std::atomic<f32> deltaY_{0.0f};
   std::atomic<u32> buttons_{0}; // bit per MouseEvent::Button value

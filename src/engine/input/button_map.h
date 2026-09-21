@@ -10,9 +10,13 @@ class ButtonMap {
 public:
   static ButtonMap &Get();
 
+  static constexpr int kControlTypes = 4;
+
   void Rebuild();
 
   int Id(Action action) const;
+
+  static int ShippedId(Action action, int controlType);
 
   u32 Mask(Action action) const;
 

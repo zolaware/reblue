@@ -23,7 +23,6 @@ public:
   static Config Get();
 
   u32 NewTables() const;
-  u32 AltMap() const;
 
   bool SetHddCache(u32 v);
   bool SetDebugInputKey(u32 v);

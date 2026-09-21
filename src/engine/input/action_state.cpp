@@ -5,6 +5,7 @@
 
 #include "core/memory_helpers.h"
 #include "engine/input/binding_store.h"
+#include "engine/input/dispatch.h"
 #include "engine/input/input_sources.h"
 
 namespace bd::engine {
@@ -70,6 +71,8 @@ void InputActions::Resolve() {
     held_[i] = held;
     repeat_[i] = false;
     if (!held || prevHeld_[i])
+      continue;
+    if (!WillDispatch(action))
       continue;
     for (const Source &s : sources) {
       if (consumedCount == kMaxConsumed)

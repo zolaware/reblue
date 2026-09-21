@@ -41,6 +41,7 @@
 #include "core/settings_model.h"
 #include "core/shutdown.h"
 #include "core/threading.h"
+#include "core/ui_thread.h"
 #include "engine/engine.h"
 #include "generated/reblue_init.h"
 #include "gpu/gpu.h"
@@ -176,18 +177,6 @@ bool SetCvarDefault(std::string_view name, const std::string &value) {
 // Called from the ReblueApp constructor, after every cvar has registered and
 // before ReXApp::OnInitialize loads the config.
 void ApplyReblueCvarDefaults() {
-  // The SDK registers mnk_mode off, but re:Blue wants the keyboard live out of
-  // the box. This also overrides a command-line --no-mnk_mode, which leaves the
-  // value equal to the SDK default and so reads as untouched.
-  if (!SetCvarDefault("mnk_mode", "true"))
-    BD_WARN("mnk_mode not registered, keyboard default not applied");
-
-  // The SDK leaves this off because an ungated title would hold the cursor for
-  // as long as the keyboard is enabled. re:Blue gates it on the look button, so
-  // the pointer is free except while that button is held.
-  if (!SetCvarDefault("mnk_mouse", "true"))
-    BD_WARN("mnk_mouse not registered, mouse look default not applied");
-
   // The SDK's bind defaults are arbitrary. These are the PC convention layout
   // for this game. SetCvarDefault moves the default rather than the value, so a
   // user who has already rebound a key keeps what they chose.
@@ -393,6 +382,10 @@ void ReblueApp::OnCreateDialogs(rex::ui::ImGuiDrawer *drawer) {
   });
   bd::SetShutdownUIPump(
       [this] { app_context().ExecutePendingFunctionsFromUIThread(); });
+
+  bd::SetUIThreadDispatcher([this](std::function<void()> fn) {
+    return app_context().CallInUIThread(std::move(fn));
+  });
 
   // Warm reboot: the guest config menu requests it, and the relaunch must run
   // on the UI thread, where the kernel state is reachable (mirrors OnClosing).

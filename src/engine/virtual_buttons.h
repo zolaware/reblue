@@ -4,8 +4,6 @@
  */
 #pragma once
 
-#include "engine/d2anime/anime_input.h"
-
 namespace bd::engine {
 
 // True while a d2anime menu has input focus. Published by the AnimeMenu_Update
@@ -37,27 +35,6 @@ public:
 // caller telling the devices apart has to test the keyboard first.
 void PadInputSeen();
 bool TakePadInputSeen();
-
-// Samples the physical mouse button levels this engine frame and latches any
-// down transition for SynthesizedButton to read. Must be called exactly once
-// per engine frame, before any bdInputCheckButton polling that frame.
-void SampleButtonEdges();
-
-// The press this frame carries for a button the pad did not report, so a
-// caller can add it to whatever the engine input manager said. Reads only
-// latched edges, so any number of callers can poll it in the same frame and
-// each sees the press.
-bool SynthesizedButton(Button btn);
-
-// Queues a one-frame synthetic press of a pad button, for a host bind that
-// stands in for one. Activated at the next SampleButtonEdges, so every
-// handler polling that frame sees the same press, then cleared. The engine's
-// own gating applies exactly as it would to the physical button.
-void PressButton(int padButton);
-
-// The same question asked of the key's level rather than its edge, for the
-// readers that sweep a value while a direction is held.
-bool SynthesizedButtonHeld(Button btn);
 
 // Hands the right stick to the mouse while the look button is held and no menu
 // is up. Called once per engine frame, after the menu layer has published who

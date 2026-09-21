@@ -11,7 +11,6 @@
 #include <rex/hook.h>
 #include <rex/types.h>
 
-#include "core/settings.h"
 #include "engine/d2anime/anime_hittest.h"
 #include "engine/d2anime/anime_mouse.h"
 #include "engine/guest_prim.h"
@@ -154,8 +153,7 @@ void MouseCursorTick() {
   // screen and the drawn one off it while the debug menu is up. The
   // title rows publish MenuOwnsInput now, so without this the pointer opening
   // that menu is the one the game is still holding.
-  const bool wanted = bd::Settings::Get().Mnk() &&
-                      Settings::Get().MouseMenu() && MenuOwnsInput() &&
+  const bool wanted = Settings::Get().MouseMenu() && MenuOwnsInput() &&
                       !HostOverlayOwnsPointer();
   // The pad takes the pointer off screen with it, mouse motion brings it back.
   g_visible.store(wanted && MenuMouse::Get().MouseHasCursor(),

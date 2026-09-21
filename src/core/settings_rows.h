@@ -65,8 +65,6 @@ struct SettingRow {
   double smin = 0, smax = 0, sstep = 0; // kind == Slider
   const char *sfmt = "%.2f";            // slider value/write format
   bool sliderUi = false;   // Buttons row rendered as a stepped slider
-  bool kbGated = false;    // grayed-out while mnk_mode is off
-  bool mouseGated = false; // grayed-out while mnk_mouse is off
   bool windowedGated = false;
   // Grays out one option while the row itself stays active. Cycling steps over
   // a grayed-out option rather than stopping on it.

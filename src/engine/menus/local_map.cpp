@@ -539,7 +539,7 @@ bool AreaMap::Update(const MechattMapMainTask &screen) {
 
   // The footer keeps the screen's own cancel prompt, so cancel has to keep
   // closing the screen. Standing down first hands the frame back intact.
-  if (CheckAction(GameAction::Cancel)) {
+  if (CheckAction(Action::Cancel)) {
     Leave();
     return false;
   }

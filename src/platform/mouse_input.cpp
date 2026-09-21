@@ -6,7 +6,6 @@
 
 #include <rex/ui/window.h>
 
-#include "core/settings.h"
 #include "engine/engine.h"
 
 namespace bd::platform {
@@ -38,14 +37,13 @@ void MouseInput::Detach() {
   hasPosition_.store(false, std::memory_order_relaxed);
   moved_.store(false, std::memory_order_relaxed);
   wheelAccum_.store(0, std::memory_order_relaxed);
+  wheelTaken_.store(0, std::memory_order_relaxed);
   deltaX_.store(0.0f, std::memory_order_relaxed);
   deltaY_.store(0.0f, std::memory_order_relaxed);
   buttons_.store(0, std::memory_order_relaxed);
 }
 
 bool MouseInput::Position(f32 &x, f32 &y) const {
-  if (!bd::Settings::Get().Mnk())
-    return false;
   if (!hasPosition_.load(std::memory_order_relaxed))
     return false;
   x = x_.load(std::memory_order_relaxed);
@@ -54,24 +52,23 @@ bool MouseInput::Position(f32 &x, f32 &y) const {
 }
 
 bool MouseInput::MovedSince() {
-  const bool moved = moved_.exchange(false, std::memory_order_relaxed);
-  return moved && bd::Settings::Get().Mnk();
+  return moved_.exchange(false, std::memory_order_relaxed);
 }
 
 int MouseInput::TakeWheelDetents() {
-  const int detents = wheelAccum_.exchange(0, std::memory_order_relaxed);
-  return bd::Settings::Get().Mnk() ? detents : 0;
+  const int taken = wheelAccum_.exchange(0, std::memory_order_relaxed);
+  wheelTaken_.store(taken, std::memory_order_relaxed);
+  return taken;
 }
 
 int MouseInput::WheelDetents() const {
-  const int detents = wheelAccum_.load(std::memory_order_relaxed);
-  return bd::Settings::Get().Mnk() ? detents : 0;
+  return wheelTaken_.load(std::memory_order_relaxed);
 }
 
 bool MouseInput::TakeDelta(f32 &dx, f32 &dy) {
   const f32 x = deltaX_.exchange(0.0f, std::memory_order_relaxed);
   const f32 y = deltaY_.exchange(0.0f, std::memory_order_relaxed);
-  if (!bd::Settings::Get().Mnk() || (x == 0.0f && y == 0.0f))
+  if (x == 0.0f && y == 0.0f)
     return false;
   dx = x;
   dy = y;
@@ -140,9 +137,6 @@ void MouseInput::OnMouseWheel(rex::ui::MouseEvent &e) {
 
 void MouseInput::OnMouseDown(rex::ui::MouseEvent &e) {
   ApplyGameCursorState();
-  // Above MnkInputDriver and below the ImGui drawer: the dialog has already
-  // had this click, and the guest must not read it as a pad press too. The
-  // release still goes through, or MnK would hold the button down forever.
   if (engine::HostOverlayOwnsPointer()) {
     e.set_handled(true);
     return;
@@ -155,13 +149,11 @@ void MouseInput::OnMouseUp(rex::ui::MouseEvent &e) {
 }
 
 bool MouseInput::IsButtonDown(rex::ui::MouseEvent::Button button) const {
-  return bd::Settings::Get().Mnk() &&
-         (buttons_.load(std::memory_order_relaxed) & (1u << u32(button))) != 0;
+  return (buttons_.load(std::memory_order_relaxed) & (1u << u32(button))) != 0;
 }
 
 bool MouseInput::AnyButtonDown() const {
-  return bd::Settings::Get().Mnk() &&
-         buttons_.load(std::memory_order_relaxed) != 0;
+  return buttons_.load(std::memory_order_relaxed) != 0;
 }
 
 void MouseInput::OnLostFocus(rex::ui::UISetupEvent &) {
@@ -170,6 +162,7 @@ void MouseInput::OnLostFocus(rex::ui::UISetupEvent &) {
   ApplyGameCursorState();
   moved_.store(false, std::memory_order_relaxed);
   wheelAccum_.store(0, std::memory_order_relaxed);
+  wheelTaken_.store(0, std::memory_order_relaxed);
   deltaX_.store(0.0f, std::memory_order_relaxed);
   deltaY_.store(0.0f, std::memory_order_relaxed);
   hasPosition_.store(false, std::memory_order_relaxed);

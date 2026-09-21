@@ -13,6 +13,7 @@
 #include "engine/battle_task.h"
 #include "engine/frame_interp.h"
 #include "engine/hud_fade.h"
+#include "engine/input/dispatch.h"
 
 REX_EXTERN(__imp__bdMainGameStep);
 REX_HOOK_RAW(bdMainGameStep) {
@@ -20,4 +21,5 @@ REX_HOOK_RAW(bdMainGameStep) {
   bd::engine::BattleTask::OnBattleGameStep();
   bd::engine::HudFade::Get().Poll();
   __imp__bdMainGameStep(ctx, base);
+  bd::engine::RunDispatch();
 }

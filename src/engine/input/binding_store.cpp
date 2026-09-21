@@ -9,13 +9,84 @@
 #include <rex/ui/keybinds.h>
 
 #include "core/logging.h"
+#include "engine/input/button_map.h"
 #include "platform/platform.h"
+
+REXCVAR_DECLARE(i32, bd_opt_ctl_normal_type);
 
 namespace bd::engine {
 
 namespace {
 
 constexpr u8 kMaxAxisButtons = 4;
+
+constexpr const char *kControlTypeCvar = "bd_opt_ctl_normal_type";
+
+struct PadKeybind {
+  u16 code;
+  const char *cvar;
+};
+
+constexpr PadKeybind kPadKeybinds[] = {
+    {0, "keybind_dpad_up"},          {1, "keybind_dpad_down"},
+    {2, "keybind_dpad_left"},        {3, "keybind_dpad_right"},
+    {4, "keybind_start"},            {5, "keybind_back"},
+    {6, "keybind_lstick_press"},     {7, "keybind_rstick_press"},
+    {8, "keybind_a"},                {9, "keybind_b"},
+    {10, "keybind_x"},               {11, "keybind_y"},
+    {12, "keybind_left_trigger"},    {13, "keybind_right_trigger"},
+    {14, "keybind_left_shoulder"},   {15, "keybind_right_shoulder"},
+    {16, "keybind_lstick_up"},       {17, "keybind_lstick_down"},
+    {18, "keybind_lstick_right"},    {19, "keybind_lstick_left"},
+    {20, "keybind_rstick_up"},       {21, "keybind_rstick_down"},
+    {22, "keybind_rstick_right"},    {23, "keybind_rstick_left"},
+};
+
+std::string OldKeys(int padButton) {
+  for (const PadKeybind &bind : kPadKeybinds) {
+    if (static_cast<int>(bind.code) == padButton)
+      return rex::cvar::GetFlagByName(bind.cvar);
+  }
+  return {};
+}
+
+bool StoredKeys(int padButton) {
+  for (const PadKeybind &bind : kPadKeybinds) {
+    if (static_cast<int>(bind.code) == padButton)
+      return rex::cvar::HasNonDefaultValue(bind.cvar);
+  }
+  return false;
+}
+
+bool AnyStoredKeys() {
+  for (const PadKeybind &bind : kPadKeybinds) {
+    if (rex::cvar::HasNonDefaultValue(bind.cvar))
+      return true;
+  }
+  return false;
+}
+
+bool MouseSource(const Source &source) {
+  if (source.kind == SourceKind::MouseButton ||
+      source.kind == SourceKind::MouseWheel)
+    return true;
+  if (source.kind != SourceKind::Key)
+    return false;
+  const auto vk = static_cast<rex::ui::VirtualKey>(source.code);
+  return vk == rex::ui::VirtualKey::kLButton ||
+         vk == rex::ui::VirtualKey::kRButton ||
+         vk == rex::ui::VirtualKey::kMButton ||
+         vk == rex::ui::VirtualKey::kXButton1 ||
+         vk == rex::ui::VirtualKey::kXButton2;
+}
+
+int DefaultPadButton(const std::vector<Source> &sources) {
+  for (const Source &source : sources) {
+    if (source.kind == SourceKind::PadButton)
+      return static_cast<int>(source.code);
+  }
+  return -1;
+}
 
 struct NamedCode {
   const char *name;
@@ -143,6 +214,31 @@ void ApplyList(std::vector<Source> &out, std::vector<std::string> &errors,
   }
 }
 
+constexpr int kAxisKeyButtons[2][4] = {
+    {16, 17, 19, 18},
+    {20, 21, 23, 22},
+};
+
+bool AxisKeys(AxisPair pair, std::string &out) {
+  const int which = static_cast<int>(pair);
+  if (which < 0 || which > 1)
+    return false;
+  out.clear();
+  bool stored = false;
+  for (const int button : kAxisKeyButtons[which]) {
+    const std::string value = OldKeys(button);
+    const std::string_view token =
+        Trim(std::string_view(value).substr(0, value.find(',')));
+    if (token.empty())
+      return false;
+    stored = stored || StoredKeys(button);
+    if (!out.empty())
+      out += ",";
+    out += token;
+  }
+  return stored;
+}
+
 std::string FormatList(const std::vector<Source> &sources) {
   std::string out;
   std::string formatted;
@@ -242,6 +338,112 @@ void Bindings::Init() {
     });
   }
   ++generation_;
+}
+
+void Bindings::Migrate() {
+  if (migrated_)
+    return;
+
+  for (int i = 0; i < kActionCount; ++i) {
+    if (rex::cvar::HasNonDefaultValue(CvarName(static_cast<Action>(i)))) {
+      migrated_ = true;
+      return;
+    }
+  }
+
+  int type = 0;
+  bool haveType = rex::cvar::HasNonDefaultValue(kControlTypeCvar);
+  if (haveType) {
+    type = REXCVAR_GET(bd_opt_ctl_normal_type);
+    haveType = type > 0 && type < ButtonMap::kControlTypes;
+  }
+  const bool haveKeys = AnyStoredKeys();
+  if (!haveType && !haveKeys) {
+    migrated_ = true;
+    return;
+  }
+
+  int rowId[kActionCount];
+  bool rowRead = false;
+  for (int i = 0; i < kActionCount; ++i) {
+    const auto action = static_cast<Action>(i);
+    const ActionDesc &desc = Describe(action);
+    rowId[i] = -1;
+    if (!haveType || desc.context == ActionContext::Mechat || desc.slot < 0 ||
+        desc.fixedId >= 0)
+      continue;
+    rowId[i] = ButtonMap::ShippedId(action, type);
+    rowRead = rowRead || rowId[i] >= 0;
+  }
+  if (haveType && !rowRead)
+    return;
+  migrated_ = true;
+
+  int seeded = 0;
+  for (int i = 0; i < kActionCount; ++i) {
+    const auto action = static_cast<Action>(i);
+    const ActionDesc &desc = Describe(action);
+    if (desc.kind != ActionKind::Mapped)
+      continue;
+
+    std::string value;
+    if (desc.axis != AxisPair::None) {
+      if (!AxisKeys(desc.axis, value))
+        continue;
+      for (const Source &source : sources_[i]) {
+        if (source.kind != SourceKind::PadAxes &&
+            source.kind != SourceKind::MouseAxes)
+          continue;
+        std::string token;
+        if (FormatSource(source, token))
+          value += "," + token;
+      }
+    } else {
+      const int stock = desc.fixedId >= 0 ? int(desc.fixedId)
+                                          : DefaultPadButton(sources_[i]);
+      const int chosen = rowId[i] >= 0 ? rowId[i] : stock;
+      if (chosen < 0)
+        continue;
+      if (chosen == stock && !StoredKeys(chosen))
+        continue;
+
+      std::vector<Source> keys;
+      ApplyList(keys, parseErrors_, action, OldKeys(chosen));
+      for (const Source &source : keys) {
+        if (source.kind != SourceKind::Key || MouseSource(source))
+          continue;
+        std::string token;
+        if (!FormatSource(source, token))
+          continue;
+        if (!value.empty())
+          value += ",";
+        value += token;
+      }
+      for (const Source &source : sources_[i]) {
+        if (source.kind == SourceKind::Key && !MouseSource(source))
+          continue;
+        Source moved = source;
+        if (source.kind == SourceKind::PadButton && int(source.code) == stock)
+          moved.code = static_cast<u16>(chosen);
+        std::string token;
+        if (!FormatSource(moved, token))
+          continue;
+        if (!value.empty())
+          value += ",";
+        value += token;
+      }
+    }
+    rex::cvar::SetFlagByName(CvarName(action), value);
+    ++seeded;
+  }
+  ReportParseErrors();
+  if (!seeded)
+    return;
+
+  const std::string from =
+      haveType ? "controller type " + std::to_string(type) + " and its keys"
+               : "the keys it had bound";
+  BD_INFO("[input] profile migrated: {} binds seeded from {}", seeded, from);
 }
 
 const std::vector<Source> &Bindings::Sources(Action action) const {

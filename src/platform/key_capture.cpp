@@ -121,12 +121,14 @@ std::string PollKeyCapture() {
     return {};
 
   const int wheel = Mouse().WheelDetents();
-  if (wheel != 0 && wheel != s_wheelSeen) {
-    s_wheelSeen = wheel;
-    s_capturing = false;
-    return wheel > 0 ? "WheelUp" : "WheelDown";
+  if (wheel == 0) {
+    s_wheelSeen = 0;
+    return {};
   }
-  return {};
+  if (wheel == s_wheelSeen)
+    return {};
+  s_capturing = false;
+  return wheel > 0 ? "WheelUp" : "WheelDown";
 }
 
 bool KeyCapturePending() { return s_capturing && s_pending >= 0; }
