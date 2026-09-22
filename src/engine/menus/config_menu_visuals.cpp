@@ -21,6 +21,7 @@
 #include "engine/menus/achievements_layout.h"
 #include "engine/menus/config_layout.h"
 #include "engine/menus/config_menu_data.h"
+#include "engine/settings.h"
 
 #include <algorithm>
 
@@ -443,8 +444,8 @@ void ConfigMenu::RefreshKeybindVisuals() {
       vb.SetFloat(vars.capVar, -1.0);
       vb.SetFloat(vars.pairVar, -1.0);
 
-      const bool mouseLook = entry.cell == BindCell::MouseLook;
-      if (!row || (mouseLook && chip > 0)) {
+      const bool mouseInput = entry.cell == BindCell::MouseInput;
+      if (!row || (mouseInput && chip > 0)) {
         vb.SetString(vars.wndVar, "NOWINDOW");
         vb.SetText(vars.textVar, "");
         continue;
@@ -456,16 +457,17 @@ void ConfigMenu::RefreshKeybindVisuals() {
       const std::string token = BindChipToken(entry, chip);
       vb.SetString(vars.wndVar, on ? "BTN01_ON" : "BTN01_OF");
       vb.SetColor(vars.colorVar, on ? kHighlightYellow
-                                 : fixed && !mouseLook ? kFixedGray
-                                                       : kWhite);
+                                 : fixed && !mouseInput ? kFixedGray
+                                                        : kWhite);
 
       if (on) {
         vb.SetText(vars.textVar, kCapturing);
         continue;
       }
-      if (mouseLook) {
+      if (mouseInput) {
         vb.SetText(vars.textVar,
-                   i18n::Text(token.empty() ? "opt.off" : "opt.on"));
+                   i18n::Text(Settings::Get().MouseInput() ? "opt.on"
+                                                            : "opt.off"));
         continue;
       }
       if (token.empty()) {

@@ -188,7 +188,6 @@ constexpr KeyAlias kKeyAliases[] = {
     {"RStickRight", "R Right"},
     {"WheelUp", "Wheel Up"},
     {"WheelDown", "Wheel Dn"},
-    {"MouseXY", "Mouse"},
 };
 
 constexpr engine::ActionContext kBindColumnSections[][3] = {
@@ -240,8 +239,9 @@ void AppendBindSection(std::vector<BindEntry> &column,
                         .action = action,
                         .direction = dir});
     if (desc.axis == engine::AxisPair::Right)
-      column.push_back(
-          {.cell = BindCell::MouseLook, .context = context, .action = action});
+      column.push_back({.cell = BindCell::MouseInput,
+                        .context = context,
+                        .action = action});
   }
 }
 
@@ -305,13 +305,6 @@ int ChipSource(const BindEntry &entry, int chip) {
       return -1;
     for (int i = 0; i < count; ++i)
       if (sources[i].axisSlot == engine::AxisSlot(entry.direction, chip))
-        return i;
-    return -1;
-  case BindCell::MouseLook:
-    if (chip != 0)
-      return -1;
-    for (int i = 0; i < count; ++i)
-      if (sources[i].kind == engine::SourceKind::MouseAxes)
         return i;
     return -1;
   default:
@@ -713,8 +706,8 @@ std::string BindEntryLabel(const BindEntry &entry) {
   case BindCell::AxisKey:
     return i18n::Fmt(kAxisDirectionKeys[entry.direction],
                      BindRowLabel(entry.action));
-  case BindCell::MouseLook:
-    return i18n::Text("settings.binds.mouse_look");
+  case BindCell::MouseInput:
+    return i18n::Text("settings.binds.mouse_input");
   default:
     return {};
   }
@@ -982,6 +975,9 @@ bool ClearBindChip(const BindEntry &entry, int chip) {
 }
 
 bool ClearBindEntry(const BindEntry &entry) {
+  if (entry.cell == BindCell::MouseInput)
+    return engine::Settings::Get().MouseInput() &&
+           engine::Settings::Get().SetMouseInput(false);
   engine::Bindings &binds = engine::Bindings::Get();
   std::vector<engine::Source> kept = binds.Sources(entry.action);
   switch (entry.cell) {
@@ -994,11 +990,6 @@ bool ClearBindEntry(const BindEntry &entry) {
              engine::AxisDirection(s.axisSlot) == entry.direction;
     });
     break;
-  case BindCell::MouseLook:
-    std::erase_if(kept, [](const engine::Source &s) {
-      return s.kind == engine::SourceKind::MouseAxes;
-    });
-    break;
   default:
     return false;
   }
@@ -1008,22 +999,14 @@ bool ClearBindEntry(const BindEntry &entry) {
   return binds.SetSources(entry.action, kept);
 }
 
-bool ToggleMouseLook(const BindEntry &entry) {
-  if (entry.cell != BindCell::MouseLook)
-    return false;
-  if (ChipSource(entry, 0) >= 0)
-    return ClearBindEntry(entry);
-  engine::Source mouse;
-  if (!engine::ParseSource("MouseXY", mouse))
-    return false;
-  engine::Bindings &binds = engine::Bindings::Get();
-  std::vector<engine::Source> updated = binds.Sources(entry.action);
-  updated.push_back(mouse);
-  return binds.SetSources(entry.action, updated);
+bool ToggleMouseInput() {
+  engine::Settings &settings = engine::Settings::Get();
+  return settings.SetMouseInput(!settings.MouseInput());
 }
 
 bool ResetAllKeybinds() {
-  bool any = false;
+  bool any = !engine::Settings::Get().MouseInput() &&
+             engine::Settings::Get().SetMouseInput(true);
   for (int c = 0; c < kBindColumns; ++c)
     for (int k = 0; k < kBindColumnSectionCounts[c]; ++k)
       any = engine::Bindings::Get().ResetContext(kBindColumnSections[c][k]) ||

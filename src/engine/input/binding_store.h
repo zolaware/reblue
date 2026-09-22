@@ -15,7 +15,6 @@ enum class SourceKind : u8 {
   Key,
   MouseButton,
   MouseWheel,
-  MouseAxes,
   PadButton,
   PadAxes,
 };

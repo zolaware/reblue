@@ -33,6 +33,7 @@
 #include "engine/d2anime/anime_data.h"
 #include "engine/d2anime/anime_mouse.h"
 #include "engine/d2anime/d2anime_task.h"
+#include "engine/field_camera.h"
 #include "engine/frame_clock.h"
 #include "engine/game.h"
 #include "engine/guest_prim.h"
@@ -74,6 +75,14 @@ std::mutex g_interpMutex;
 u64 g_frame = 0;
 thread_local u32 t_renderViewObj = 0;
 std::atomic<u64> g_cutTick{~0ull};
+
+std::atomic<u64> g_steerTick{~0ull};
+
+bool SteeredThisTick() {
+  const u64 steer = g_steerTick.load(std::memory_order_relaxed);
+  const u64 tick = bd::engine::TickCount();
+  return steer != ~0ull && tick >= steer && tick - steer <= 1;
+}
 
 bool CutThisTick() {
   return g_cutTick.load(std::memory_order_relaxed) == bd::engine::TickCount();
@@ -387,6 +396,65 @@ void LerpView(const float a[16], const float b[16], float t, float out[16]) {
         -(eye[0] * out[j] + eye[1] * out[4 + j] + eye[2] * out[8 + j]);
 }
 
+void TurnView(float v[16], const bd::engine::PendingLook &look) {
+  float eye[3];
+  EyeFromView(v, eye);
+  const float *p = look.pivot;
+  const float cy = std::cos(look.yaw);
+  const float sy = std::sin(look.yaw);
+  const auto yaw = [&](const float x[3], float out[3]) {
+    out[0] = x[0] * cy + x[2] * sy;
+    out[1] = x[1];
+    out[2] = x[2] * cy - x[0] * sy;
+  };
+  float off[3] = {eye[0] - p[0], eye[1] - p[1], eye[2] - p[2]};
+  float turned[3];
+  yaw(off, turned);
+  const float flat = std::sqrt(turned[0] * turned[0] + turned[2] * turned[2]);
+  float axis[3] = {0.0f, 0.0f, 0.0f};
+  const bool pitched = look.pitch != 0.0f && flat > 1e-3f;
+  if (pitched) {
+    axis[0] = -turned[2] / flat;
+    axis[2] = turned[0] / flat;
+  }
+  const float cp = std::cos(look.pitch);
+  const float sp = std::sin(look.pitch);
+  const auto turn = [&](const float x[3], float out[3]) {
+    float y[3];
+    yaw(x, y);
+    if (!pitched) {
+      std::copy_n(y, 3, out);
+      return;
+    }
+    const float cross[3] = {axis[1] * y[2] - axis[2] * y[1],
+                            axis[2] * y[0] - axis[0] * y[2],
+                            axis[0] * y[1] - axis[1] * y[0]};
+    const float along = axis[0] * y[0] + axis[1] * y[1] + axis[2] * y[2];
+    for (int i = 0; i < 3; ++i)
+      out[i] = y[i] * cp + cross[i] * sp + axis[i] * along * (1.0f - cp);
+  };
+
+  float rm[3][3];
+  for (int i = 0; i < 3; ++i) {
+    const float basis[3] = {i == 0 ? 1.0f : 0.0f, i == 1 ? 1.0f : 0.0f,
+                            i == 2 ? 1.0f : 0.0f};
+    turn(basis, rm[i]);
+  }
+  float r[3][3];
+  for (int i = 0; i < 3; ++i)
+    for (int j = 0; j < 3; ++j)
+      r[i][j] = v[4 * i + j];
+  float q[3];
+  for (int i = 0; i < 3; ++i)
+    q[i] = p[i] - (p[0] * rm[i][0] + p[1] * rm[i][1] + p[2] * rm[i][2]);
+  for (int i = 0; i < 3; ++i)
+    for (int j = 0; j < 3; ++j)
+      v[4 * i + j] =
+          rm[0][i] * r[0][j] + rm[1][i] * r[1][j] + rm[2][i] * r[2][j];
+  for (int j = 0; j < 3; ++j)
+    v[12 + j] += q[0] * r[0][j] + q[1] * r[1][j] + q[2] * r[2][j];
+}
+
 float MinRowDot(const float *cur, const float *prv) {
   float worst = 1.0f;
   for (int r = 0; r < 12; r += 4) {
@@ -414,6 +482,14 @@ struct MatrixTrack : Track<16> {
 
 std::unordered_map<u32, MatrixTrack> g_views;
 u32 g_viewScratch = 0;
+
+struct FrameLook {
+  double time = -1.0;
+  u32 view = 0;
+  bool turned = false;
+  bd::engine::PendingLook pending;
+};
+FrameLook g_frameLook;
 
 struct GlobalViewTrack : MatrixTrack {
   float written[16] = {};
@@ -2452,6 +2528,13 @@ void MatrixTrack::DetectCut() {
   EyeFromView(prev, pe);
   EyeFromView(curr, ce);
   const float step = std::sqrt(DistSq(pe, ce));
+  const bool steered = !derived && SteeredThisTick();
+  if (steered) {
+    gauge.avgStep = BlendStep(gauge.avgStep, step);
+    gauge.cutRun = 0;
+    cut = false;
+    return;
+  }
   const bool turned = MinRowDot(curr, prev) < kViewCutRotDot;
   const bool discontinuous = EventSceneEngaged() && step > kEventViewCutStep &&
                              spacing > kEventCutSpacing;
@@ -2777,6 +2860,10 @@ void OnGameStep() {
   }
 }
 
+void MarkCameraSteered() {
+  g_steerTick.store(TickCount(), std::memory_order_relaxed);
+}
+
 bool SparseFrame() {
   const u32 nodes = g_nodeDraws.exchange(0, std::memory_order_relaxed);
   if (!InterpolationActive() || g_swapTickDue) {
@@ -2978,12 +3065,25 @@ void ServeCameraMatrices(PPCContext &ctx) {
   ReadFloats(live, liveView, 16);
   float view[16];
   bool shared = false;
+  float alpha = 1.0f;
   {
     std::lock_guard<std::mutex> lock(g_interpMutex);
-    shared = ServeView(ViewTrack(viewVa), liveView, now, view);
+    MatrixTrack &track = ViewTrack(viewVa);
+    shared = ServeView(track, liveView, now, view);
+    alpha = track.Alpha();
   }
   if (shared)
     return;
+  const bool cut = CutThisTick();
+  FrameLook &look = g_frameLook;
+  if (look.time != now || look.view != viewVa) {
+    look.time = now;
+    look.view = viewVa;
+    look.turned = !cut && bd::engine::PendingMouseLook(bd::engine::TickCount(),
+                                                       alpha, look.pending);
+  }
+  if (look.turned)
+    TurnView(view, look.pending);
   if (const u32 scratch = WriteScratch(g_viewScratch, view, 16))
     ctx.r4.u32 = scratch;
 }

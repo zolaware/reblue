@@ -903,7 +903,7 @@ axis_up.us = "{} Up"
 axis_down.us = "{} Down"
 axis_left.us = "{} Left"
 axis_right.us = "{} Right"
-mouse_look.us = "Mouse Look"
+mouse_input.us = "Mouse Input"
 keys.us = "Keyboard"
 pad.us = "Controller"
 

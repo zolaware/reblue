@@ -40,7 +40,7 @@ constexpr ActionDesc kDescs[kActionCount] = {
     {"move", "settings.pad.move", ActionContext::Field, ActionKind::Mapped, -1,
      -1, AxisPair::Left, "W,S,A,D,LStick"},
     {"view", "settings.action.look", ActionContext::Field, ActionKind::Mapped, -1,
-     -1, AxisPair::Right, "Up,Down,Left,Right,RStick,MouseXY"},
+     -1, AxisPair::Right, "Up,Down,Left,Right,RStick"},
 
     {"machine_gun", "settings.pad.machine_gun", ActionContext::Mechat,
      ActionKind::Mapped, 0, -1, AxisPair::None, "LMB,Ctrl+Space,PadA"},

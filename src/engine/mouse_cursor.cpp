@@ -153,7 +153,7 @@ void MouseCursorTick() {
   // screen and the drawn one off it while the debug menu is up. The
   // title rows publish MenuOwnsInput now, so without this the pointer opening
   // that menu is the one the game is still holding.
-  const bool wanted = Settings::Get().MouseMenu() && MenuOwnsInput() &&
+  const bool wanted = Settings::Get().MouseInput() && MenuOwnsInput() &&
                       !HostOverlayOwnsPointer();
   // The pad takes the pointer off screen with it, mouse motion brings it back.
   g_visible.store(wanted && MenuMouse::Get().MouseHasCursor(),

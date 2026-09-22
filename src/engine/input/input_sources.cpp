@@ -1,9 +1,5 @@
 #include "engine/input/input_sources.h"
 
-#include <algorithm>
-#include <cmath>
-
-#include <rex/cvar.h>
 #include <rex/ui/virtual_key.h>
 
 #include "core/memory_helpers.h"
@@ -26,20 +22,10 @@ constexpr u32 kPadButtonBits[24] = {
     0x100000u, 0x200000u, 0x400000u, 0x800000u,
 };
 
-constexpr f32 kAxisLiveEpsilon = 0.001f;
-
-f32 MouseAxisScale() {
-  const f64 sensitivity = REXCVAR_QUERY(f64, mnk_sensitivity);
-  return sensitivity > 0.0 ? kMouseAxisScale * static_cast<f32>(sensitivity)
-                           : kMouseAxisScale;
-}
-
 u32 PadButtonBit(u16 id) {
   constexpr u16 kCount = sizeof(kPadButtonBits) / sizeof(kPadButtonBits[0]);
   return id < kCount ? kPadButtonBits[id] : 0u;
 }
-
-f32 ClampAxis(f32 v) { return std::clamp(v, -1.0f, 1.0f); }
 
 struct MouseKey {
   rex::ui::VirtualKey key;
@@ -64,7 +50,6 @@ bool IsMouse(const Source &source) {
   switch (source.kind) {
   case SourceKind::MouseButton:
   case SourceKind::MouseWheel:
-  case SourceKind::MouseAxes:
     return true;
   case SourceKind::Key:
     return MouseKeyButton(source.code) != rex::ui::MouseEvent::Button::kNone;
@@ -74,9 +59,7 @@ bool IsMouse(const Source &source) {
 }
 
 bool MouseTaken(const Source &source) {
-  if (IsMouse(source) && HostOverlayOwnsPointer())
-    return true;
-  return source.kind == SourceKind::MouseAxes && MenuOwnsInput();
+  return IsMouse(source) && HostOverlayOwnsPointer();
 }
 
 int PadAxisBase(const Source &source) {
@@ -98,17 +81,6 @@ void InputSources::Sample(u32 padBlock) {
   }
 
   wheel_ = platform::Mouse().WheelDetents();
-  mouseScale_ = MouseAxisScale();
-
-  f32 dx = 0.0f;
-  f32 dy = 0.0f;
-  if (platform::Mouse().TakeDelta(dx, dy)) {
-    mouseDx_ = dx;
-    mouseDy_ = dy;
-  } else {
-    mouseDx_ = 0.0f;
-    mouseDy_ = 0.0f;
-  }
 }
 
 bool InputSources::Active(const Source &source) const {
@@ -129,9 +101,6 @@ bool InputSources::Active(const Source &source) const {
   case SourceKind::MouseWheel:
     return source.sign != 0 &&
            ((wheel_ > 0 && source.sign > 0) || (wheel_ < 0 && source.sign < 0));
-  case SourceKind::MouseAxes:
-    return std::abs(mouseDx_) > kAxisLiveEpsilon ||
-           std::abs(mouseDy_) > kAxisLiveEpsilon;
   case SourceKind::PadAxes: {
     const int base = PadAxisBase(source);
     return padAnalog_[base] != 0.0f || padAnalog_[base + 1] != 0.0f;
@@ -153,10 +122,6 @@ f32 InputSources::Axis(const Source &source, int component) const {
     return component == 0 || component == 1
                ? padAnalog_[PadAxisBase(source) + component]
                : 0.0f;
-  case SourceKind::MouseAxes: {
-    const f32 delta = component == 0 ? mouseDx_ : -mouseDy_;
-    return ClampAxis(delta * mouseScale_);
-  }
   default:
     break;
   }

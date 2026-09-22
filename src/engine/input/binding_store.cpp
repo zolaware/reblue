@@ -97,7 +97,6 @@ struct NamedCode {
 constexpr NamedCode kNamed[] = {
     {"WheelUp", SourceKind::MouseWheel, 0, 1},
     {"WheelDown", SourceKind::MouseWheel, 0, -1},
-    {"MouseXY", SourceKind::MouseAxes, u16(AxisPair::Left), 0},
     {"LStick", SourceKind::PadAxes, u16(AxisPair::Left), 0},
     {"RStick", SourceKind::PadAxes, u16(AxisPair::Right), 0},
     {"PadDUp", SourceKind::PadButton, 0, 0},
@@ -161,6 +160,8 @@ bool SameSource(const Source &a, const Source &b) {
          a.sign == b.sign;
 }
 
+constexpr std::string_view kRetiredMouseLook = "MouseXY";
+
 void ApplyList(std::vector<Source> &out, std::vector<std::string> &errors,
                 Action action, std::string_view value) {
   out.clear();
@@ -183,6 +184,12 @@ void ApplyList(std::vector<Source> &out, std::vector<std::string> &errors,
     }
 
     Source source;
+    if (token == kRetiredMouseLook) {
+      if (comma == std::string_view::npos)
+        break;
+      pos = comma + 1;
+      continue;
+    }
     if (!ParseSource(token, source)) {
       errors.push_back(std::string("[input] ") + ToString(action) +
                         " bind token '" + std::string(token) +
@@ -193,9 +200,7 @@ void ApplyList(std::vector<Source> &out, std::vector<std::string> &errors,
       continue;
     }
 
-    const bool buttonShaped = source.kind != SourceKind::MouseAxes &&
-                               source.kind != SourceKind::PadAxes;
-    if (desc.axis != AxisPair::None && buttonShaped) {
+    if (desc.axis != AxisPair::None && source.kind != SourceKind::PadAxes) {
       if (buttonSlot >= kMaxAxisButtons) {
         errors.push_back(std::string("[input] ") + ToString(action) +
                           " drops '" + std::string(token) +
@@ -409,8 +414,7 @@ void Bindings::Migrate() {
       if (!AxisKeys(desc.axis, value))
         continue;
       for (const Source &source : sources_[i]) {
-        if (source.kind != SourceKind::PadAxes &&
-            source.kind != SourceKind::MouseAxes)
+        if (source.kind != SourceKind::PadAxes)
           continue;
         std::string token;
         if (FormatSource(source, token))

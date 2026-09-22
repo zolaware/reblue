@@ -118,7 +118,7 @@ bool SetSelectedOption(SettingsPage page, int index, int option);
 // range). Returns true on success.
 bool SetSliderValue(SettingsPage page, int index, double value);
 
-enum class BindCell : u8 { Blank, Header, Button, AxisKey, MouseLook };
+enum class BindCell : u8 { Blank, Header, Button, AxisKey, MouseInput };
 
 struct BindEntry {
   BindCell cell = BindCell::Blank;
@@ -145,7 +145,7 @@ bool SetBindChip(const BindEntry &entry, int chip, const std::string &token,
                  engine::Action *conflict);
 bool ClearBindChip(const BindEntry &entry, int chip);
 bool ClearBindEntry(const BindEntry &entry);
-bool ToggleMouseLook(const BindEntry &entry);
+bool ToggleMouseInput();
 bool ResetAllKeybinds();
 
 } // namespace bd

@@ -85,8 +85,7 @@ PadWords ResolveWords() {
 }
 
 bool DrivesAxis(const Source &source) {
-  return source.axisSlot != 0 || source.kind == SourceKind::PadAxes ||
-         source.kind == SourceKind::MouseAxes;
+  return source.axisSlot != 0 || source.kind == SourceKind::PadAxes;
 }
 
 AxisState ResolveAxes() {

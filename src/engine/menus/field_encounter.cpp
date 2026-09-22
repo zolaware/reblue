@@ -52,7 +52,7 @@ void DriveEncounterMouse(FieldEncounterMenu menu) {
 
   if (!menu)
     return;
-  if (!Settings::Get().MouseMenu())
+  if (!Settings::Get().MouseInput())
     return;
 
   if (PadMovedCursor()) {

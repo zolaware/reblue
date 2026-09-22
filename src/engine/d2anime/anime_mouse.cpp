@@ -90,7 +90,7 @@ MenuMouse &MenuMouse::Get() {
 }
 
 bool MenuMouse::PointerActive() const {
-  return mouseHasCursor_ && Settings::Get().MouseMenu();
+  return mouseHasCursor_ && Settings::Get().MouseInput();
 }
 
 int MenuMouse::TakeWheelDetents() {
@@ -463,7 +463,7 @@ void MenuMouse::BeginFrame() {
   // their hover bands, and with no focused menu the detents stay banked for
   // the area map's zoom.
   if (wheel_ != 0 && !focusedSelect && focusedMenu &&
-      Settings::Get().MouseMenu()) {
+      Settings::Get().MouseInput()) {
     WheelScroll(focusedMenu.Address(), TakeWheelDetents());
     pendingMenu_.Reset();
     pendingIndex_ = -1;

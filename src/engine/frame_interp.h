@@ -17,4 +17,6 @@ void OnGameStep();
 
 bool SparseFrame();
 
+void MarkCameraSteered();
+
 } // namespace bd::engine

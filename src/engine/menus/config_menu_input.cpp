@@ -401,8 +401,8 @@ void ConfigMenu::HandleKeybinds() {
     else if (PadPressed(Action::Confirm))
       chip = kBindPadChip;
     const BindEntry entry = BindGridEntry(slot);
-    if (entry.cell == BindCell::MouseLook) {
-      if (ToggleMouseLook(entry)) {
+    if (entry.cell == BindCell::MouseInput) {
+      if (ToggleMouseInput()) {
         sfx::Play(sfx::kToggle);
         settings_dirty_ = true;
       }
@@ -425,7 +425,7 @@ void ConfigMenu::HandleKeybinds() {
   const bool delDown =
       bd::platform::Keyboard().IsDown(rex::ui::VirtualKey::kDelete);
   if (delDown && !del_held_ && IsBind(hovered) && hoverChip >= 0) {
-    const bool cleared = hovered.cell == BindCell::MouseLook
+    const bool cleared = hovered.cell == BindCell::MouseInput
                              ? ClearBindEntry(hovered)
                              : ClearBindChip(hovered, hoverChip);
     if (cleared)

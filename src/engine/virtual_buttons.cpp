@@ -7,11 +7,12 @@
 #include <atomic>
 
 #include <rex/hook.h>
-#include <rex/input/mnk/mnk_input_driver.h>
 #include <rex/types.h>
 
 #include "engine/d2anime/anime_input.h"
 #include "engine/d2anime/anime_mouse.h"
+#include "engine/settings.h"
+#include "platform/platform.h"
 #include "reblue_init.h"
 
 REX_EXTERN(__imp__bdInputCheckButton);
@@ -52,12 +53,10 @@ HostPointerClaim::~HostPointerClaim() {
   g_hostPointerClaims.fetch_sub(1, std::memory_order_relaxed);
 }
 
-// The SDK owns the other half: it takes the cvar and this gate together before
-// it captures the cursor or feeds the stick, and drains its delta every frame
-// either way, so a gap in looking cannot dump a backlog into the camera.
 void UpdateMouseLook() {
-  rex::input::mnk::SetMouseLookActive(!MenuOwnsInput() &&
-                                      !HostOverlayOwnsPointer());
+  platform::Mouse().SetLookActive(Settings::Get().MouseInput() &&
+                                  !MenuOwnsInput() &&
+                                  !HostOverlayOwnsPointer());
 }
 
 } // namespace bd::engine

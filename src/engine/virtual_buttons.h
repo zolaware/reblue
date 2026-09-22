@@ -36,8 +36,6 @@ public:
 void PadInputSeen();
 bool TakePadInputSeen();
 
-// Hands the right stick to the mouse while the look button is held and no menu
-// is up. Called once per engine frame, after the menu layer has published who
 // owns input.
 void UpdateMouseLook();
 

@@ -38,7 +38,9 @@ struct Script_t {
   /* 0x000 */ u8 _pad000[0x6C];
   /* 0x06C */ be_u32 category;
   /* 0x070 */ be_u32 combinedNum;
-  /* 0x074 */ u8 _pad074[0x160 - 0x074];
+  u8 _pad074[0x130 - 0x074];
+  be_u32 routine;
+  u8 _pad134[0x160 - 0x134];
   /* 0x160 */ be_u32 scene;
   /* 0x164 */ char scenePath[kScenePathCap];
   /* 0x1A4 */ u8 _pad1A4[0x4A8 - (0x164 + kScenePathCap)];
@@ -49,6 +51,7 @@ struct Script_t {
 };
 static_assert(offsetof(Script_t, category) == 0x06C);
 static_assert(offsetof(Script_t, combinedNum) == 0x070);
+static_assert(offsetof(Script_t, routine) == 0x130);
 static_assert(offsetof(Script_t, scene) == 0x160);
 static_assert(offsetof(Script_t, scenePath) == 0x164);
 static_assert(offsetof(Script_t, currentOp) == 0x4A8);
@@ -175,6 +178,11 @@ u32 Script::Sub() const { return CombinedNum() % 100u; }
 ScaOp Script::CurrentOp() const {
   const auto *self = Self<Script_t>();
   return ScaOp(self ? static_cast<u32>(self->currentOp) : 0);
+}
+
+bool Script::Busy() const {
+  const auto *self = Self<Script_t>();
+  return self && static_cast<u32>(self->routine) != 0;
 }
 
 engine::SceneFile Script::Scene() const {

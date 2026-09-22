@@ -1064,6 +1064,7 @@
 0x82360D20 = { name = "bdCreateDownloadConfig", size = 0xC4 }
 0x82360F70 = { name = "bdMapConfigParse", size = 0x410 }
 0x82361680 = { name = "bdGameDownloadAnalyzeCreate", size = 0xC4 }
+0x82363B78 = { name = "bdFieldCameraStickUpdate" }
 0x82367EC0 = { name = "bdSceneTransitionLoadStep", size = 0x158 }
 0x82368630 = { name = "bdPhenomeTableFindById", size = 0x50 }
 0x82369710 = { name = "bdTrophyUnlock", size = 0x178 }
