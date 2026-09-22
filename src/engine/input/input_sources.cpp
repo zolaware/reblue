@@ -163,12 +163,13 @@ f32 InputSources::Axis(const Source &source, int component) const {
 
   if (source.axisSlot == 0)
     return 0.0f;
-  const bool isY = source.axisSlot == 1 || source.axisSlot == 2;
+  const int direction = AxisDirection(source.axisSlot);
+  const bool isY = direction == 0 || direction == 1;
   if ((component == 1) != isY)
     return 0.0f;
   if (!Active(source))
     return 0.0f;
-  const bool positive = source.axisSlot == 1 || source.axisSlot == 4;
+  const bool positive = direction == 0 || direction == 3;
   return positive ? 1.0f : -1.0f;
 }
 

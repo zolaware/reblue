@@ -66,4 +66,6 @@ std::string PollKeyCapture();
 // cancel press out of the very key being captured.
 bool KeyCapturePending();
 
+bool KeyCaptureCanceled();
+
 } // namespace bd::platform

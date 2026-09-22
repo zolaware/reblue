@@ -33,6 +33,18 @@ struct Source {
   }
 };
 
+inline constexpr int kAxisDirections = 4;
+inline constexpr int kAxisKeysPerDirection = 2;
+inline constexpr int kMaxAxisButtons = kAxisDirections * kAxisKeysPerDirection;
+
+constexpr u8 AxisSlot(int direction, int alternate) {
+  return static_cast<u8>(alternate * kAxisDirections + direction + 1);
+}
+
+constexpr int AxisDirection(u8 axisSlot) {
+  return (axisSlot - 1) % kAxisDirections;
+}
+
 bool ParseSource(std::string_view token, Source &out);
 
 bool FormatSource(const Source &source, std::string &out);
@@ -48,6 +60,7 @@ public:
   const std::vector<Source> &Sources(Action action) const;
 
   bool SetSource(Action action, int slot, const Source &source);
+  bool SetSources(Action action, const std::vector<Source> &sources);
   bool ClearSources(Action action);
   bool Reset(Action action);
   bool ResetContext(ActionContext context);

@@ -63,10 +63,8 @@ constexpr u32 kVarTypeElement = 0;
 
 // Cell grid of the served sheet.
 constexpr int kSheetCols = 8;
-constexpr int kSheetRows = 24;
+constexpr int kSheetRows = 32;
 
-// The shipped controller block is pasted into the top-left quadrant, so its
-// eleven cells keep the arrangement Uv.csv describes. One cell per bindable key
 // follows, in kBindableKeys order, then the arrow cluster and the three
 // modifier caps close the run.
 constexpr int kKeyCellBase = 32;
@@ -74,15 +72,14 @@ constexpr int kClusterCell = kKeyCellBase + int(platform::kBindableKeyCount);
 constexpr int kModCellBase = kClusterCell + 1;
 constexpr int kModCellCount = 3;
 
-// One block of the eleven prompts per pad the player can pick, in PadSet
-// order from XboxSeries on. The 360 has no block: its art is the shipped one
-// already sitting in the cells Uv.csv names.
 constexpr int kPadSetBase = kModCellBase + kModCellCount;
-constexpr int kPadSetCells = Glyphs::kHelpCells;
-static_assert(kPadSetBase + kPadSetLast * kPadSetCells <=
+constexpr int kPadStickPressCell = Glyphs::kHelpCells;
+constexpr int kPadDpadCell = kPadStickPressCell + 2;
+constexpr int kPadStickDirCell = kPadDpadCell + 4;
+constexpr int kPadSetCells = kPadStickDirCell + 8;
+static_assert(kPadSetBase + (kPadSetLast + 1) * kPadSetCells <=
               kSheetCols * kSheetRows);
 
-// The shipped block fills only the left half of its four rows, so the right
 // half is transparent and pointing a prompt at it draws nothing. That is the
 // honest answer for a button with no key bound to it.
 constexpr int kBlankCell = kSheetCols - 1;
@@ -126,8 +123,6 @@ UVRect CellRect(int cell) {
 
 // The sheet ships as tiled DXT5: a 64px cell is 16x16 blocks of 16 bytes, so a
 // cell moves between grid slots as raw block copies through the same offsets
-// the payload was tiled with. No decode, and the shipped block stays pristine
-// in its own cells.
 constexpr size_t kSheetPayload = 2048;
 constexpr u32 kSheetBlockPitch = 128;
 constexpr u32 kCellBlocks = 16;
@@ -178,14 +173,14 @@ int PadGlyphIndex(Action action) {
   return -1;
 }
 
+int PadSetCell(PadSet pad, int idx) {
+  return kPadSetBase + static_cast<int>(pad) * kPadSetCells + idx;
+}
+
 int PadArtCell(PadSet pad, int cellIndex) {
   const GlyphCell &c = kCells[cellIndex];
   const int idx = c.action == kNoAction ? cellIndex : PadGlyphIndex(c.action);
-  if (idx < 0)
-    return kBlankCell;
-  if (pad == PadSet::Xbox360)
-    return kCells[idx].padCell;
-  return kPadSetBase + (static_cast<int>(pad) - 1) * kPadSetCells + idx;
+  return idx < 0 ? kBlankCell : PadSetCell(pad, idx);
 }
 
 // Where a cap inks inside its 64px cell, and the wider band the modifier cells
@@ -198,7 +193,6 @@ constexpr f32 kModInkX0 = 4.0f / 64.0f;
 constexpr f32 kModInkX1 = 60.0f / 64.0f;
 
 // The connected pad's own art, for PadSet::Auto. A pad the host cannot place
-// gets the 360's block, which is the one the disc ships.
 PadSet HostPadSet() {
   switch (platform::ConnectedPad()) {
   case platform::PadBrand::XboxSeries:
@@ -364,6 +358,29 @@ UVRect Glyphs::KeyArtUV(int keyIndex) {
   const f32 h = c.v1 - c.v0;
   return {c.u0 + kInkX0 * w, c.v0 + kInkY0 * h, c.u0 + kInkX1 * w,
           c.v0 + kInkY1 * h};
+}
+
+bool Glyphs::PadButtonUV(int padButton, UVRect &uv) const {
+  constexpr int kPadLS = 6, kPadRS = 7, kPadLSUp = int(Button::LSUp);
+  int idx = -1;
+  if (padButton >= int(Button::Up) && padButton <= int(Button::Right))
+    idx = kPadDpadCell + padButton;
+  else if (padButton == kPadLS || padButton == kPadRS)
+    idx = kPadStickPressCell + padButton - kPadLS;
+  else if (padButton >= kPadLSUp && padButton < kPadLSUp + 8)
+    idx = kPadStickDirCell + padButton - kPadLSUp;
+  for (int i = 0; idx < 0 && i < kHelpCells; ++i) {
+    if (kCells[i].padButton >= 0 && kCells[i].padButton == padButton)
+      idx = i;
+  }
+  if (idx < 0)
+    return false;
+  const UVRect c = CellRect(PadSetCell(pad_, idx));
+  const f32 w = c.u1 - c.u0;
+  const f32 h = c.v1 - c.v0;
+  uv = {c.u0 + kInkX0 * w, c.v0 + kInkY0 * h, c.u0 + kInkX1 * w,
+        c.v0 + kInkY1 * h};
+  return true;
 }
 
 int Glyphs::ModifierIndex(std::string_view prefix) {

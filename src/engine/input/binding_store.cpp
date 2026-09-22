@@ -1,5 +1,6 @@
 #include "engine/input/binding_store.h"
 
+#include <algorithm>
 #include <cctype>
 #include <string>
 #include <string_view>
@@ -17,8 +18,6 @@ REXCVAR_DECLARE(i32, bd_opt_ctl_normal_type);
 namespace bd::engine {
 
 namespace {
-
-constexpr u8 kMaxAxisButtons = 4;
 
 constexpr const char *kControlTypeCvar = "bd_opt_ctl_normal_type";
 
@@ -177,6 +176,8 @@ void ApplyList(std::vector<Source> &out, std::vector<std::string> &errors,
     if (token.empty()) {
       if (comma == std::string_view::npos)
         break;
+      if (desc.axis != AxisPair::None && buttonSlot < kMaxAxisButtons)
+        ++buttonSlot;
       pos = comma + 1;
       continue;
     }
@@ -198,7 +199,8 @@ void ApplyList(std::vector<Source> &out, std::vector<std::string> &errors,
       if (buttonSlot >= kMaxAxisButtons) {
         errors.push_back(std::string("[input] ") + ToString(action) +
                           " drops '" + std::string(token) +
-                          "', its axis row already has 4 button halves");
+                          "', its axis row already has " +
+                          std::to_string(kMaxAxisButtons) + " button halves");
         if (comma == std::string_view::npos)
           break;
         pos = comma + 1;
@@ -240,14 +242,30 @@ bool AxisKeys(AxisPair pair, std::string &out) {
 }
 
 std::string FormatList(const std::vector<Source> &sources) {
-  std::string out;
+  std::string halves[kMaxAxisButtons];
+  int lastHalf = 0;
   std::string formatted;
   for (const auto &source : sources) {
-    if (!FormatSource(source, formatted))
+    if (source.axisSlot == 0 || source.axisSlot > kMaxAxisButtons ||
+        !FormatSource(source, formatted))
       continue;
-    if (!out.empty())
+    halves[source.axisSlot - 1] = formatted;
+    lastHalf = std::max(lastHalf, int(source.axisSlot));
+  }
+
+  std::string out;
+  bool first = true;
+  const auto append = [&](const std::string &token) {
+    if (!first)
       out += ",";
-    out += formatted;
+    out += token;
+    first = false;
+  };
+  for (int i = 0; i < lastHalf; ++i)
+    append(halves[i]);
+  for (const auto &source : sources) {
+    if (source.axisSlot == 0 && FormatSource(source, formatted))
+      append(formatted);
   }
   return out;
 }
@@ -464,9 +482,12 @@ bool Bindings::SetSource(Action action, int slot, const Source &source) {
     updated[static_cast<size_t>(slot)] = source;
   else
     updated.push_back(source);
+  return SetSources(action, updated);
+}
 
+bool Bindings::SetSources(Action action, const std::vector<Source> &sources) {
   const bool ok =
-      rex::cvar::SetFlagByName(CvarName(action), FormatList(updated));
+      rex::cvar::SetFlagByName(CvarName(action), FormatList(sources));
   ReportParseErrors();
   return ok;
 }

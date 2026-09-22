@@ -4,6 +4,7 @@
  */
 #include "platform/key_capture.h"
 
+#include <chrono>
 #include <string_view>
 
 #include <rex/ui/keybinds.h>
@@ -25,6 +26,10 @@ constexpr const char *kPadTokens[] = {
 };
 constexpr size_t kPadTokenCount = sizeof(kPadTokens) / sizeof(kPadTokens[0]);
 constexpr size_t kCaptureSlotCount = kBindableKeyCount + kPadTokenCount;
+constexpr size_t kPadLTSlot = kBindableKeyCount + 12;
+constexpr size_t kPadRTSlot = kBindableKeyCount + 13;
+
+constexpr auto kCancelHold = std::chrono::milliseconds(800);
 
 bool s_prev_down[kCaptureSlotCount] = {};
 bool s_capturing = false;
@@ -32,8 +37,10 @@ bool s_capturing = false;
 // at the press, since the modifier may be released first.
 int s_pending = -1;
 std::string s_pendingPrefix;
+std::chrono::steady_clock::time_point s_pendingSince;
 u32 s_padButtons = 0;
 int s_wheelSeen = 0;
+bool s_canceled = false;
 
 // The three mouse names sit in the same bindable list as the keys, and
 // ParseVirtualKey even resolves them, but a mouse button never reaches the
@@ -91,6 +98,7 @@ void BeginKeyCapture() {
   s_wheelSeen = Mouse().WheelDetents();
   s_capturing = true;
   s_pending = -1;
+  s_canceled = false;
 }
 
 std::string PollKeyCapture() {
@@ -98,11 +106,23 @@ std::string PollKeyCapture() {
     return {};
 
   if (s_pending >= 0) {
+    if (SlotDown(kPadLTSlot) && SlotDown(kPadRTSlot)) {
+      s_capturing = false;
+      s_pending = -1;
+      s_canceled = true;
+      return {};
+    }
     if (SlotDown(size_t(s_pending)))
       return {};
     s_capturing = false;
     const size_t hit = static_cast<size_t>(s_pending);
     s_pending = -1;
+    if (hit < kBindableKeyCount &&
+        std::string_view(kBindableKeys[hit]) == "Escape" &&
+        std::chrono::steady_clock::now() - s_pendingSince >= kCancelHold) {
+      s_canceled = true;
+      return {};
+    }
     if (hit < kBindableKeyCount)
       return s_pendingPrefix + kBindableKeys[hit];
     return kPadTokens[hit - kBindableKeyCount];
@@ -112,6 +132,7 @@ std::string PollKeyCapture() {
     const bool down = SlotDown(i);
     if (down && !s_prev_down[i] && s_pending < 0) {
       s_pending = static_cast<int>(i);
+      s_pendingSince = std::chrono::steady_clock::now();
       s_pendingPrefix =
           i < kBindableKeyCount ? ModifierPrefix() : std::string();
     }
@@ -132,5 +153,7 @@ std::string PollKeyCapture() {
 }
 
 bool KeyCapturePending() { return s_capturing && s_pending >= 0; }
+
+bool KeyCaptureCanceled() { return s_canceled; }
 
 } // namespace bd::platform

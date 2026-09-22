@@ -17,6 +17,7 @@
 #include "engine/d2anime/d2anime.h"
 #include "engine/game_options.h"
 #include "engine/glyph_set.h"
+#include "engine/input/binding_store.h"
 #include "engine/menus/achievements_layout.h"
 #include "engine/menus/config_layout.h"
 #include "engine/menus/config_menu_data.h"
@@ -33,6 +34,7 @@ namespace {
 constexpr u32 kWhite = 0xFFFFFFFFu;
 constexpr u32 kHighlightYellow = 0xFFFFDC00; // restart-bound and capturing
 constexpr u32 kReorderGold = 0xFFFFD700;     // the row being carried
+constexpr u32 kFixedGray = 0xFFA0A0A0;
 constexpr double kDimAlpha = 90.0, kFullAlpha = 255.0;
 
 // Wrapped to the two description lines above the footer, which start at x=325.
@@ -401,39 +403,33 @@ void ConfigMenu::RefreshSettingsVisuals() {
 void ConfigMenu::RefreshKeybindVisuals() {
   constexpr const char *kCapturing = "...";
 
-  AnimeMenu &list = CurrentBindList();
-  const ActionContext context = BindContext();
-  const int count = BindRows();
-
+  AnimeMenu &list = bind_menu_;
   list.SetCursorShown(false);
 
-  int hoverRow = -1;
+  int hoverRow = -1, hoverChip = -1;
   f32 hoverX = 0.0f;
-  if (state_ == State::KEYBINDS && MenuMouse::Get().MouseHasCursor())
-    list.PointerRowX(hoverRow, hoverX);
+  if (state_ == State::KEYBINDS && MenuMouse::Get().MouseHasCursor() &&
+      list.PointerRowX(hoverRow, hoverX))
+    hoverChip = KeybindItemTemplate::ChipAt(hoverX);
+
+  const std::string keysCaption = i18n::Text("settings.binds.keys");
+  const std::string padCaption = i18n::Text("settings.binds.pad");
 
   list.ForEachTemplate([&](int gridSlot, AnimeData vb) {
-    if (gridSlot < 0 || gridSlot >= count) {
-      vb.SetText("Name", "");
-      vb.SetString("WndType", "NOWINDOW");
-      vb.SetFloat("RowVis", -1.0);
-      for (const char *wnd : {"KeyWnd", "KeyWnd2"})
-        vb.SetString(wnd, "NOWINDOW");
-      for (const char *text : {"Key", "Key2"})
-        vb.SetText(text, "");
-      for (const char *vis : {"KeyCap", "KeyCap2", "KeyPair", "KeyPair2"})
-        vb.SetFloat(vis, -1.0);
-      return;
-    }
+    const BindEntry entry = BindGridEntry(gridSlot);
+    const bool header = entry.cell == BindCell::Header;
+    const bool row = !header && entry.cell != BindCell::Blank;
 
-    const Action action = BindRowAction(context, gridSlot);
-    const bool capturing =
-        state_ == State::KEYBIND_CAPTURE && action == capture_action_;
-    const bool hovered = gridSlot == hoverRow;
-
-    vb.SetText("Name", BindRowLabel(action));
+    vb.SetFloat("RowVis", row ? 1.0 : -1.0);
+    vb.SetFloat("HdrVis", header ? 1.0 : -1.0);
+    vb.SetText("Hdr", header ? BindEntryLabel(entry) : std::string());
+    vb.SetText("HdrKeys", header ? keysCaption : std::string());
+    vb.SetText("HdrPad", header ? padCaption : std::string());
+    vb.SetText("Name", row ? BindEntryLabel(entry) : std::string());
     vb.SetFloat("Dim", DimFor(false));
-    vb.SetFloat("RowVis", 1.0);
+    vb.SetFloat(kKeybindPadCapVar, -1.0);
+    if (!row)
+      vb.SetString("WndType", "NOWINDOW");
 
     const auto setUv = [&](const char *uvVar, const UVRect &r) {
       vb.SetFloat(fmt::format("{}.x", uvVar).c_str(), r.u0);
@@ -442,61 +438,78 @@ void ConfigMenu::RefreshKeybindVisuals() {
       vb.SetFloat(fmt::format("{}.h", uvVar).c_str(), r.v1);
     };
 
-    const auto slot = [&](int index, const char *textVar, const char *wndVar,
-                          const char *colVar, const char *capVar,
-                          const char *uvVar, const char *pairVar,
-                          const char *modUvVar) {
-      const bool on = capturing && capture_slot_ == index;
-      const std::string token = SettingsKeybindToken(action, index);
-      const bool offered = index > 0 && token.empty() && !on && hovered;
-      std::string text;
-      int key = -1;
-      int mod = -1;
+    for (int chip = 0; chip < KeybindItemTemplate::kChipCount; ++chip) {
+      const KeybindSlotVars &vars = kKeybindSlotVars[chip];
+      vb.SetFloat(vars.capVar, -1.0);
+      vb.SetFloat(vars.pairVar, -1.0);
+
+      const bool mouseLook = entry.cell == BindCell::MouseLook;
+      if (!row || (mouseLook && chip > 0)) {
+        vb.SetString(vars.wndVar, "NOWINDOW");
+        vb.SetText(vars.textVar, "");
+        continue;
+      }
+
+      const bool on = state_ == State::KEYBIND_CAPTURE &&
+                      gridSlot == capture_slot_ && chip == capture_chip_;
+      const bool fixed = BindChipFixed(entry, chip);
+      const std::string token = BindChipToken(entry, chip);
+      vb.SetString(vars.wndVar, on ? "BTN01_ON" : "BTN01_OF");
+      vb.SetColor(vars.colorVar, on ? kHighlightYellow
+                                 : fixed && !mouseLook ? kFixedGray
+                                                       : kWhite);
+
       if (on) {
-        text = kCapturing;
-      } else if (token.empty()) {
-        if (index == 0)
-          text = i18n::Text("settings.keybind.unbound");
-        else if (offered)
-          text = "+";
-      } else {
-        const size_t plus = token.find_last_of('+');
-        key = KeyIndex(plus == std::string::npos ? std::string_view(token)
-                                                 : std::string_view(token)
-                                                       .substr(plus + 1));
-        if (key >= 0 && plus != std::string::npos) {
-          mod = Glyphs::ModifierIndex(
-              std::string_view(token).substr(0, plus + 1));
-          // A prefix no cap covers falls back to text with the key.
-          if (mod < 0)
-            key = -1;
+        vb.SetText(vars.textVar, kCapturing);
+        continue;
+      }
+      if (mouseLook) {
+        vb.SetText(vars.textVar,
+                   i18n::Text(token.empty() ? "opt.off" : "opt.on"));
+        continue;
+      }
+      if (token.empty()) {
+        const bool offered =
+            !fixed && gridSlot == hoverRow && chip == hoverChip;
+        vb.SetText(vars.textVar, offered ? "+" : "");
+        continue;
+      }
+
+      if (chip == kBindPadChip) {
+        Source source;
+        UVRect uv;
+        if (ParseSource(token, source) &&
+            source.kind == SourceKind::PadButton &&
+            Glyphs::Get().PadButtonUV(source.code, uv)) {
+          setUv(kKeybindPadUvVar, uv);
+          vb.SetFloat(kKeybindPadCapVar, 1.0);
+          vb.SetText(vars.textVar, "");
+        } else {
+          vb.SetText(vars.textVar, BindChipLegend(entry, chip));
         }
-        if (key < 0)
-          text = SettingsKeybindAlt(action, index);
+        continue;
       }
 
-      vb.SetText(textVar, text);
-      vb.SetFloat(capVar, key >= 0 && mod < 0 ? 1.0 : -1.0);
-      vb.SetFloat(pairVar, key >= 0 && mod >= 0 ? 1.0 : -1.0);
+      const size_t plus = token.find_last_of('+');
+      int key = KeyIndex(plus == std::string::npos
+                             ? std::string_view(token)
+                             : std::string_view(token).substr(plus + 1));
+      int mod = -1;
+      if (key >= 0 && plus != std::string::npos) {
+        mod = Glyphs::ModifierIndex(
+            std::string_view(token).substr(0, plus + 1));
+        if (mod < 0)
+          key = -1;
+      }
+      vb.SetText(vars.textVar, key < 0 ? BindChipLegend(entry, chip) : "");
+      vb.SetFloat(vars.capVar, key >= 0 && mod < 0 ? 1.0 : -1.0);
+      vb.SetFloat(vars.pairVar, key >= 0 && mod >= 0 ? 1.0 : -1.0);
       if (key >= 0) {
-        setUv(uvVar, Glyphs::KeyArtUV(key));
+        setUv(vars.uvVar, Glyphs::KeyArtUV(key));
         if (mod >= 0)
-          setUv(modUvVar, Glyphs::ModifierArtUV(mod));
+          setUv(vars.modUvVar, Glyphs::ModifierArtUV(mod));
       }
-      vb.SetString(wndVar,
-                   index > 0 && token.empty() && !on && !offered ? "NOWINDOW"
-                   : on                                          ? "BTN01_ON"
-                                                                 : "BTN01_OF");
-      vb.SetColor(colVar, on ? kHighlightYellow : kWhite);
-    };
-    slot(0, "Key", "KeyWnd", "KeyCol", "KeyCap", "KeyUv", "KeyPair",
-         "KeyModUv");
-    slot(1, "Key2", "KeyWnd2", "KeyCol2", "KeyCap2", "KeyUv2", "KeyPair2",
-         "KeyModUv2");
-
-    const bool pair = !SettingsKeybindToken(action, 1).empty() ||
-                      (capturing && capture_slot_ == 1) || hovered;
-    vb.SetFloat("RowW", pair ? kKeybindRowPairW : kKeybindRowSoloW);
+    }
   });
 }
 

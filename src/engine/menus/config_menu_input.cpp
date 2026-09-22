@@ -16,13 +16,42 @@
 #include "engine/d2anime/d2anime.h"
 #include "engine/sfx.h"
 #include "engine/game_options.h"
+#include "engine/input/binding_store.h"
+#include "engine/input/input_sources.h"
 #include "engine/menus/config_layout.h"
 #include "engine/menus/config_menu_data.h"
 #include "platform/platform.h"
 
+#include <algorithm>
+#include <cstdlib>
+
 #include <rex/types.h>
 
 namespace bd::engine {
+
+namespace {
+
+bool IsBind(const BindEntry &entry) {
+  return entry.cell != BindCell::Header && entry.cell != BindCell::Blank;
+}
+
+bool PadPressed(Action action) {
+  for (const Source &source : Bindings::Get().Sources(action)) {
+    if (source.kind == SourceKind::PadButton &&
+        InputSources::Get().Active(source))
+      return true;
+  }
+  return false;
+}
+
+bool PadHeld(Button button) {
+  Source source;
+  source.kind = SourceKind::PadButton;
+  source.code = static_cast<u16>(button);
+  return InputSources::Get().Active(source);
+}
+
+} // namespace
 
 // The pointer, not the cursor, says which list a click is meant for. Without
 // this the sidebar and the list beside it disagree the moment the mouse crosses
@@ -316,60 +345,102 @@ void ConfigMenu::HandleSettings() {
     Transition(State::SECTION);
 }
 
-void ConfigMenu::HandleKeybinds() {
-  const ActionContext context = BindContext();
-  const int count = BindRows();
-  AnimeMenu &list = CurrentBindList();
+bool ConfigMenu::SkipBindSpacer() {
+  const int slot = bind_menu_.CursorIndex();
+  if (IsBind(BindGridEntry(slot)))
+    return false;
 
-  int pageStep = 0;
-  if (CheckButton(Button::RB))
-    pageStep = 1;
-  else if (CheckButton(Button::LB))
-    pageStep = -1;
-  if (pageStep != 0) {
-    list.SetActive(false);
-    SetBindPage(bind_page_ + pageStep);
-    Transition(State::KEYBINDS);
-    return;
+  constexpr int kCols = 2;
+  const int slots = BindGridRows() * kCols;
+  const int delta = slot - last_bind_slot_;
+  int to = -1;
+  if (delta != 0 && delta % kCols == 0) {
+    int step = delta > 0 ? kCols : -kCols;
+    if (std::abs(delta) > kCols)
+      step = -step;
+    for (int s = slot + step; s >= 0 && s < slots && to < 0; s += step)
+      if (IsBind(BindGridEntry(s)))
+        to = s;
+  } else {
+    for (int d = kCols; d < slots && to < 0; d += kCols) {
+      if (slot - d >= 0 && IsBind(BindGridEntry(slot - d)))
+        to = slot - d;
+      else if (slot + d < slots && IsBind(BindGridEntry(slot + d)))
+        to = slot + d;
+    }
   }
+  if (to < 0)
+    to = last_bind_slot_;
+  bind_menu_.SetCursorIndex(to);
+  last_bind_slot_ = to;
+  return true;
+}
+
+void ConfigMenu::HandleKeybinds() {
+  AnimeMenu &list = bind_menu_;
+  const bool pointer = MenuMouse::Get().MouseHasCursor();
 
   const int cursor = list.CursorIndex();
-  const bool onRow = cursor >= 0 && cursor < count;
+  const BindEntry current = BindGridEntry(cursor);
+  if (IsBind(current))
+    last_bind_slot_ = cursor;
+  else if (!pointer && SkipBindSpacer())
+    return;
 
-  // The key box under the pointer, which a click rebinds and Delete empties.
-  const bool pointer = MenuMouse::Get().MouseHasCursor();
   int hoverRow = -1, hoverChip = -1;
   f32 hoverX = 0.0f;
   if (pointer && list.PointerRowX(hoverRow, hoverX))
     hoverChip = KeybindItemTemplate::ChipAt(hoverX);
-  const bool onHover = hoverRow >= 0 && hoverRow < count;
+  const BindEntry hovered = BindGridEntry(hoverRow);
 
-  // A click captures into the key box it lands on, the primary from anywhere
-  // else on its row. A pad press reads the cursor row instead of a pointer.
   if (CheckAction(Action::Confirm)) {
-    const int hit = onHover ? hoverRow : -1;
-    const int target = pointer ? hit : (onRow ? cursor : -1);
-    if (target >= 0) {
-      capture_action_ = BindRowAction(context, target);
-      capture_slot_ = (pointer && hoverChip == 1) ? 1 : 0;
-      conflict_shown_ = false;
-      bd::platform::BeginKeyCapture();
-      Transition(State::KEYBIND_CAPTURE);
+    const int slot = pointer ? hoverRow : cursor;
+    int chip = 0;
+    if (pointer)
+      chip = std::max(hoverChip, 0);
+    else if (PadPressed(Action::Confirm))
+      chip = kBindPadChip;
+    const BindEntry entry = BindGridEntry(slot);
+    if (entry.cell == BindCell::MouseLook) {
+      if (ToggleMouseLook(entry)) {
+        sfx::Play(sfx::kToggle);
+        settings_dirty_ = true;
+      }
+      return;
     }
+    if (!IsBind(entry))
+      return;
+    if (BindChipFixed(entry, chip)) {
+      sfx::Play(sfx::kDisabled);
+      return;
+    }
+    capture_slot_ = slot;
+    capture_chip_ = chip;
+    conflict_shown_ = false;
+    bd::platform::BeginKeyCapture();
+    Transition(State::KEYBIND_CAPTURE);
     return;
   }
 
   const bool delDown =
       bd::platform::Keyboard().IsDown(rex::ui::VirtualKey::kDelete);
-  if (delDown && !del_held_ && onHover && hoverChip >= 0) {
-    if (ClearKeybindSlot(BindRowAction(context, hoverRow), hoverChip))
+  if (delDown && !del_held_ && IsBind(hovered) && hoverChip >= 0) {
+    const bool cleared = hovered.cell == BindCell::MouseLook
+                             ? ClearBindEntry(hovered)
+                             : ClearBindChip(hovered, hoverChip);
+    if (cleared)
       settings_dirty_ = true;
   }
   del_held_ = delDown;
 
   if (CheckButton(Button::X)) {
-    if (onRow && ClearKeybind(BindRowAction(context, cursor)))
-      settings_dirty_ = true;
+    if (IsBind(current)) {
+      const bool cleared = PadHeld(Button::X)
+                               ? ClearBindChip(current, kBindPadChip)
+                               : ClearBindEntry(current);
+      if (cleared)
+        settings_dirty_ = true;
+    }
     return;
   }
 
@@ -586,22 +657,25 @@ void ConfigMenu::HandleLangNotice() {
 void ConfigMenu::HandleKeybindCapture() {
   const std::string token = bd::platform::PollKeyCapture();
   if (!token.empty()) {
-    Action owner = capture_action_;
-    if (SetKeybind(capture_action_, capture_slot_, token, &owner)) {
-      settings_dirty_ = true;
-      conflict_shown_ = false;
-    } else if (owner != capture_action_) {
-      conflict_action_ = owner;
-      conflict_shown_ = true;
+    const BindEntry entry = BindGridEntry(capture_slot_);
+    Action owner = entry.action;
+    if (!BindChipAccepts(capture_chip_, token)) {
       sfx::Play(sfx::kDisabled);
+    } else if (SetBindChip(entry, capture_chip_, token, &owner)) {
+      settings_dirty_ = true;
+      conflict_action_ = owner;
+      conflict_shown_ = owner != entry.action;
     }
     capture_slot_ = -1;
+    capture_chip_ = -1;
     Transition(State::KEYBINDS);
     return;
   }
 
-  if (!bd::platform::KeyCapturePending() && CheckAction(Action::Cancel)) {
+  if (bd::platform::KeyCaptureCanceled() ||
+      (!bd::platform::KeyCapturePending() && CheckAction(Action::Cancel))) {
     capture_slot_ = -1;
+    capture_chip_ = -1;
     Transition(State::KEYBINDS);
     BD_DEBUG("[config] rebind canceled");
   }
@@ -705,7 +779,7 @@ void ConfigMenu::HandleConfirmResetBinds() {
   confirm_popup_.Kill();
 
   if (confirmed) {
-    if (ResetKeybinds(BindContext()))
+    if (ResetAllKeybinds())
       settings_dirty_ = true;
     BD_DEBUG("[config] binds reset to defaults");
   } else {

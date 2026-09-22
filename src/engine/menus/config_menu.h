@@ -97,7 +97,6 @@ private:
   void ApplyVisibility();
   void SetHeaders(const std::string &sections, const std::string &mods,
                   const std::string &details);
-  // The keybind screen's section headers and hint line, which the common
   // transition block clears alongside the row description.
   void SetKeybindChrome(const char *hintKey);
   void SetFooter(const FooterLabels &f);
@@ -132,6 +131,7 @@ private:
   // Repeat step for a held direction on a bar row, or 0.
   int HeldStep(int cursor);
   void HandleKeybinds();
+  bool SkipBindSpacer();
   void HandleKeybindCapture();
   void HandleReorder();
   void HandleConfirmDelete();
@@ -157,14 +157,9 @@ private:
   bool MenusReady();
   void ResetMenus();
   AnimeMenu &CurrentSettingsList();
-  AnimeMenu &CurrentBindList();
-  ActionContext BindContext() const;
-  int BindRows() const;
-  void SetBindPage(int page);
 
-  static constexpr size_t kFixedMenus = 5;
-  static constexpr size_t kMenuCount =
-      kSettingsSectionCount + kFixedMenus + kBindPageCount;
+  static constexpr size_t kFixedMenus = 6;
+  static constexpr size_t kMenuCount = kSettingsSectionCount + kFixedMenus;
   std::array<AnimeMenu *, kMenuCount> Menus();
 
   State state_ = State::INIT;
@@ -187,13 +182,13 @@ private:
   AnimeMenu dlclist_menu_;
   AnimeMenu langlist_menu_;
   AnimeMenu achvlist_menu_;
+  AnimeMenu bind_menu_;
   AnimeMenu settings_menus_[kSettingsSectionCount];
-  AnimeMenu bind_menus_[kBindPageCount];
 
   SettingsPage settings_page_ = SettingsPage::Gameplay;
-  int bind_page_ = 0;
-  Action capture_action_ = Action::Confirm;
   int capture_slot_ = -1;
+  int capture_chip_ = -1;
+  int last_bind_slot_ = 0;
   Action conflict_action_ = Action::Confirm;
   bool conflict_shown_ = false;
   // Edge detector for the keybind screen's hover-Delete, a host key with no

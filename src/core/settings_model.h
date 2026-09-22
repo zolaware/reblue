@@ -31,7 +31,6 @@ enum class SettingsPage : int {
 inline constexpr int kSettingsPageCount = 5;
 inline constexpr int kSettingsSectionCount = 5; // pages shown in the sidebar
 
-inline constexpr int kBindPageCount = 4;
 
 // How a row is rendered and driven.
 enum class RowUi : int {
@@ -119,20 +118,34 @@ bool SetSelectedOption(SettingsPage page, int index, int option);
 // range). Returns true on success.
 bool SetSliderValue(SettingsPage page, int index, double value);
 
-engine::ActionContext BindPageContext(int page);
-const char *BindPageLabel(int page);
+enum class BindCell : u8 { Blank, Header, Button, AxisKey, MouseLook };
 
-size_t BindRowCount(engine::ActionContext context);
-engine::Action BindRowAction(engine::ActionContext context, int index);
+struct BindEntry {
+  BindCell cell = BindCell::Blank;
+  engine::ActionContext context{};
+  engine::Action action{};
+  int direction = -1;
+};
+
+inline constexpr int kBindKeyChips = 2;
+inline constexpr int kBindPadChip = kBindKeyChips;
+inline constexpr int kBindChipCount = kBindKeyChips + 1;
+
+int BindGridRows();
+BindEntry BindGridEntry(int slot);
+std::string BindEntryLabel(const BindEntry &entry);
 const char *BindRowLabel(engine::Action action);
 
-std::string SettingsKeybindToken(engine::Action action, int slot);
-std::string SettingsKeybindAlt(engine::Action action, int slot);
+std::string BindChipToken(const BindEntry &entry, int chip);
+std::string BindChipLegend(const BindEntry &entry, int chip);
+bool BindChipFixed(const BindEntry &entry, int chip);
+bool BindChipAccepts(int chip, const std::string &token);
 
-bool SetKeybind(engine::Action action, int slot, const std::string &token,
-                engine::Action *conflict);
-bool ClearKeybindSlot(engine::Action action, int slot);
-bool ClearKeybind(engine::Action action);
-bool ResetKeybinds(engine::ActionContext context);
+bool SetBindChip(const BindEntry &entry, int chip, const std::string &token,
+                 engine::Action *conflict);
+bool ClearBindChip(const BindEntry &entry, int chip);
+bool ClearBindEntry(const BindEntry &entry);
+bool ToggleMouseLook(const BindEntry &entry);
+bool ResetAllKeybinds();
 
 } // namespace bd

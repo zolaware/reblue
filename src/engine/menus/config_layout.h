@@ -198,29 +198,46 @@ private:
   static constexpr int kTrackW = 306;
 };
 
-inline constexpr int kKeybindGridY = 132;
-inline constexpr int kKeybindRowH = 32;
-inline constexpr int kKeybindMaxRows = 15;
-inline constexpr int kKeybindGridX = 76;
-inline constexpr int kKeybindCellW = 552;
-inline constexpr int kKeybindColStride = 576;
-// Where a row's box stops: after its one key, or after both of them. A box run
-// out to the cell width reads as a rule across the screen rather than a row.
-inline constexpr int kKeybindRowSoloW = 412;
-inline constexpr int kKeybindRowPairW = 544;
+inline constexpr int kKeybindGridY = 104;
+inline constexpr int kKeybindRowH = 25;
+inline constexpr int kKeybindMaxRows = 20;
+inline constexpr int kKeybindGridX = 40;
+inline constexpr int kKeybindCellW = 590;
+inline constexpr int kKeybindColStride = 610;
 
-// Keybind row template (l_modmgr_keybind.csv): a bind label plus two key
-// buttons, laid out by the engine in a 2-column table (KeybindList). Slot one
-// is the primary key, slot two the alternate. The active slot lights up
-// (BTN01_ON + yellow) while capturing a new bind.
+struct KeybindSlotVars {
+  const char *comment;
+  const char *wndVar, *wndDefault, *textVar, *colorVar;
+  const char *capVar, *uvVar, *pairVar, *modUvVar;
+};
+
+inline constexpr KeybindSlotVars kKeybindSlotVars[] = {
+    {"key button", "KeyWnd", "BTN01_OF", "Key", "KeyCol", "KeyCap", "KeyUv",
+     "KeyPair", "KeyModUv"},
+    {"second key button", "KeyWnd2", "NOWINDOW", "Key2", "KeyCol2", "KeyCap2",
+     "KeyUv2", "KeyPair2", "KeyModUv2"},
+    {"third key button", "KeyWnd3", "NOWINDOW", "Key3", "KeyCol3", "KeyCap3",
+     "KeyUv3", "KeyPair3", "KeyModUv3"},
+};
+
+inline constexpr const char *kKeybindPadCapVar = "PadCap";
+inline constexpr const char *kKeybindPadUvVar = "PadUv";
+
 class KeybindItemTemplate : public RowTemplate {
 public:
-  // 32px pitch: 15 rows have to end above the footer rule at 617, and the
-  // boxes only have to hold caps and short fallback names.
   KeybindItemTemplate() : RowTemplate(80, 0, kKeybindCellW, kKeybindRowH) {}
 
-  // Which key box a row-local x hits: 0 primary, 1 alternate, -1 outside
-  // both. Hit testing reads the same constants the boxes are drawn from.
+  static constexpr int kChipCount = kBindChipCount;
+
+  static constexpr int ChipX(int index) {
+    return kChipX0 + index * (kChipW + kChipGap) +
+           (index >= kBindPadChip ? kPadGap : 0);
+  }
+
+  static constexpr int RowWidth() {
+    return ChipX(kChipCount - 1) + kChipW + kRowPad;
+  }
+
   static int ChipAt(f32 x);
 
 protected:
@@ -228,7 +245,16 @@ protected:
   AnimeWindow rowWindow() const override;
   AnimeMessage rowLabel() const override;
   void buildValue(CsvBuilder &b) override;
+
+private:
+  static constexpr int kChipX0 = 290;
+  static constexpr int kChipW = 90;
+  static constexpr int kChipGap = 6;
+  static constexpr int kPadGap = 10;
+  static constexpr int kRowPad = 6;
 };
+
+static_assert(KeybindItemTemplate::RowWidth() <= kKeybindCellW);
 
 // Main three-panel config menu (l_modmgr.csv).
 class ConfigLayout : public AnimeLayout {
@@ -285,14 +311,7 @@ public:
   StringV rowDesc1{"RowDesc1", ""};
   StringV rowDescC{"RowDescC", ""};
 
-  StringV hdrBinds{"HdrBinds", ""};
   StringV kbHint{"KbHint", ""};
-  FloatV bindPanelVis[kBindPageCount]{{"BindPanel0", -1.0},
-                                      {"BindPanel1", -1.0},
-                                      {"BindPanel2", -1.0},
-                                      {"BindPanel3", -1.0}};
-  // Gates the three section panels and their rules. Text clears itself by
-  // going empty, a box has to be told not to draw.
   FloatV kbChromeVis{"KbChromeVis", -1.0};
 
   // Sections shown in the sidebar, in cursor order: the five settings pages
@@ -312,9 +331,6 @@ public:
   static constexpr const char *kSettingsListNames[kSettingsSectionCount] = {
       "GameplayList", "DisplayList", "GraphicsList", "AudioList",
       "ControlsList"};
-
-  static constexpr const char *kBindListNames[kBindPageCount] = {
-      "BindFieldList", "BindMenuList", "BindMechatList", "BindSystemList"};
 
   static constexpr int kSectionMenuH =
       kSectionCount * kSectionRowH + (kSectionCount - 1) * kSectionRowGap;
@@ -363,7 +379,7 @@ public:
   // Read-only achievement list, same full-width geometry as a settings page.
   AnimeMenuWidget achvList = PageList("AchvList", "l_modmgr_achv.csv");
 
-  AnimeMenuWidget bindList[kBindPageCount]{};
+  AnimeMenuWidget bindList = BindList("BindList");
 
   // Rows visible at once. Longer lists scroll (the engine window keeps a
   // scrollbar). 10 rows of 45px from y=140 end at 610, above the footer line.
@@ -374,7 +390,7 @@ public:
   void SetLanguageCount(size_t count);
   void SetAchievementCount(size_t count);
   void SetSettingsCounts(const size_t (&pageCounts)[kSettingsSectionCount],
-                         const size_t (&bindCounts)[kBindPageCount]);
+                         int bindRows);
 
   void build(CsvBuilder &b) override;
 
@@ -449,7 +465,7 @@ constexpr AnimeMenuWidget ConfigLayout::BindList(const char *name) {
           .h = 0,
           .priority = 3,
           .startCurX = kKeybindGridX - 5,
-          .startCurY = kKeybindGridY + 16,
+          .startCurY = kKeybindGridY + kKeybindRowH / 2,
           .curDir = "RIGHT",
           .itemW = kKeybindCellW,
           .itemH = kKeybindRowH,

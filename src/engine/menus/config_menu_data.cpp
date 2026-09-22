@@ -153,10 +153,7 @@ void RegisterVFS(ConfigMenu::Surface surface) {
   size_t pageSlots[kSettingsSectionCount];
   for (int p = 0; p < kSettingsSectionCount; ++p)
     pageSlots[p] = SettingsSlotCount(static_cast<SettingsPage>(p));
-  size_t bindRows[kBindPageCount];
-  for (int p = 0; p < kBindPageCount; ++p)
-    bindRows[p] = BindRowCount(BindPageContext(p));
-  s_config_layout.SetSettingsCounts(pageSlots, bindRows);
+  s_config_layout.SetSettingsCounts(pageSlots, BindGridRows());
 
   // Providers run per read, so each CSV reflects the layout state at that
   // moment. Nothing here needs re-registering when the data behind it changes.

@@ -14,6 +14,7 @@
 #include "core/settings_rows.h"
 
 #include <algorithm>
+#include <array>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -190,16 +191,132 @@ constexpr KeyAlias kKeyAliases[] = {
     {"MouseXY", "Mouse"},
 };
 
-constexpr engine::ActionContext kBindPages[kBindPageCount] = {
-    engine::ActionContext::Field, engine::ActionContext::Menu,
-    engine::ActionContext::Mechat, engine::ActionContext::System};
+constexpr engine::ActionContext kBindColumnSections[][3] = {
+    {engine::ActionContext::Field},
+    {engine::ActionContext::Menu, engine::ActionContext::Mechat,
+     engine::ActionContext::System},
+};
+constexpr int kBindColumnSectionCounts[] = {1, 3};
+constexpr int kBindColumns = static_cast<int>(std::size(kBindColumnSections));
 
-constexpr const char *kBindPageKeys[kBindPageCount] = {
-    "settings.binds.field", "settings.binds.menu", "settings.binds.mechat",
-    "settings.binds.system"};
+const char *BindSectionKey(engine::ActionContext context) {
+  switch (context) {
+  case engine::ActionContext::Field:
+    return "settings.binds.field";
+  case engine::ActionContext::Menu:
+    return "settings.binds.menu";
+  case engine::ActionContext::Mechat:
+    return "settings.binds.mechat";
+  case engine::ActionContext::System:
+    return "settings.binds.system";
+  }
+  return "";
+}
 
-int BindPageIndex(int page) {
-  return (page < 0 || page >= kBindPageCount) ? 0 : page;
+constexpr const char *kAxisDirectionKeys[engine::kAxisDirections] = {
+    "settings.binds.axis_up", "settings.binds.axis_down",
+    "settings.binds.axis_left", "settings.binds.axis_right"};
+constexpr const char *kStickDirectionNames[engine::kAxisDirections] = {
+    "Up", "Down", "Left", "Right"};
+
+void AppendBindSection(std::vector<BindEntry> &column,
+                       engine::ActionContext context) {
+  column.push_back({.cell = BindCell::Header, .context = context});
+  for (int i = 0; i < engine::kActionCount; ++i) {
+    const auto action = static_cast<engine::Action>(i);
+    const engine::ActionDesc &desc = engine::Describe(action);
+    if (desc.context == context && desc.axis == engine::AxisPair::None)
+      column.push_back(
+          {.cell = BindCell::Button, .context = context, .action = action});
+  }
+  for (int i = 0; i < engine::kActionCount; ++i) {
+    const auto action = static_cast<engine::Action>(i);
+    const engine::ActionDesc &desc = engine::Describe(action);
+    if (desc.context != context || desc.axis == engine::AxisPair::None)
+      continue;
+    for (int dir = 0; dir < engine::kAxisDirections; ++dir)
+      column.push_back({.cell = BindCell::AxisKey,
+                        .context = context,
+                        .action = action,
+                        .direction = dir});
+    if (desc.axis == engine::AxisPair::Right)
+      column.push_back(
+          {.cell = BindCell::MouseLook, .context = context, .action = action});
+  }
+}
+
+const std::array<std::vector<BindEntry>, kBindColumns> &BindColumns() {
+  static const auto columns = [] {
+    std::array<std::vector<BindEntry>, kBindColumns> out;
+    for (int c = 0; c < kBindColumns; ++c)
+      for (int k = 0; k < kBindColumnSectionCounts[c]; ++k)
+        AppendBindSection(out[c], kBindColumnSections[c][k]);
+    return out;
+  }();
+  return columns;
+}
+
+bool PadSource(const engine::Source &source) {
+  return source.kind == engine::SourceKind::PadButton ||
+         source.kind == engine::SourceKind::PadAxes;
+}
+
+bool SameInput(const engine::Source &a, const engine::Source &b) {
+  return a.kind == b.kind && a.code == b.code && a.mods == b.mods &&
+         a.sign == b.sign;
+}
+
+void SwapInto(engine::Action owner, const engine::Source &taken,
+              const engine::Source *given) {
+  engine::Bindings &binds = engine::Bindings::Get();
+  std::vector<engine::Source> sources = binds.Sources(owner);
+  for (size_t i = 0; i < sources.size(); ++i) {
+    if (!SameInput(sources[i], taken))
+      continue;
+    if (given && !binds.Conflict(owner, *given)) {
+      const u8 slot = sources[i].axisSlot;
+      sources[i] = *given;
+      sources[i].axisSlot = slot;
+    } else {
+      sources.erase(sources.begin() + static_cast<std::ptrdiff_t>(i));
+    }
+    break;
+  }
+  binds.SetSources(owner, sources);
+  BD_DEBUG("[config] {} swapped out of its bind", engine::ToString(owner));
+}
+
+int ChipSource(const BindEntry &entry, int chip) {
+  const std::vector<engine::Source> &sources =
+      engine::Bindings::Get().Sources(entry.action);
+  const int count = static_cast<int>(sources.size());
+  switch (entry.cell) {
+  case BindCell::Button: {
+    int keys = 0;
+    for (int i = 0; i < count; ++i) {
+      const bool pad = PadSource(sources[i]);
+      if (chip == kBindPadChip ? pad : (!pad && keys++ == chip))
+        return i;
+    }
+    return -1;
+  }
+  case BindCell::AxisKey:
+    if (chip < 0 || chip >= kBindKeyChips)
+      return -1;
+    for (int i = 0; i < count; ++i)
+      if (sources[i].axisSlot == engine::AxisSlot(entry.direction, chip))
+        return i;
+    return -1;
+  case BindCell::MouseLook:
+    if (chip != 0)
+      return -1;
+    for (int i = 0; i < count; ++i)
+      if (sources[i].kind == engine::SourceKind::MouseAxes)
+        return i;
+    return -1;
+  default:
+    return -1;
+  }
 }
 
 std::string KeyDisplay(const std::string &token) {
@@ -572,51 +689,81 @@ std::string SettingsValueText(SettingsPage page, int index) {
   return OptionLabel(OptsOf(s).opts[CurrentIndex(s)]);
 }
 
-engine::ActionContext BindPageContext(int page) {
-  return kBindPages[BindPageIndex(page)];
-}
-
-const char *BindPageLabel(int page) {
-  return Localized(kBindPageKeys[BindPageIndex(page)]);
-}
-
-size_t BindRowCount(engine::ActionContext context) {
+int BindGridRows() {
   size_t rows = 0;
-  for (int i = 0; i < engine::kActionCount; ++i)
-    if (engine::Describe(static_cast<engine::Action>(i)).context == context)
-      ++rows;
-  return rows;
+  for (const auto &column : BindColumns())
+    rows = std::max(rows, column.size());
+  return static_cast<int>(rows);
 }
 
-engine::Action BindRowAction(engine::ActionContext context, int index) {
-  for (int i = 0; i < engine::kActionCount; ++i) {
-    const auto action = static_cast<engine::Action>(i);
-    if (engine::Describe(action).context != context)
-      continue;
-    if (index-- == 0)
-      return action;
+BindEntry BindGridEntry(int slot) {
+  if (slot < 0)
+    return {};
+  const auto &column = BindColumns()[static_cast<size_t>(slot % kBindColumns)];
+  const size_t row = static_cast<size_t>(slot / kBindColumns);
+  return row < column.size() ? column[row] : BindEntry{};
+}
+
+std::string BindEntryLabel(const BindEntry &entry) {
+  switch (entry.cell) {
+  case BindCell::Header:
+    return Localized(BindSectionKey(entry.context));
+  case BindCell::Button:
+    return BindRowLabel(entry.action);
+  case BindCell::AxisKey:
+    return i18n::Fmt(kAxisDirectionKeys[entry.direction],
+                     BindRowLabel(entry.action));
+  case BindCell::MouseLook:
+    return i18n::Text("settings.binds.mouse_look");
+  default:
+    return {};
   }
-  return static_cast<engine::Action>(0);
 }
 
 const char *BindRowLabel(engine::Action action) {
   return Localized(engine::Describe(action).labelKey);
 }
 
-std::string SettingsKeybindToken(engine::Action action, int slot) {
+std::string BindChipToken(const BindEntry &entry, int chip) {
   const std::vector<engine::Source> &sources =
-      engine::Bindings::Get().Sources(action);
-  if (slot < 0 || static_cast<size_t>(slot) >= sources.size())
+      engine::Bindings::Get().Sources(entry.action);
+  if (entry.cell == BindCell::AxisKey && chip == kBindPadChip) {
+    for (const engine::Source &source : sources) {
+      if (source.kind != engine::SourceKind::PadAxes)
+        continue;
+      const bool left = source.code == u16(engine::AxisPair::Left);
+      return std::string(left ? "LStick" : "RStick") +
+             kStickDirectionNames[entry.direction];
+    }
     return {};
+  }
+  const int at = ChipSource(entry, chip);
   std::string token;
-  if (!engine::FormatSource(sources[static_cast<size_t>(slot)], token))
+  if (at < 0 || !engine::FormatSource(sources[static_cast<size_t>(at)], token))
     return {};
   return token;
 }
 
-std::string SettingsKeybindAlt(engine::Action action, int slot) {
-  const std::string token = SettingsKeybindToken(action, slot);
+std::string BindChipLegend(const BindEntry &entry, int chip) {
+  const std::string token = BindChipToken(entry, chip);
   return token.empty() ? std::string() : KeyDisplay(token);
+}
+
+bool BindChipFixed(const BindEntry &entry, int chip) {
+  switch (entry.cell) {
+  case BindCell::Button:
+    return false;
+  case BindCell::AxisKey:
+    return chip == kBindPadChip;
+  default:
+    return true;
+  }
+}
+
+bool BindChipAccepts(int chip, const std::string &token) {
+  engine::Source source;
+  return engine::ParseSource(token, source) &&
+         (chip == kBindPadChip) == PadSource(source);
 }
 
 RowUi SettingsRowUi(SettingsPage page, int index) {
@@ -775,58 +922,113 @@ bool SetSliderValue(SettingsPage page, int index, double value) {
   return WriteSlider(s, next);
 }
 
-bool SetKeybind(engine::Action action, int slot, const std::string &token,
-                engine::Action *conflict) {
+bool SetBindChip(const BindEntry &entry, int chip, const std::string &token,
+                 engine::Action *conflict) {
   if (conflict)
-    *conflict = action;
+    *conflict = entry.action;
+  if (chip < 0 || chip >= kBindChipCount || BindChipFixed(entry, chip))
+    return false;
 
   engine::Source source;
   if (!engine::ParseSource(token, source)) {
     BD_WARN("[config] '{}' is not a bindable input", token);
     return false;
   }
+  engine::Bindings &binds = engine::Bindings::Get();
+  const std::optional<engine::Action> other =
+      binds.Conflict(entry.action, source);
+  if (entry.cell == BindCell::AxisKey)
+    source.axisSlot = engine::AxisSlot(entry.direction, chip);
 
-  if (const auto other = engine::Bindings::Get().Conflict(action, source)) {
+  const int at = ChipSource(entry, chip);
+  const std::vector<engine::Source> current = binds.Sources(entry.action);
+  std::vector<engine::Source> updated;
+  bool placed = false;
+  for (size_t i = 0; i < current.size(); ++i) {
+    if (static_cast<int>(i) == at) {
+      updated.push_back(source);
+      placed = true;
+    } else if (!SameInput(current[i], source)) {
+      updated.push_back(current[i]);
+    }
+  }
+  if (!placed)
+    updated.push_back(source);
+
+  if (!binds.SetSources(entry.action, updated)) {
+    BD_WARN("[config] failed to bind {} to {}", token,
+            engine::ToString(entry.action));
+    return false;
+  }
+  BD_DEBUG("[config] {} chip {} = {}", engine::ToString(entry.action), chip,
+           token);
+  if (other) {
+    SwapInto(*other, source, at < 0 ? nullptr : &current[size_t(at)]);
     if (conflict)
       *conflict = *other;
-    BD_DEBUG("[config] {} already owns {}", engine::ToString(*other), token);
-    return false;
   }
-
-  if (!engine::Bindings::Get().SetSource(action, slot, source)) {
-    BD_WARN("[config] failed to bind {} to {}", token,
-            engine::ToString(action));
-    return false;
-  }
-  BD_DEBUG("[config] {}[{}] = {}", engine::ToString(action), slot, token);
   return true;
 }
 
-bool ClearKeybindSlot(engine::Action action, int slot) {
+bool ClearBindChip(const BindEntry &entry, int chip) {
+  const int at = ChipSource(entry, chip);
+  if (at < 0 || BindChipFixed(entry, chip))
+    return false;
   engine::Bindings &binds = engine::Bindings::Get();
-  std::vector<engine::Source> kept = binds.Sources(action);
-  if (slot < 0 || static_cast<size_t>(slot) >= kept.size())
-    return false;
-  kept.erase(kept.begin() + slot);
-  if (!binds.ClearSources(action))
-    return false;
-  for (size_t i = 0; i < kept.size(); ++i)
-    binds.SetSource(action, static_cast<int>(i), kept[i]);
-  BD_DEBUG("[config] {} slot {} cleared", engine::ToString(action), slot);
-  return true;
+  std::vector<engine::Source> kept = binds.Sources(entry.action);
+  kept.erase(kept.begin() + at);
+  BD_DEBUG("[config] {} chip {} cleared", engine::ToString(entry.action), chip);
+  return binds.SetSources(entry.action, kept);
 }
 
-bool ClearKeybind(engine::Action action) {
-  if (!engine::Bindings::Get().ClearSources(action)) {
-    BD_WARN("[config] failed to clear {}", engine::ToString(action));
+bool ClearBindEntry(const BindEntry &entry) {
+  engine::Bindings &binds = engine::Bindings::Get();
+  std::vector<engine::Source> kept = binds.Sources(entry.action);
+  switch (entry.cell) {
+  case BindCell::Button:
+    kept.clear();
+    break;
+  case BindCell::AxisKey:
+    std::erase_if(kept, [&](const engine::Source &s) {
+      return s.axisSlot != 0 &&
+             engine::AxisDirection(s.axisSlot) == entry.direction;
+    });
+    break;
+  case BindCell::MouseLook:
+    std::erase_if(kept, [](const engine::Source &s) {
+      return s.kind == engine::SourceKind::MouseAxes;
+    });
+    break;
+  default:
     return false;
   }
-  BD_DEBUG("[config] {} cleared", engine::ToString(action));
-  return true;
+  if (kept.size() == binds.Sources(entry.action).size())
+    return false;
+  BD_DEBUG("[config] {} cleared", BindEntryLabel(entry));
+  return binds.SetSources(entry.action, kept);
 }
 
-bool ResetKeybinds(engine::ActionContext context) {
-  return engine::Bindings::Get().ResetContext(context);
+bool ToggleMouseLook(const BindEntry &entry) {
+  if (entry.cell != BindCell::MouseLook)
+    return false;
+  if (ChipSource(entry, 0) >= 0)
+    return ClearBindEntry(entry);
+  engine::Source mouse;
+  if (!engine::ParseSource("MouseXY", mouse))
+    return false;
+  engine::Bindings &binds = engine::Bindings::Get();
+  std::vector<engine::Source> updated = binds.Sources(entry.action);
+  updated.push_back(mouse);
+  return binds.SetSources(entry.action, updated);
+}
+
+bool ResetAllKeybinds() {
+  bool any = false;
+  for (int c = 0; c < kBindColumns; ++c)
+    for (int k = 0; k < kBindColumnSectionCounts[c]; ++k)
+      any = engine::Bindings::Get().ResetContext(kBindColumnSections[c][k]) ||
+            any;
+  return any;
 }
 
 } // namespace bd

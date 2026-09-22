@@ -29,8 +29,6 @@ enum class GlyphSet : i32 {
 
 // Which controller's art the prompts wear whenever they are wearing a
 // controller's. Auto follows the pad the host has connected, and falls back to
-// the 360, which is the disc's own block and the one set that costs no
-// substitution.
 enum class PadSet : i32 {
   Auto = -1,
   Xbox360 = 0,
@@ -100,6 +98,8 @@ public:
   // Index is a kBindableKeys position, negative gets the blank cell.
   static UVRect KeyArtUV(int keyIndex);
 
+  bool PadButtonUV(int padButton, UVRect &uv) const;
+
   // Position of a bind's modifier prefix ("Shift+", "Ctrl+", "Alt+", with or
   // without the plus) in the sheet's modifier run, or -1 for anything else.
   static int ModifierIndex(std::string_view prefix);
@@ -120,8 +120,6 @@ private:
   GlyphSet Wanted() const;
   PadSet WantedPad() const;
 
-  // The full sheet blob for the resolved set: the served bytes as shipped on
-  // a pad, and with each pad cell's texels replaced by its bound key's cap on
   // a keyboard. Serves fresh loads and restamps live instances alike.
   std::vector<u8> ComposeSheet() const;
 

@@ -25,7 +25,7 @@ constexpr ActionDesc kDescs[kActionCount] = {
      ActionKind::Mapped, 4, -1, AxisPair::None, "LMB,Ctrl+Space,PadA"},
     {"attack", "settings.pad.dash_attack", ActionContext::Field,
      ActionKind::Mapped, 5, -1, AxisPair::None, "Space,PadX"},
-    {"main_menu", "settings.pad.main_menu", ActionContext::Field,
+    {"main_menu", "settings.action.camp_menu", ActionContext::Field,
      ActionKind::Mapped, 2, -1, AxisPair::None, "C,PadY"},
     {"field_menu", "settings.pad.field_menu", ActionContext::Field,
      ActionKind::Mapped, 3, -1, AxisPair::None, "F,PadRT"},
@@ -39,7 +39,7 @@ constexpr ActionDesc kDescs[kActionCount] = {
      ActionKind::Mapped, 9, -1, AxisPair::None, "Z,PadLT"},
     {"move", "settings.pad.move", ActionContext::Field, ActionKind::Mapped, -1,
      -1, AxisPair::Left, "W,S,A,D,LStick"},
-    {"view", "settings.pad.view", ActionContext::Field, ActionKind::Mapped, -1,
+    {"view", "settings.action.look", ActionContext::Field, ActionKind::Mapped, -1,
      -1, AxisPair::Right, "Up,Down,Left,Right,RStick,MouseXY"},
 
     {"machine_gun", "settings.pad.machine_gun", ActionContext::Mechat,
