@@ -11,6 +11,7 @@
 #include <rex/hook.h>
 
 #include "engine/battle_task.h"
+#include "engine/discord_presence.h"
 #include "engine/frame_interp.h"
 #include "engine/hud_fade.h"
 
@@ -19,5 +20,6 @@ REX_HOOK_RAW(bdMainGameStep) {
   bd::engine::OnGameStep();
   bd::engine::BattleTask::OnBattleGameStep();
   bd::engine::HudFade::Get().Poll();
+  bd::engine::DiscordPresence::Get().Poll();
   __imp__bdMainGameStep(ctx, base);
 }

@@ -21,6 +21,7 @@ REXCVAR_DECLARE(bool, bd_perf_csv);
 REXCVAR_DECLARE(bool, bd_profiler);
 REXCVAR_DECLARE(i32, bd_shutdown_timeout_ms);
 REXCVAR_DECLARE(bool, bd_update_check);
+REXCVAR_DECLARE(bool, bd_discord_rpc);
 REXCVAR_DECLARE(std::string, bd_update_base);
 REXCVAR_DECLARE(std::string, bd_update_channel);
 REXCVAR_DECLARE(std::string, bd_saves_path);
@@ -67,6 +68,10 @@ REXCVAR_DEFINE_INT32(bd_shutdown_timeout_ms, 1500, kCvarGroup,
 REXCVAR_DEFINE_BOOL(bd_update_check, true, kCvarGroup,
                     "Ask the update endpoint at startup: offer a newer re:Blue "
                     "release, and fetch the content packs it points at.");
+
+REXCVAR_DEFINE_BOOL(bd_discord_rpc, true, kCvarGroup,
+                    "Share the current game activity with Discord Rich "
+                    "Presence when the Discord desktop client is running.");
 
 REXCVAR_DEFINE_STRING(bd_update_base, REBLUE_UPDATE_BASE, kCvarGroup,
                       "Update endpoint the startup check asks, without a "
@@ -142,6 +147,9 @@ void Settings::AdoptShutdownTimeoutMs() {
 void Settings::AdoptUpdateCheck() {
   updateCheck_ = REXCVAR_GET(bd_update_check);
 }
+void Settings::AdoptDiscordRpc() {
+  discordRpc_ = REXCVAR_GET(bd_discord_rpc);
+}
 void Settings::AdoptUpdateBase() {
   updateBase_ = REXCVAR_GET(bd_update_base);
   ComposeUpdateUrl();
@@ -209,6 +217,10 @@ bool Settings::SetUpdateCheck(bool v) {
   return rex::cvar::SetFlagByName("bd_update_check", FormatCvar(v));
 }
 
+bool Settings::SetDiscordRpc(bool v) {
+  return rex::cvar::SetFlagByName("bd_discord_rpc", FormatCvar(v));
+}
+
 bool Settings::SetUpdateChannel(bd::UpdateChannel v) {
   return rex::cvar::SetFlagByName("bd_update_channel", ToString(v));
 }
@@ -225,6 +237,7 @@ void Settings::AdoptCvars() {
   AdoptProfiler();
   AdoptShutdownTimeoutMs();
   AdoptUpdateCheck();
+  AdoptDiscordRpc();
   AdoptUpdateBase();
   AdoptUpdateChannel();
   AdoptSavesPath();
@@ -251,6 +264,7 @@ void Settings::Init() {
   reg("bd_profiler", &Settings::AdoptProfiler);
   reg("bd_shutdown_timeout_ms", &Settings::AdoptShutdownTimeoutMs);
   reg("bd_update_check", &Settings::AdoptUpdateCheck);
+  reg("bd_discord_rpc", &Settings::AdoptDiscordRpc);
   reg("bd_update_base", &Settings::AdoptUpdateBase);
   reg("bd_update_channel", &Settings::AdoptUpdateChannel);
   reg("bd_saves_path", &Settings::AdoptSavesPath);
