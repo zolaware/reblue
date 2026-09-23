@@ -24,7 +24,6 @@ REXCVAR_DECLARE(bool, bd_scene_color_r11g11b10);
 REXCVAR_DECLARE(i32, bd_anisotropy);
 REXCVAR_DECLARE(i32, bd_supersampling);
 REXCVAR_DECLARE(i32, bd_msaa);
-REXCVAR_DECLARE(i32, bd_render_scale);
 REXCVAR_DECLARE(i32, bd_post_quality);
 REXCVAR_DECLARE(i32, bd_reflection_quality);
 REXCVAR_DECLARE(bool, bd_ntsc_filter);
@@ -81,14 +80,6 @@ REXCVAR_DEFINE_INT32(bd_msaa, bd::gpu::kDefaultSettings.msaa, kCvarGroup,
       return r.ec == std::errc() && (n == 0 || n == 2 || n == 4 || n == 8);
     });
 
-REXCVAR_DEFINE_INT32(bd_render_scale, bd::gpu::kDefaultSettings.renderScale,
-                     kCvarGroup,
-                     "Percent of the output resolution the 3D scene renders "
-                     "at, upscaled at present. 100 renders at the output "
-                     "resolution, and the design canvas of 1280x720 is the "
-                     "floor whatever the percent works out to.")
-    .range(50, 100);
-
 REXCVAR_DEFINE_INT32(bd_post_quality,
                      static_cast<i32>(bd::gpu::kDefaultSettings.postQuality),
                      kCvarGroup,
@@ -103,7 +94,7 @@ REXCVAR_DEFINE_INT32(
     static_cast<i32>(bd::gpu::kDefaultSettings.reflectionQuality), kCvarGroup,
     "How far a planar reflection grows past the size BD authored: 0 = not at "
     "all, 1 = with the render resolution, 2 = with supersampling too.")
-    .range(static_cast<i32>(bd::gpu::ReflectionQuality::Off),
+    .range(static_cast<i32>(bd::gpu::ReflectionQuality::Low),
            static_cast<i32>(bd::gpu::ReflectionQuality::High));
 
 REXCVAR_DEFINE_BOOL(bd_ntsc_filter, false, kCvarGroup,
@@ -221,9 +212,6 @@ void Settings::AdoptMSAA() {
   if (msaa_ != was && msaa_ != 0)
     ReemitPredictions();
 }
-void Settings::AdoptRenderScale() {
-  renderScale_ = REXCVAR_GET(bd_render_scale);
-}
 void Settings::AdoptPostQuality() {
   postQuality_ = REXCVAR_GET(bd_post_quality);
 }
@@ -285,10 +273,6 @@ bool Settings::SetMSAA(i32 v) {
   return rex::cvar::SetFlagByName("bd_msaa", FormatCvar(v));
 }
 
-bool Settings::SetRenderScale(i32 v) {
-  return rex::cvar::SetFlagByName("bd_render_scale", FormatCvar(v));
-}
-
 bool Settings::SetPostQuality(i32 v) {
   return rex::cvar::SetFlagByName("bd_post_quality", FormatCvar(v));
 }
@@ -304,7 +288,6 @@ gpu::QualityPreset Settings::QualityPreset() const {
         anisotropy_ == p.anisotropy &&
         std::abs(shadowDistance_ - p.shadowDistance) < kShadowDistanceEpsilon &&
         shadowDimension_ == p.shadowDimension &&
-        renderScale_ == p.renderScale &&
         postQuality_ == static_cast<i32>(p.postQuality) &&
         reflectionQuality_ == static_cast<i32>(p.reflectionQuality)) {
       return static_cast<gpu::QualityPreset>(i);
@@ -325,7 +308,6 @@ bool Settings::SetQualityPreset(gpu::QualityPreset preset) {
   ok = rex::cvar::SetFlagByName("bd_shadow_dimension",
                                 FormatCvar(p.shadowDimension)) &&
        ok;
-  ok = SetRenderScale(p.renderScale) && ok;
   ok = SetPostQuality(static_cast<i32>(p.postQuality)) && ok;
   ok = SetReflectionQuality(static_cast<i32>(p.reflectionQuality)) && ok;
   BD_DEBUG("[config] quality preset = {}", ToString(preset));
@@ -347,7 +329,6 @@ void Settings::AdoptCvars() {
   AdoptSceneColorR11G11B10();
   AdoptSuperSampling();
   AdoptMSAA();
-  AdoptRenderScale();
   AdoptPostQuality();
   AdoptReflectionQuality();
 }
@@ -375,7 +356,6 @@ void Settings::Init() {
   reg("bd_scene_color_r11g11b10", &Settings::AdoptSceneColorR11G11B10);
   reg("bd_supersampling", &Settings::AdoptSuperSampling);
   reg("bd_msaa", &Settings::AdoptMSAA);
-  reg("bd_render_scale", &Settings::AdoptRenderScale);
   reg("bd_post_quality", &Settings::AdoptPostQuality);
   reg("bd_reflection_quality", &Settings::AdoptReflectionQuality);
 

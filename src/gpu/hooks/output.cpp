@@ -241,8 +241,8 @@ void bdSubViewRenderScaleHook(PPCRegister &r31) {
   u32 fit_h = 0;
   if (!Output::RenderSize(fit_w, fit_h))
     return;
-  const f64 full = std::min(kDesignCanvasWidth * Output::RenderDensity(),
-                            fit_w * Output::RenderFraction());
+  const f64 full = std::min<f64>(kDesignCanvasWidth * Output::RenderDensity(),
+                                 fit_w);
   const f32 width = bd::mem::load<float>(r31.u32 + kCloseUpViewWidthOff);
   if (width + kViewFitSlack >= full)
     return;

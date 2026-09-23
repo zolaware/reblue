@@ -88,7 +88,11 @@ void RebuildSwapChain(VideoState &s) {
       !BuildPresentSemaphores(s)) {
     if (s.swap_chain->getWidth() && s.swap_chain->getHeight())
       BD_ERROR("Swap chain resize failed");
+    return;
   }
+  if (static_cast<AspectMode>(Settings::Get().AspectRatio()) ==
+      AspectMode::Auto)
+    Output::Recompute();
 }
 
 GuestTexture *SelectPresentSource(VideoState &s, GuestTexture *frontBuffer) {

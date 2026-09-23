@@ -143,6 +143,11 @@ void ConfigMenu::UpdateAchvRowDesc(int cursor) {
                  : std::string());
 }
 
+void ConfigMenu::UpdateSettingsRowDesc(int slot) {
+  SetRowDesc(SettingsDescription(settings_page_,
+                                 SettingsSlotToRow(settings_page_, slot)));
+}
+
 void ConfigMenu::UpdateFooter() {
   switch (state_) {
   case State::SECTION:

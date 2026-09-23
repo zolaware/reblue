@@ -881,7 +881,10 @@ void ConfigMenu::Update(PPCContext &ctx, u8 *base) {
     break;
   case State::SETTINGS:
     RefreshSettingsVisuals();
-    cursor_.Poll(CurrentSettingsList(), [&](int) { UpdateFooter(); });
+    cursor_.Poll(CurrentSettingsList(), [&](int slot) {
+      UpdateSettingsRowDesc(slot);
+      UpdateFooter();
+    });
     break;
   case State::KEYBINDS:
   case State::KEYBIND_CAPTURE:

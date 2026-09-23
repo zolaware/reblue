@@ -147,6 +147,7 @@ private:
   void UpdateFooter();
   void SetRowDesc(const std::string &text);
   void UpdateAchvRowDesc(int cursor);
+  void UpdateSettingsRowDesc(int slot);
   void PopulateNames();
   void RefreshModVisuals();
   void RefreshDLCVisuals();

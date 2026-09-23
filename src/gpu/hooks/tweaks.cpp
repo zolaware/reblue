@@ -127,15 +127,13 @@ void bdReflectionResolutionScaleHook(PPCRegister &r31) {
       bd::gpu::Settings::Get().ReflectionQuality();
   u32 fit_w = 0;
   u32 fit_h = 0;
-  if (quality != bd::gpu::ReflectionQuality::Off &&
+  if (quality != bd::gpu::ReflectionQuality::Low &&
       bd::gpu::Output::RenderSize(fit_w, fit_h)) {
     const f64 rate = quality == bd::gpu::ReflectionQuality::High
                          ? bd::gpu::SceneRenderScale()
                          : 1.0;
     const f64 density = bd::gpu::Output::RenderDensity();
-    const u32 scene_w =
-        static_cast<u32>(fit_w * bd::gpu::Output::RenderFraction() * rate) &
-        ~31u;
+    const u32 scene_w = static_cast<u32>(fit_w * rate) & ~31u;
     const u32 scaled = std::min(
         static_cast<u32>(stock * density * rate + 0.5) & ~31u, scene_w);
     if (scaled > stock)

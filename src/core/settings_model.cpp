@@ -662,6 +662,12 @@ const char *SettingsLabel(SettingsPage page, int index) {
   return Localized(At(page, index).label);
 }
 
+const char *SettingsDescription(SettingsPage page, int index) {
+  if (!InRange(page, index))
+    return "";
+  return Localized(At(page, index).desc);
+}
+
 void SettingsDisableRestartRows(bool disable) { s_disableRestart = disable; }
 
 bool SettingsSaveScoped(SettingsPage page, int index) {

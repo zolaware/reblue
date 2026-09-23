@@ -53,10 +53,10 @@ struct SettingBinding {
   const char *cvar2 = nullptr; // paired SDK cvar (window_width + window_height)
 };
 
-// label and group are catalog keys, not text.
 struct SettingRow {
   const char *label;
   const char *group = nullptr;
+  const char *desc = nullptr;
   SettingBinding binding;
   SettingKind kind = SettingKind::Buttons;
   const SettingOption *options = nullptr; // kind == Buttons

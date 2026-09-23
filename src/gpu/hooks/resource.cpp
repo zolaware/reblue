@@ -53,8 +53,7 @@ bool IsFullFrameScene(u32 width, u32 height) {
   u32 fit_h = 0;
   if (!bd::gpu::Output::RenderSize(fit_w, fit_h))
     return true;
-  const double scale =
-      bd::gpu::Output::RenderFraction() * bd::gpu::SceneRenderScale();
+  const double scale = bd::gpu::SceneRenderScale();
   return width + kTargetAlignment >= fit_w * scale &&
          height + kTargetAlignment >= fit_h * scale;
 }

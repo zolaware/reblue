@@ -100,17 +100,7 @@ double Output::RenderDensity() {
   u32 h = 0;
   if (!RenderSize(w, h))
     return 1.0;
-  const double density =
-      h * (Settings::Get().RenderScale() / 100.0) / kDesignCanvasHeight;
-  return std::max(1.0, density);
-}
-
-double Output::RenderFraction() {
-  u32 w = 0;
-  u32 h = 0;
-  if (!RenderSize(w, h) || !h)
-    return 1.0;
-  return std::min(1.0, RenderDensity() * kDesignCanvasHeight / h);
+  return std::max(1.0, h / static_cast<double>(kDesignCanvasHeight));
 }
 
 double Output::ConfiguredAspect() {

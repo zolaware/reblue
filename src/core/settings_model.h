@@ -50,6 +50,7 @@ const char *SettingsPageLabel(SettingsPage page);
 // filtering by the caller.
 size_t SettingsCount(SettingsPage page);
 const char *SettingsLabel(SettingsPage page, int index);
+const char *SettingsDescription(SettingsPage page, int index);
 
 // The visible index of the row carrying this label key, or -1 when the page
 // does not have it or the locale dropped it. Lets a surface outside the config

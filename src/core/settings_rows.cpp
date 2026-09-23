@@ -234,10 +234,6 @@ constexpr i32 kAnisotropyOn = 16;
 constexpr SettingOption kAniso[] = {
     {.text = "Off", .num = 0, .key = "opt.off"},
     {.text = "On", .num = kAnisotropyOn, .key = "opt.on"}};
-constexpr SettingOption kRenderScale[] = {
-    {.text = "50%", .num = 50},  {.text = "60%", .num = 60},
-    {.text = "75%", .num = 75},  {.text = "85%", .num = 85},
-    {.text = "100%", .num = 100}};
 constexpr SettingOption kPostQuality[] = {
     {.text = "Low",
      .num = static_cast<double>(static_cast<i32>(gpu::PostQuality::Low)),
@@ -249,12 +245,13 @@ constexpr SettingOption kPostQuality[] = {
      .num = static_cast<double>(static_cast<i32>(gpu::PostQuality::High)),
      .key = gpu::ToString(gpu::PostQuality::High)}};
 constexpr SettingOption kReflectionQuality[] = {
-    {.text = "Off",
-     .num = static_cast<double>(static_cast<i32>(gpu::ReflectionQuality::Off)),
-     .key = gpu::ToString(gpu::ReflectionQuality::Off)},
     {.text = "Low",
      .num = static_cast<double>(static_cast<i32>(gpu::ReflectionQuality::Low)),
      .key = gpu::ToString(gpu::ReflectionQuality::Low)},
+    {.text = "Medium",
+     .num =
+         static_cast<double>(static_cast<i32>(gpu::ReflectionQuality::Medium)),
+     .key = gpu::ToString(gpu::ReflectionQuality::Medium)},
     {.text = "High",
      .num = static_cast<double>(static_cast<i32>(gpu::ReflectionQuality::High)),
      .key = gpu::ToString(gpu::ReflectionQuality::High)}};
@@ -602,6 +599,7 @@ constexpr SettingRow kDisplaySettings[] = {
 constexpr SettingRow kGraphicsSettings[] = {
     {.label = "settings.graphics.quality_preset.label",
      .group = "menu.header.preset",
+     .desc = "settings.graphics.quality_preset.desc",
      .binding = {.get =
                      [] {
                        return static_cast<double>(static_cast<u32>(
@@ -623,6 +621,7 @@ constexpr SettingRow kGraphicsSettings[] = {
          }},
     {.label = "settings.graphics.msaa.label",
      .group = "menu.header.anti_aliasing",
+     .desc = "settings.graphics.msaa.desc",
      .binding = {.get =
                      [] {
                        return static_cast<double>(gpu::Settings::Get().MSAA());
@@ -636,6 +635,7 @@ constexpr SettingRow kGraphicsSettings[] = {
      .count = OptCount(kMSAA)},
     {.label = "settings.graphics.supersampling.label",
      .group = "menu.header.anti_aliasing",
+     .desc = "settings.graphics.supersampling.desc",
      .binding = {.get =
                      [] {
                        return static_cast<double>(
@@ -648,23 +648,9 @@ constexpr SettingRow kGraphicsSettings[] = {
                      }},
      .options = kSuperSampling,
      .count = OptCount(kSuperSampling)},
-    {.label = "settings.graphics.render_scale.label",
-     .group = "menu.header.detail",
-     .binding = {.get =
-                     [] {
-                       return static_cast<double>(
-                           gpu::Settings::Get().RenderScale());
-                     },
-                 .set =
-                     [](double v) {
-                       return gpu::Settings::Get().SetRenderScale(
-                           static_cast<i32>(v));
-                     }},
-     .options = kRenderScale,
-     .count = OptCount(kRenderScale),
-     .sliderUi = true},
     {.label = "settings.graphics.anisotropic.label",
      .group = "menu.header.detail",
+     .desc = "settings.graphics.anisotropic.desc",
      .binding = {.get =
                      [] {
                        return gpu::Settings::Get().Anisotropy() > 0
@@ -680,6 +666,7 @@ constexpr SettingRow kGraphicsSettings[] = {
      .count = OptCount(kAniso)},
     {.label = "settings.graphics.shadow_quality.label",
      .group = "menu.header.detail",
+     .desc = "settings.graphics.shadow_quality.desc",
      .binding = {.get = [] { return gpu::Settings::Get().ShadowDistance(); },
                  .setPair =
                      [](double distance, double dimension) {
@@ -691,6 +678,7 @@ constexpr SettingRow kGraphicsSettings[] = {
      .sliderUi = true},
     {.label = "settings.graphics.reflections.label",
      .group = "menu.header.detail",
+     .desc = "settings.graphics.reflections.desc",
      .binding = {.get =
                      [] {
                        return static_cast<double>(static_cast<i32>(
@@ -706,6 +694,7 @@ constexpr SettingRow kGraphicsSettings[] = {
      .sliderUi = true},
     {.label = "settings.graphics.post_processing.label",
      .group = "menu.header.detail",
+     .desc = "settings.graphics.post_processing.desc",
      .binding = {.get =
                      [] {
                        return static_cast<double>(static_cast<i32>(
@@ -723,6 +712,7 @@ constexpr SettingRow kGraphicsSettings[] = {
     // rather than as the multiplier the setting stores.
     {.label = "settings.graphics.depth_of_field.label",
      .group = "menu.header.detail",
+     .desc = "settings.graphics.depth_of_field.desc",
      .binding = {.get =
                      [] { return gpu::Settings::Get().DOFStrength() * 100.0; },
                  .set =
