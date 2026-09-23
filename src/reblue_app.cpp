@@ -15,7 +15,6 @@
 #include <string_view>
 
 #include <SDL3/SDL_video.h>
-#include <implot.h>
 
 #include <rex/cvar.h>
 #include <rex/dbg.h>
@@ -34,7 +33,6 @@
 #include "core/app_root.h"
 #include "core/build_info.h"
 #include "core/logging.h"
-#include "core/perf.h"
 #include "core/profiling.h"
 #include "core/settings.h"
 #include "core/settings_migration.h"
@@ -344,29 +342,10 @@ void ReblueApp::OnCreateDialogs(rex::ui::ImGuiDrawer *drawer) {
     });
   });
 
-  ImPlot::CreateContext();
-  // Sized for the 120 fps cap. An uncapped run covers proportionally less time.
-  bd::PerfConfigure(u32(bd::Settings::Get().PerfHistorySeconds()) * 120u);
-  // Installing the applier applies the stage Settings already holds, so the
-  // startup path needs no separate call. Nothing clears it, which is safe only
-  // because every exit path ends in RequestShutdown and the drawer is never
-  // reset. Ordered shutdown would have to drop the applier first.
-  bd::ui::Settings::Get().SetOverlayApplier([this, drawer](i32 stage) {
-    SetPerfOverlayStage(static_cast<bd::ui::OverlayStage>(stage), drawer);
-  });
-
   fade_overlay_ = std::make_unique<bd::ui::FadeOverlay>(drawer);
 
   rex::ui::UnregisterBind("bind_debug_overlay");
-  if (bd::Settings::Get().Devmode()) {
-    rex::ui::RegisterBind(
-        "bind_reblue_menu", "F3", "Cycle reblue perf overlay", [] {
-          const auto stage =
-              bd::ui::NextOverlayStage(static_cast<bd::ui::OverlayStage>(
-                  bd::ui::Settings::Get().PerfOverlay()));
-          bd::ui::Settings::Get().SetPerfOverlay(static_cast<i32>(stage));
-        });
-  } else {
+  if (!bd::Settings::Get().Devmode()) {
     rex::ui::UnregisterBind("bind_settings");
     rex::ui::UnregisterBind("bind_achievements");
   }
@@ -992,20 +971,6 @@ void ReblueApp::OnWindowPixelSizeChanged(u32 pixel_width, u32 pixel_height) {
   (void)pixel_width;
   (void)pixel_height;
   bd::gpu::Video::RequestResize();
-}
-
-void ReblueApp::SetPerfOverlayStage(bd::ui::OverlayStage stage,
-                                    rex::ui::ImGuiDrawer *drawer) {
-  if (stage == bd::ui::OverlayStage::Off) {
-    perf_overlay_.reset();
-    watermark_.reset();
-    return;
-  }
-  if (!perf_overlay_)
-    perf_overlay_ = std::make_unique<bd::ui::PerfOverlay>(drawer);
-  if (!watermark_)
-    watermark_ = std::make_unique<bd::ui::WatermarkOverlay>(drawer);
-  perf_overlay_->SetStage(stage);
 }
 
 bool ReblueApp::OnWindowCloseRequested() {

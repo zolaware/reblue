@@ -30,8 +30,6 @@
 #include "gpu/d3d.h"
 #include "gpu/device.h"
 #include "gpu/format.h"
-#include "gpu/frame_stats.h"
-#include "gpu/gpu_timing.h"
 #include "gpu/host_resource_heap.h"
 #include "gpu/output.h"
 #include "gpu/shaders/shader_cache.h"
@@ -98,7 +96,6 @@ void DispatchDraw(u32 device_guest, u32 primitive_type, const char *name,
   // GPU number in the capture. Coarse GPU cost comes from the per-frame zones.
   BD_CPU_ZONE_DYN(zone_name);
 #endif
-  bd::gpu::NoteDraw();
   // One lock across the whole recording sequence: loader threads record texture
   // uploads and Present records under the same mutex, and the per-frame command
   // list they all write is single-producer.
@@ -121,7 +118,6 @@ void DispatchDraw(u32 device_guest, u32 primitive_type, const char *name,
   auto *cmd_list = s.command_list;
   if (!cmd_list)
     return;
-  bd::gpu::MarkDraw(cmd_list);
 
   if (primitive_type == 13) {
     u32 quads = args.vertexOrIndexCount / 4;

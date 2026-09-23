@@ -62,12 +62,6 @@ public:
 
   const std::string &LanguagePath() const { return languagePath_; }
 
-  i32 PerfHistorySeconds() const { return perfHistorySeconds_; }
-  bool SetPerfHistorySeconds(i32 v);
-
-  bool PerfCSV() const { return perfCSV_; }
-  bool SetPerfCSV(bool v);
-
   // Read at startup only, and compiled out of playtest builds.
   bool Profiler() const { return profiler_; }
 
@@ -102,8 +96,6 @@ private:
   void AdoptLanguage();
   void AdoptI18nKeys();
   void AdoptLanguagePath();
-  void AdoptPerfHistorySeconds();
-  void AdoptPerfCSV();
   void AdoptProfiler();
   void AdoptShutdownTimeoutMs();
   void AdoptUpdateCheck();
@@ -119,8 +111,6 @@ private:
   std::string language_ = "auto";
   bool i18nKeys_ = false;
   std::string languagePath_ = "lang";
-  i32 perfHistorySeconds_ = 20;
-  bool perfCSV_ = false;
   bool profiler_ = false;
   i32 shutdownTimeoutMs_ = 1500;
   bool updateCheck_ = true;

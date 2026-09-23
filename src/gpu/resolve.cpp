@@ -24,8 +24,6 @@
 #include "core/logging.h"
 #include "gpu/backend.h"
 #include "gpu/format.h"
-#include "gpu/frame_stats.h"
-#include "gpu/gpu_timing.h"
 
 namespace bd::gpu {
 
@@ -103,8 +101,6 @@ bool CopySurfaceToTextureLocked(VideoState &s, GuestTexture *src,
     };
     s.command_list->barriers(plume::RenderBarrierStage::COPY, pre,
                              std::size(pre));
-    NoteBarrierCall(2, BarrierSite::Resolve);
-    MarkResolve(s.command_list);
     src->layout = plume::RenderTextureLayout::COPY_SOURCE;
     dst->layout = plume::RenderTextureLayout::COPY_DEST;
     if (dst_is_cube) {
@@ -197,15 +193,12 @@ bool CopySurfaceToTextureLocked(VideoState &s, GuestTexture *src,
     };
     s.command_list->barriers(plume::RenderBarrierStage::GRAPHICS, pre,
                              std::size(pre));
-    NoteBarrierCall(2, BarrierSite::Resolve);
-    MarkResolve(s.command_list);
     src->layout = plume::RenderTextureLayout::SHADER_READ;
     dst->layout = dst_write_layout;
     if (discard_dst)
       s.command_list->discardTexture(dst->texture);
 
     s.command_list->setFramebuffer(dst_fb);
-    NoteFbBind();
     s.command_list->setViewports(
         plume::RenderViewport(0.0f, 0.0f, static_cast<float>(dst->width),
                               static_cast<float>(dst->height)));
@@ -229,7 +222,6 @@ bool CopySurfaceToTextureLocked(VideoState &s, GuestTexture *src,
       return false;
     }
     s.command_list->setPipeline(pipeline);
-    NotePSOSwitch();
     const u32 descriptor_index = src->descriptorIndex;
 
     u32 box_ratio = 0u;
@@ -262,8 +254,6 @@ bool CopySurfaceToTextureLocked(VideoState &s, GuestTexture *src,
   plume::RenderTextureBarrier post(dst->texture,
                                    plume::RenderTextureLayout::SHADER_READ);
   s.command_list->barriers(plume::RenderBarrierStage::GRAPHICS, &post, 1);
-  NoteBarrierCall(1, BarrierSite::Resolve);
-  MarkResolve(s.command_list);
   dst->layout = plume::RenderTextureLayout::SHADER_READ;
   return true;
 }
@@ -289,11 +279,8 @@ bool ClearColorTargetLocked(VideoState &s, GuestTexture *dst,
   plume::RenderTextureBarrier pre(dst->texture,
                                   plume::RenderTextureLayout::COLOR_WRITE);
   s.command_list->barriers(plume::RenderBarrierStage::GRAPHICS, &pre, 1);
-  NoteBarrierCall(1, BarrierSite::Resolve);
-  MarkResolve(s.command_list);
   dst->layout = plume::RenderTextureLayout::COLOR_WRITE;
   s.command_list->setFramebuffer(dst_fb);
-  NoteFbBind();
   s.command_list->setViewports(
       plume::RenderViewport(0.0f, 0.0f, static_cast<float>(dst->width),
                             static_cast<float>(dst->height)));
@@ -306,8 +293,6 @@ bool ClearColorTargetLocked(VideoState &s, GuestTexture *dst,
   plume::RenderTextureBarrier post(dst->texture,
                                    plume::RenderTextureLayout::SHADER_READ);
   s.command_list->barriers(plume::RenderBarrierStage::GRAPHICS, &post, 1);
-  NoteBarrierCall(1, BarrierSite::Resolve);
-  MarkResolve(s.command_list);
   dst->layout = plume::RenderTextureLayout::SHADER_READ;
   return true;
 }
@@ -345,7 +330,6 @@ bool MaterializeOutboundLocked(VideoState &s, GuestTexture *source,
     if (aliasable_only && !one_to_one)
       continue;
     if (CopySurfaceToTextureLocked(s, source, dst, "Materialize")) {
-      NoteResolveOp(ResolveOp::Materialize);
       recorded = true;
       DetachSourceSurfaceLocked(s, dst);
     }
@@ -357,7 +341,6 @@ void MaterializeInboundLocked(VideoState &s, GuestTexture *dst) {
   if (!dst || !dst->sourceSurface || dst->sourceSurface == dst)
     return;
   if (CopySurfaceToTextureLocked(s, dst->sourceSurface, dst, "Materialize")) {
-    NoteResolveOp(ResolveOp::Materialize);
     DetachSourceSurfaceLocked(s, dst);
   }
 }
@@ -394,8 +377,6 @@ void Video::TrackResolveSource(u32 flags, GuestTexture *dst, u32 level,
     DetachSourceSurfaceLocked(s, dst);
     return;
   }
-  if (dst->sourceSurface && dst->sourceSurface != dst)
-    NoteResolveOp(ResolveOp::DeadElide);
   if (dst->sourceSurface && dst->sourceSurface != src)
     dst->sourceSurface->destinationTextures.erase(dst);
   dst->sourceSurface = src;
@@ -426,7 +407,6 @@ void Video::ResolveRtToTexture(GuestTexture *dst) {
     return;
 
   if (CanAliasResolveLocked(src, dst)) {
-    NoteResolveOp(ResolveOp::LazyLink);
     s.last_resolved_dst = dst;
     NoteTileContentLocked(s, dst);
     s.draw_framebuffer_bound = false;
@@ -434,7 +414,6 @@ void Video::ResolveRtToTexture(GuestTexture *dst) {
   }
 
   if (CopySurfaceToTextureLocked(s, src, dst, "Resolve")) {
-    NoteResolveOp(ResolveOp::EagerCopy);
     s.last_resolved_dst = dst;
     NoteTileContentLocked(s, dst);
     DetachSourceSurfaceLocked(s, dst);

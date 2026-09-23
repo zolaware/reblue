@@ -24,8 +24,6 @@
 #include "engine/engine.h"
 #include "gpu/backend.h"
 #include "gpu/constant_buffers.h"
-#include "gpu/frame_stats.h"
-#include "gpu/gpu_timing.h"
 #include "gpu/output.h"
 #include "gpu/settings.h"
 
@@ -246,16 +244,9 @@ void Video::Present(GuestTexture *frontBuffer) {
     return;
   }
 
-  using Clock = std::chrono::steady_clock;
-  const auto ms_since = [](Clock::time_point t0) {
-    return std::chrono::duration<double, std::milli>(Clock::now() - t0).count();
-  };
-  PresentBreakdown pb;
-
   u32 texture_index = 0;
   {
     BD_CPU_ZONE("AcquireTexture");
-    const auto t0 = Clock::now();
     if (!s.swap_chain->acquireTexture(
             s.acquire_semaphores[s.frame.load(std::memory_order_relaxed)].get(),
             &texture_index)) {
@@ -270,7 +261,6 @@ void Video::Present(GuestTexture *frontBuffer) {
         return;
       }
     }
-    pb.acquire_ms = ms_since(t0);
   }
 
   plume::RenderTexture *back = s.swap_chain->getTexture(texture_index);
@@ -295,7 +285,6 @@ void Video::Present(GuestTexture *frontBuffer) {
   RecordPresentPass(s, rt, back, back_fb);
 
   const u32 cur = s.frame.load(std::memory_order_relaxed);
-  FrameEnd(s.command_list);
   s.command_lists[cur]->end();
   s.command_list_open = false;
 
@@ -305,48 +294,35 @@ void Video::Present(GuestTexture *frontBuffer) {
       s.render_semaphores[texture_index].get()};
   {
     BD_CPU_ZONE("Submit");
-    const auto t0 = Clock::now();
     s.queue->executeCommandLists(lists, 1, waits, 1, signals, 1,
                                  s.fences[cur].get());
-    pb.submit_ms = ms_since(t0);
   }
   s.command_list_submitted[cur] = true;
   ApplyVsync(s);
   {
     BD_CPU_ZONE("PresentSwap");
-    const auto t0 = Clock::now();
     if (!s.swap_chain->present(texture_index, signals, 1)) {
       if (!CheckDeviceRemoved("swapchain present"))
         s.resize_requested.store(true, std::memory_order_release);
     }
-    pb.present_ms = ms_since(t0);
   }
-  const auto wait_t0 = Clock::now();
   {
     BD_CPU_ZONE("WaitFence");
     AdvanceAndWaitReused(s);
   }
-  pb.fence_ms = ms_since(wait_t0);
-  RecordGPUWait(pb.fence_ms);
   const u32 reclaimed = s.frame.load(std::memory_order_relaxed);
   s.frame_present_committed = true;
   BD_FRAME_MARK();
-  UpdateFrameStats();
   Video::SyncBackBufferSizeLocked();
   lock.unlock();
   {
     BD_CPU_ZONE("DrainSlot");
-    const auto t0 = Clock::now();
     DrainSlot(s, reclaimed);
-    pb.drain_ms = ms_since(t0);
   }
   {
     BD_CPU_ZONE("PaceFrame");
-    const auto t0 = Clock::now();
     PaceFrame();
-    pb.pace_ms = ms_since(t0);
   }
-  RecordFrameSample(pb);
 }
 
 void Video::SkipPresent() {
@@ -421,7 +397,6 @@ void Video::PresentOverlayFrame() {
       plume::RenderBarrierStage::GRAPHICS,
       plume::RenderTextureBarrier(back, plume::RenderTextureLayout::PRESENT));
 
-  FrameEnd(s.command_list);
   s.command_lists[cur]->end();
   s.command_list_open = false;
   const plume::RenderCommandList *lists[] = {s.command_lists[cur].get()};
@@ -439,7 +414,6 @@ void Video::PresentOverlayFrame() {
   const u32 reclaimed = s.frame.load(std::memory_order_relaxed);
   lock.unlock();
   DrainSlot(s, reclaimed);
-  RecordBlankFrameSample();
 }
 
 } // namespace bd::gpu

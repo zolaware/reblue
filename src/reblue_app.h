@@ -97,9 +97,6 @@ private:
   void StopPreGuestPump();
   void InstallOverlayDrawHook();
 
-  void SetPerfOverlayStage(bd::ui::OverlayStage stage,
-                           rex::ui::ImGuiDrawer *drawer);
-
   // Raises the update prompt the first time Updates::Newer() has an answer.
   // Polled from the per-frame overlay marshal rather than a new pump.
   void MaybeShowUpdatePrompt();
@@ -116,8 +113,6 @@ private:
 #ifdef REBLUE_BUILD_INSTALLER
   std::unique_ptr<bd::installer::InstallerWizard> installer_wizard_;
 #endif
-  std::unique_ptr<bd::ui::PerfOverlay> perf_overlay_;
-  std::unique_ptr<bd::ui::WatermarkOverlay> watermark_;
   std::unique_ptr<bd::ui::FadeOverlay> fade_overlay_;
 
   // The check the prompt last answered, so a re-run offers its build instead

@@ -62,8 +62,6 @@ constexpr ActionDesc kDescs[kActionCount] = {
      ActionContext::Field, ActionKind::Mapped, -1, 7, AxisPair::None,
      "L,PadRS"},
 
-    {"overlay", "settings.action.overlay", ActionContext::System,
-     ActionKind::Dispatched, -1, -1, AxisPair::None, ""},
     {"mindows", "settings.action.mindows", ActionContext::System,
      ActionKind::Dispatched, -1, -1, AxisPair::None, ""},
 };

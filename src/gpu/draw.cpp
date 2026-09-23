@@ -21,7 +21,6 @@
 #include "gpu/backend.h"
 #include "gpu/constant_buffers.h"
 #include "gpu/format.h"
-#include "gpu/frame_stats.h"
 #include "gpu/pipeline/pipeline_cache.h"
 #include "gpu/pipeline/pso_recorder.h"
 
@@ -238,7 +237,6 @@ bool Video::FlushRenderStateLocked(u32 device_guest) {
     // REBLUE_PSO_CAP builds also capture it for the residual/template tooling.
     RecordPipelineState(lookup, CurrentRenderPassId(), built);
     s.command_list->setPipeline(pso);
-    NotePSOSwitch();
     s.current_pso = pso;
   } else if (!s.current_pso) {
     // Clean dirty bits but no PSO bound: the first draw after a command list

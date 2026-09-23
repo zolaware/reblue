@@ -18,8 +18,6 @@
 #include "gpu/gpu_profiling.h"
 
 #include "core/logging.h"
-#include "gpu/frame_stats.h"
-#include "gpu/gpu_timing.h"
 
 namespace bd::gpu {
 
@@ -95,8 +93,6 @@ void TransitionResolveSources(VideoState &s, const GuestTexture *rt,
     return;
   s.command_list->barriers(plume::RenderBarrierStage::GRAPHICS, sampled,
                            sampled_count);
-  NoteBarrierCall(sampled_count, BarrierSite::DrawFb);
-  MarkInter(s.command_list);
 }
 
 void TransitionTargetsToWrite(VideoState &s, GuestTexture *rt, GuestTexture *ds,
@@ -121,8 +117,6 @@ void TransitionTargetsToWrite(VideoState &s, GuestTexture *rt, GuestTexture *ds,
     return;
   s.command_list->barriers(plume::RenderBarrierStage::GRAPHICS, barriers,
                            barrier_count);
-  NoteBarrierCall(barrier_count, BarrierSite::DrawFb);
-  MarkInter(s.command_list);
 }
 
 void SeedFreshColorTarget(VideoState &s, GuestTexture *rt, bool full_screen) {
@@ -149,13 +143,10 @@ void SeedFreshColorTarget(VideoState &s, GuestTexture *rt, bool full_screen) {
   }
   if (seed_src &&
       CopySurfaceToTextureLocked(s, seed_src, rt, "CompositeChainSeed")) {
-    NoteResolveOp(ResolveOp::Seed);
     if (rt->layout != plume::RenderTextureLayout::COLOR_WRITE) {
       plume::RenderTextureBarrier b(rt->texture,
                                     plume::RenderTextureLayout::COLOR_WRITE);
       s.command_list->barriers(plume::RenderBarrierStage::GRAPHICS, &b, 1);
-      NoteBarrierCall(1, BarrierSite::DrawFb);
-      MarkInter(s.command_list);
       rt->layout = plume::RenderTextureLayout::COLOR_WRITE;
     }
     return;
@@ -234,7 +225,6 @@ bool Video::BindDrawFramebufferLocked(bool color_clear_follows) {
   if (!fb)
     return false;
   s.command_list->setFramebuffer(fb);
-  NoteFbBind();
   s.dirtyStates.viewport = true;
   s.dirtyStates.scissorRect = true;
   Video::FlushViewport();

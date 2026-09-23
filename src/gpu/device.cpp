@@ -42,7 +42,6 @@
 #include "gpu/dred.h"
 #include "gpu/format.h"
 #include "gpu/frame.h"
-#include "gpu/gpu_timing.h"
 #include "gpu/host_heap.h"
 #include "gpu/host_resource_heap.h"
 #include "gpu/output.h"

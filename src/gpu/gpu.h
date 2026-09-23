@@ -7,7 +7,6 @@
 #pragma once
 
 #include "gpu/device.h"
-#include "gpu/frame_stats.h"
 #include "gpu/host_heap.h"
 #include "gpu/imgui_overlay_drawer.h"
 #include "gpu/native_texture_mirror.h"

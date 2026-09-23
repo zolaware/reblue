@@ -1,10 +1,8 @@
 #include "engine/input/dispatch.h"
 
 #include "core/settings.h"
-#include "core/ui_thread.h"
 #include "engine/game.h"
 #include "engine/input/action_state.h"
-#include "ui/ui.h"
 
 namespace bd::engine {
 
@@ -19,15 +17,6 @@ struct Entry {
 Entry g_entries[kActionCount] = {};
 
 bool DevmodeOn() { return bd::Settings::Get().Devmode(); }
-
-void CycleOverlay() {
-  bd::RunOnUIThread([] {
-    const auto stage =
-        bd::ui::NextOverlayStage(static_cast<bd::ui::OverlayStage>(
-            bd::ui::Settings::Get().PerfOverlay()));
-    bd::ui::Settings::Get().SetPerfOverlay(static_cast<i32>(stage));
-  });
-}
 
 void ToggleDebugOverlay() { Game::Get().ToggleMindows(); }
 
@@ -45,7 +34,6 @@ void RegisterDefault(Action action, ActionHandler handler,
 
 void PrepareDefaults() {
   static const bool once = [] {
-    RegisterDefault(Action::Overlay, CycleOverlay, DevmodeOn);
     RegisterDefault(Action::Mindows, ToggleDebugOverlay, DevmodeOn);
     return true;
   }();

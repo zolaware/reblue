@@ -898,7 +898,6 @@ nav_right.us = "Navigate Right"
 back.us = "Back"
 stick_press_left.us = "Stick Press Left"
 stick_press_right.us = "Stick Press Right"
-overlay.us = "Overlay"
 mindows.us = "Mindows"
 
 [settings.binds]

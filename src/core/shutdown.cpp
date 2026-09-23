@@ -13,7 +13,6 @@
 #include <thread>
 
 #include "core/logging.h"
-#include "core/perf.h"
 #include "core/settings.h"
 #include "core/threading.h"
 #include "gpu/gpu.h"
@@ -101,7 +100,6 @@ void StopGuestThreads() {
   ArmWatchdog(exit_code);
 
   Stage("quiesce-renderer", [] { gpu::Video::BeginShutdown(); });
-  Stage("perf-csv", [] { PerfCSVShutdown(); });
   Stage("disc-prefetch", [] { vfs::VFS::Get().Prefetch().Shutdown(); });
   Stage("stop-guest-threads", [] { StopGuestThreads(); });
   Stage("flush-caches", [] { gpu::FlushPSOCapture(); });
@@ -171,7 +169,6 @@ void QuiesceForExit() {
   // a dead-looking window with the replacement never spawned.
   ArmWatchdog(0);
   Stage("quiesce-renderer", [] { gpu::Video::BeginShutdown(); });
-  Stage("perf-csv", [] { PerfCSVShutdown(); });
   Stage("disc-prefetch", [] { vfs::VFS::Get().Prefetch().Shutdown(); });
   Stage("stop-guest-threads", [] { StopGuestThreads(); });
   Stage("gpu-drain", [] { gpu::Video::Shutdown(UiPump()); });
