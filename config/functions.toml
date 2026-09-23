@@ -189,6 +189,8 @@
 0x8212DA88 = { name = "AnimeMenu_SetItemWStringPtrVar", size = 0x6C }
 0x8212DEE0 = { name = "AnimeVar_helper_DEE0", size = 0x1EC }
 0x8212F260 = { name = "bdMoviePlayerInit", size = 0x364 }
+0x8212F808 = { name = "bdMoviePause", size = 0x6C }
+0x8212F878 = { name = "bdMovieResume", size = 0x6C }
 0x8212FC18 = { name = "bdMovieFrameUpdate", size = 0x144 }
 0x8212FD60 = { name = "bdMovieFrameConvert", size = 0x134 }
 0x82130020 = { name = "bdMovieYuvQuadDraw", size = 0x30C }

@@ -30,6 +30,7 @@
 
 #include "core/memory_helpers.h"
 #include "core/profiling.h"
+#include "engine/cutscene_pause.h"
 #include "engine/d2anime/anime_data.h"
 #include "engine/d2anime/anime_mouse.h"
 #include "engine/d2anime/d2anime_task.h"
@@ -818,7 +819,9 @@ bool bdLogicTickGateHook(PPCRegister &r28) {
 bool bdFrameClockGateHook() { return !bd::engine::TickDue(); }
 
 bool bdCharaBoneChainGateHook(PPCRegister &) {
-  return bd::engine::InterpolationActive() && !bd::engine::TickDue();
+  return !bd::engine::TickDue() &&
+         (bd::engine::InterpolationActive() ||
+          bd::engine::CutscenePause::Get().Frozen());
 }
 
 bool bdTickGateHook() { return !bd::engine::TickDue(); }
@@ -826,7 +829,8 @@ bool bdTickGateHook() { return !bd::engine::TickDue(); }
 namespace {
 
 double FrameStepRatio() {
-  return bd::engine::InterpolationActive()
+  return bd::engine::InterpolationActive() ||
+                 bd::engine::CutscenePause::Get().Frozen()
              ? bd::engine::FrameDelta() / kTickSeconds
              : 1.0;
 }
@@ -3232,8 +3236,11 @@ REX_HOOK_RAW(ScriptWindow__Draw) {
 
 REX_EXTERN(__imp__bdInputSystemUpdate);
 REX_HOOK_RAW(bdInputSystemUpdate) {
-  if (!bd::engine::TickDue())
+  if (!bd::engine::TickDue()) {
+    if (bd::engine::CutscenePause::Get().Frozen())
+      __imp__bdInputSystemUpdate(ctx, base);
     return;
+  }
   bd::engine::MenuMouse::Get().BeginFrame();
   bd::engine::UpdateMouseLook();
   bd::engine::MouseCursorTick();

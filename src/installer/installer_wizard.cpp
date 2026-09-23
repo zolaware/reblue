@@ -81,7 +81,7 @@ void InitInstallerFonts(ImFontAtlas *atlas) {
   cfg.OversampleV = 2;
 
   auto load = [&](float px) {
-    constexpr auto kFont = bd::Embedded("installer/HelveticaNeueRoman.otf");
+    constexpr auto kFont = bd::Embedded("fonts/HelveticaNeueRoman.otf");
     return atlas->AddFontFromMemoryTTF(const_cast<u8 *>(kFont.data),
                                        static_cast<int>(kFont.size),
                                        px, &cfg);

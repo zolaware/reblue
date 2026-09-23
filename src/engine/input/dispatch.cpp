@@ -1,6 +1,7 @@
 #include "engine/input/dispatch.h"
 
 #include "core/settings.h"
+#include "engine/cutscene_pause.h"
 #include "engine/game.h"
 #include "engine/input/action_state.h"
 
@@ -20,6 +21,10 @@ bool DevmodeOn() { return bd::Settings::Get().Devmode(); }
 
 void ToggleDebugOverlay() { Game::Get().ToggleMindows(); }
 
+void TogglePause() { CutscenePause::Get().Toggle(); }
+
+bool PauseAvailable() { return CutscenePause::Get().Available(); }
+
 bool InRange(Action action) {
   const int i = static_cast<int>(action);
   return i >= 0 && i < kActionCount;
@@ -34,6 +39,7 @@ void RegisterDefault(Action action, ActionHandler handler,
 
 void PrepareDefaults() {
   static const bool once = [] {
+    RegisterDefault(Action::Pause, TogglePause, PauseAvailable);
     RegisterDefault(Action::Mindows, ToggleDebugOverlay, DevmodeOn);
     return true;
   }();

@@ -6,6 +6,7 @@
  */
 #pragma once
 
+#include "ui/pause_overlay.h"
 #include "ui/screen_fade.h"
 #include "ui/settings.h"
 #include "ui/theme.h"

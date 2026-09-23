@@ -114,6 +114,7 @@ private:
   std::unique_ptr<bd::installer::InstallerWizard> installer_wizard_;
 #endif
   std::unique_ptr<bd::ui::FadeOverlay> fade_overlay_;
+  std::unique_ptr<bd::ui::PauseOverlay> pause_overlay_;
 
   // The check the prompt last answered, so a re-run offers its build instead
   // of reading as the one already declined.

@@ -62,6 +62,8 @@ constexpr ActionDesc kDescs[kActionCount] = {
      ActionContext::Field, ActionKind::Mapped, -1, 7, AxisPair::None,
      "L,PadRS"},
 
+    {"pause", "settings.action.pause", ActionContext::System,
+     ActionKind::Dispatched, -1, -1, AxisPair::None, "P,PadX"},
     {"mindows", "settings.action.mindows", ActionContext::System,
      ActionKind::Dispatched, -1, -1, AxisPair::None, ""},
 };

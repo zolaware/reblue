@@ -24,6 +24,9 @@ public:
 
   i32 Status() const;
   bool Paused() const;
+
+  bool Pause();
+  bool Resume();
 };
 
 } // namespace bd::engine

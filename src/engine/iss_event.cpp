@@ -21,10 +21,15 @@ namespace bd::engine {
 namespace {
 
 struct IssEvent_t {
-  /* 0x000 */ u8 _pad000[0x3AC];
+  /* 0x000 */ u8 _pad000[0x88];
+  /* 0x088 */ be_u32 state;
+  /* 0x08C */ u8 _pad08C[0x3AC - 0x8C];
   /* 0x3AC */ be_i32 eventId;
 };
+static_assert(offsetof(IssEvent_t, state) == 0x88);
 static_assert(offsetof(IssEvent_t, eventId) == 0x3AC);
+
+constexpr u32 kEvtPlaying = 2;
 
 constexpr i32 kNoEvent = -1;
 constexpr i32 kEventIdScale = 100;
@@ -113,9 +118,21 @@ IssEvent IssEvent::LiveAt(size_t i) {
   return IssEvent();
 }
 
+bool IssEvent::AnyPlaying() {
+  for (size_t i = 0; i < LiveCount(); ++i)
+    if (LiveAt(i).Playing())
+      return true;
+  return false;
+}
+
 i32 IssEvent::EventId() const {
   const auto *self = Self<IssEvent_t>();
   return self ? static_cast<i32>(self->eventId) : kNoEvent;
+}
+
+bool IssEvent::Playing() const {
+  const auto *self = Self<IssEvent_t>();
+  return self && static_cast<u32>(self->state) == kEvtPlaying;
 }
 
 i32 IssEvent::EventNumber() const {

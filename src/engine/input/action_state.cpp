@@ -70,9 +70,13 @@ void InputActions::Resolve() {
     }
     held_[i] = held;
     repeat_[i] = false;
-    if (!held || prevHeld_[i])
+    if (!held) {
+      claiming_[i] = false;
       continue;
-    if (!WillDispatch(action))
+    }
+    if (!prevHeld_[i] && WillDispatch(action))
+      claiming_[i] = true;
+    if (!claiming_[i])
       continue;
     for (const Source &s : sources) {
       if (consumedCount == kMaxConsumed)

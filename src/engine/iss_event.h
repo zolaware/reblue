@@ -29,10 +29,14 @@ public:
   // The live events in slot order. Empty past LiveCount().
   static IssEvent LiveAt(size_t i);
 
+  static bool AnyPlaying();
+
   i32 EventId() const; // eventNumber * 100 + sceneNumber, -1 when empty
   i32 EventNumber() const;
   i32 SceneNumber() const;
   std::string Prefix() const; // "ev" or "sv", empty when unknown
+
+  bool Playing() const;
 };
 
 } // namespace bd::engine

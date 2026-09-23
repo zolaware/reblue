@@ -12,6 +12,7 @@
 #include "engine/battle_task.h"
 #include "engine/chara.h"
 #include "engine/config.h"
+#include "engine/cutscene_pause.h"
 #include "engine/d2anime/d2anime.h"
 #include "engine/effect_names.h"
 #include "engine/ene_task.h"

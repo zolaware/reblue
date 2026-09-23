@@ -3,6 +3,7 @@
 #include <rex/types.h>
 
 #include "core/memory_helpers.h"
+#include "engine/cutscene_pause.h"
 #include "engine/input/action_state.h"
 #include "engine/input/actions.h"
 #include "engine/input/binding_store.h"
@@ -173,9 +174,13 @@ void WritePadZero(bool route) {
   ButtonMap::Get().Rebuild();
   InputActions::Get().Resolve();
 
-  const AxisState axes = ResolveAxes();
+  AxisState axes = ResolveAxes();
   PadWords words = ResolveWords();
   AddStickDirections(axes, words);
+  if (CutscenePause::Get().Active()) {
+    axes = AxisState{};
+    words = PadWords{.claimed = ~0u};
+  }
 
   StoreWord(addr::kPadZeroBlock + kHeldOffset, words.held, words.claimed);
   StoreWord(addr::kPadZeroBlock + kPressedOffset, words.pressed,

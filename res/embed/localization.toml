@@ -19,6 +19,7 @@
 [common]
 yes.us = "@game:warn_mes/WARN0003_SA1|Yes"
 no.us = "@game:warn_mes/WARN0003_SA2|No"
+paused.us = "Paused"
 
 [opt]
 slow.us = "@game:cfg_str/CFG_S0003|Slow"
@@ -898,6 +899,7 @@ nav_right.us = "Navigate Right"
 back.us = "Back"
 stick_press_left.us = "Stick Press Left"
 stick_press_right.us = "Stick Press Right"
+pause.us = "Pause"
 mindows.us = "Mindows"
 
 [settings.binds]

@@ -311,10 +311,9 @@ void ReblueApp::OnPreSetup(rex::RuntimeConfig &config) {
 }
 
 void ReblueApp::OnConfigureFonts(ImFontAtlas *atlas) {
+  bd::ui::PauseOverlay::InitFonts(atlas);
 #ifdef REBLUE_BUILD_INSTALLER
   bd::installer::InitInstallerFonts(atlas);
-#else
-  (void)atlas;
 #endif
 }
 
@@ -343,6 +342,7 @@ void ReblueApp::OnCreateDialogs(rex::ui::ImGuiDrawer *drawer) {
   });
 
   fade_overlay_ = std::make_unique<bd::ui::FadeOverlay>(drawer);
+  pause_overlay_ = std::make_unique<bd::ui::PauseOverlay>(drawer);
 
   rex::ui::UnregisterBind("bind_debug_overlay");
   if (!bd::Settings::Get().Devmode()) {

@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <chrono>
 
+#include "engine/cutscene_pause.h"
 #include "engine/settings.h"
 #include "engine/sofdec_player.h"
 
@@ -73,6 +74,12 @@ bool InterpolationActive() {
 
 void Advance() {
   const double now = NowSeconds();
+  if (CutscenePause::Get().Frozen()) {
+    g_lastTime = now;
+    g_lastDelta = 0.0;
+    g_tickDue = false;
+    return;
+  }
   const double raw =
       (g_lastTime > 0.0) ? std::max(now - g_lastTime, 0.0) : kTick;
   g_lastTime = now;
