@@ -16,6 +16,7 @@
 #include "core/perf.h"
 #include "core/settings.h"
 #include "core/threading.h"
+#include "engine/discord_presence.h"
 #include "gpu/gpu.h"
 #include "vfs/vfs.h"
 
@@ -106,6 +107,7 @@ void StopGuestThreads() {
   Stage("stop-guest-threads", [] { StopGuestThreads(); });
   Stage("flush-caches", [] { gpu::FlushPSOCapture(); });
   Stage("gpu-drain", [] { gpu::Video::Shutdown(UiPump()); });
+  Stage("discord-rpc", [] { engine::DiscordPresence::Get().Shutdown(); });
 
   g_finished.store(true, std::memory_order_release);
   BD_INFO("[shutdown] complete, exiting {}", exit_code);

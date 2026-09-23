@@ -82,6 +82,9 @@ public:
   bool UpdateCheck() const { return updateCheck_; }
   bool SetUpdateCheck(bool v);
 
+  bool DiscordRpc() const { return discordRpc_; }
+  bool SetDiscordRpc(bool v);
+
   bd::UpdateChannel UpdateChannel() const { return updateChannel_; }
   bool SetUpdateChannel(bd::UpdateChannel v);
 
@@ -110,6 +113,7 @@ private:
   void AdoptProfiler();
   void AdoptShutdownTimeoutMs();
   void AdoptUpdateCheck();
+  void AdoptDiscordRpc();
   void AdoptUpdateBase();
   void AdoptUpdateChannel();
   void AdoptSavesPath();
@@ -128,6 +132,7 @@ private:
   bool profiler_ = false;
   i32 shutdownTimeoutMs_ = 1500;
   bool updateCheck_ = true;
+  bool discordRpc_ = true;
   std::string updateBase_;
   bd::UpdateChannel updateChannel_ = bd::UpdateChannel::Stable;
   std::string updateUrl_;

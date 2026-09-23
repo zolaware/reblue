@@ -482,6 +482,15 @@ constexpr SettingRow kGameplaySettings[] = {
                      }},
      .options = kUpdateChannel,
      .count = OptCount(kUpdateChannel)},
+    {.label = "settings.gameplay.discord_rpc.label",
+     .group = "menu.header.advanced",
+     .binding = {.get = [] { return Settings::Get().DiscordRpc() ? 1.0 : 0.0; },
+                 .set =
+                     [](double v) {
+                       return Settings::Get().SetDiscordRpc(v != 0.0);
+                     }},
+     .options = kOnOff,
+     .count = OptCount(kOnOff)},
     {.label = "settings.gameplay.developer_mode.label",
      .group = "menu.header.advanced",
      .binding = {

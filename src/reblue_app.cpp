@@ -41,6 +41,7 @@
 #include "core/settings_model.h"
 #include "core/shutdown.h"
 #include "core/threading.h"
+#include "engine/discord_presence.h"
 #include "engine/engine.h"
 #include "generated/reblue_init.h"
 #include "gpu/gpu.h"
@@ -268,6 +269,7 @@ void ReblueApp::OnPostInitLogging() {
 
   bd::engine::Achievements::Init();
   bd::engine::Gimmicks::Get().Init();
+  bd::engine::DiscordPresence::Get().Init();
 
   // Devmode aims dumps and captures at the game folder, which the SDK mounts
   // read-only. Runtime::SetupVfs reads this flag once, after this hook. Moving
@@ -1017,6 +1019,7 @@ void ReblueApp::OnShutdown() {
   // sequence in OnWindowCloseRequested first.
   StopPreGuestPump();
   bd::vfs::VFS::Get().Prefetch().Shutdown();
+  bd::engine::DiscordPresence::Get().Shutdown();
   // Normal closes detach through KeyboardInput::OnClosing. This covers the
   // early-failure path where that never fires. Detaching twice is safe.
   bd::platform::Keyboard().Detach();
