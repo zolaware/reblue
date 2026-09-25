@@ -22,7 +22,6 @@
 #include "engine/frame_interp.h"
 #include "engine/game.h"
 #include "engine/input/action_state.h"
-#include "engine/iss_event.h"
 #include "engine/object.h"
 #include "engine/script.h"
 #include "engine/script_man_task.h"
@@ -199,7 +198,8 @@ public:
 
     const bool moved = dx != 0.0f || dy != 0.0f;
     if (moved) {
-      if (static_cast<u32>(self->scriptedMoveCancelable) != 0) {
+      if (static_cast<u32>(self->scriptedMoveCancelable) != 0 &&
+          !ScriptBusy()) {
         self->scriptedMoveCancelable = 0u;
         self->scriptedMove = 0u;
         self->scriptedMoveFlag = 0u;
@@ -258,8 +258,8 @@ void MouseLook(u32 camera, u32 activityBefore) {
     dy = 0.0f;
   }
 
-  const bool enabled = Settings::Get().MouseInput() && !ScriptBusy() &&
-                       !IssEvent::AnyPlaying();
+  const bool enabled = Settings::Get().MouseInput() &&
+                       Game::Get().FieldPlayerEntity().HasControl();
   const InputActions &actions = InputActions::Get();
   if (!enabled || actions.Axis(AxisPair::Right, 1) != 0.0f ||
       actions.Pressed(Action::ResetCamera))

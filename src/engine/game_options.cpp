@@ -350,6 +350,9 @@ bool GameOptions::SetVoiceType(i32 v) {
   dirty_ |= WriteCvar("bd_opt_voice_type", v);
   return StoreInt(addr::kVoiceType, v);
 }
+bool GameOptions::SetEngineVoiceType(i32 v) {
+  return StoreInt(addr::kVoiceType, v);
+}
 
 i32 GameOptions::Ruby() const { return LoadInt(addr::kRuby); }
 bool GameOptions::SetRuby(i32 v) {

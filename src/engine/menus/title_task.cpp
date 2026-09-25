@@ -27,7 +27,9 @@ struct TitleTask_t {
   /* 0x0A4 */ char childName[6];
   /* 0x0AA */ u8 _pad0AA[0x104 - 0xAA];
   /* 0x104 */ be_u32 isXboxLive;
-  /* 0x108 */ u8 _pad108[0x114 - 0x108];
+  /* 0x108 */ u8 _pad108[0x10C - 0x108];
+  /* 0x10C */ be_u32 discSetting;
+  /* 0x110 */ u8 _pad110[0x114 - 0x110];
   /* 0x114 */ be_u32 voicePick;
 };
 static_assert(offsetof(TitleTask_t, nextSeqId) == 0x078);
@@ -37,6 +39,7 @@ static_assert(offsetof(TitleTask_t, hasSaveData) == 0x098);
 static_assert(offsetof(TitleTask_t, childTask) == 0x0A0);
 static_assert(offsetof(TitleTask_t, childName) == 0x0A4);
 static_assert(offsetof(TitleTask_t, isXboxLive) == 0x104);
+static_assert(offsetof(TitleTask_t, discSetting) == 0x10C);
 static_assert(offsetof(TitleTask_t, voicePick) == 0x114);
 
 } // namespace
@@ -61,6 +64,17 @@ void TitleTask::SetCursor(u32 cursor) {
   auto *self = Self<TitleTask_t>();
   if (self)
     self->cursor = cursor;
+}
+
+u32 TitleTask::DiscSetting() const {
+  const auto *self = Self<TitleTask_t>();
+  return self ? static_cast<u32>(self->discSetting) : 0;
+}
+
+void TitleTask::SetDiscSetting(u32 setting) {
+  auto *self = Self<TitleTask_t>();
+  if (self)
+    self->discSetting = setting;
 }
 
 u32 TitleTask::VoicePick() const {

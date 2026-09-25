@@ -30,6 +30,10 @@ public:
   List<PlyTask> Roster() const;
   PlyTask Leader() const;
 
+  // Whether the player is steering the leader, rather than a cutscene or
+  // script moving the party.
+  bool HasControl() const;
+
   // Whether the player has earned the field skill in the slot. The field
   // encounter menu draws a locked one but refuses to put the cursor on it.
   bool HasFieldSkill(int slot) const;
