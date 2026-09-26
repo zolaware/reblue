@@ -1,7 +1,7 @@
 name: Build Windows
 
-# Builds reblue.exe (D3D12), the one Windows runtime that ships. The Vulkan
-# exe is a source-build option. Step bodies live in .github/scripts.
+# Builds reblue.exe (D3D12) and reblue_vk.exe (Vulkan), both of which ship.
+# Step bodies live in .github/scripts.
 
 on:
   workflow_call:
