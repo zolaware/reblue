@@ -94,8 +94,14 @@ struct EntryFacts {
   GimmickKind firstLiveGive = GimmickKind::Nothing;
   std::set<u32> sets;
   std::map<u32, u32> assigned;
+  std::map<u32, u32> assignedAfterGive;
   std::set<u32> gates;
   std::set<u32> types;
+};
+
+struct GiveTrail {
+  bool armed = false;
+  std::set<u32> written;
 };
 
 std::vector<FlagEntry> ReadFlagList(u32 listAddress, bool withColor) {
@@ -125,14 +131,17 @@ std::vector<FlagEntry> ReadFlagList(u32 listAddress, bool withColor) {
   return out;
 }
 
-void RecordLiveGive(EntryFacts &facts, GimmickKind kind) {
+void RecordLiveGive(EntryFacts &facts, GiveTrail &trail, GimmickKind kind) {
+  trail.armed = true;
+  trail.written.clear();
   if (facts.hasLiveGive)
     return;
   facts.hasLiveGive = true;
   facts.firstLiveGive = kind;
 }
 
-void ReadInstruction(EntryFacts &facts, const SceneInstruction &ins) {
+void ReadInstruction(EntryFacts &facts, GiveTrail &trail,
+                     const SceneInstruction &ins) {
   switch (static_cast<SceneOp>(ins.opcode)) {
   case SceneOp::SetVariable:
   case SceneOp::SetVariableAlt: {
@@ -149,6 +158,12 @@ void ReadInstruction(EntryFacts &facts, const SceneInstruction &ins) {
     if (op == kSetVariableAssign && source == kSetVariableLiteral) {
       u32 &held = facts.assigned[global];
       held = std::max(held, value);
+      if (trail.armed && trail.written.insert(global).second) {
+        const auto [it, fresh] =
+            facts.assignedAfterGive.try_emplace(global, value);
+        if (!fresh)
+          it->second = std::min(it->second, value);
+      }
     }
     break;
   }
@@ -157,19 +172,19 @@ void ReadInstruction(EntryFacts &facts, const SceneInstruction &ins) {
     facts.anyGive = true;
     if (ins.params.size() >= 2 &&
         static_cast<u32>(ins.params[1]) == kGiveItemAdd)
-      RecordLiveGive(facts, GimmickKind::Item);
+      RecordLiveGive(facts, trail, GimmickKind::Item);
     break;
   case SceneOp::GiveGold:
     facts.anyGive = true;
     if (!ins.params.empty() &&
         static_cast<u32>(ins.params[0]) == kGiveAmountAdd)
-      RecordLiveGive(facts, GimmickKind::Gold);
+      RecordLiveGive(facts, trail, GimmickKind::Gold);
     break;
   case SceneOp::GiveMedal:
     facts.anyGive = true;
     if (!ins.params.empty() &&
         static_cast<u32>(ins.params[0]) == kGiveAmountAdd)
-      RecordLiveGive(facts, GimmickKind::Medal);
+      RecordLiveGive(facts, trail, GimmickKind::Medal);
     break;
   default:
     break;
@@ -190,16 +205,23 @@ EntryFacts ReadEntry(const SceneEntry &entry) {
           cond.operand >= kSceneGlobalBase)
         facts.gates.insert(cond.operand - kSceneGlobalBase);
     }
-    block.ForEachInstruction(
-        [&facts](const SceneInstruction &ins) { ReadInstruction(facts, ins); });
+    GiveTrail trail;
+    block.ForEachInstruction([&facts, &trail](const SceneInstruction &ins) {
+      ReadInstruction(facts, trail, ins);
+    });
     block = block.Next();
   }
   return facts;
 }
 
 u32 OpensAtFor(const EntryFacts &facts, u32 flag) {
-  const auto it = facts.assigned.find(flag);
-  const u32 value = it != facts.assigned.end() ? it->second : 0;
+  u32 value = 0;
+  if (const auto it = facts.assignedAfterGive.find(flag);
+      it != facts.assignedAfterGive.end())
+    value = it->second;
+  else if (const auto held = facts.assigned.find(flag);
+           held != facts.assigned.end())
+    value = held->second;
   return std::clamp(value, kOpensAtMin, kOpensAtMax);
 }
 
