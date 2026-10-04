@@ -7,6 +7,8 @@
  */
 #include "core/app_root.h"
 
+#include <fstream>
+
 #include <rex/filesystem.h>
 #include <rex/platform/env.h>
 
@@ -83,6 +85,20 @@ std::filesystem::path AppRootFolder() {
 #endif
 #endif
   return rex::filesystem::GetExecutableFolder();
+}
+
+bool DirectoryWritable(const std::filesystem::path &dir) {
+  std::error_code ec;
+  if (!std::filesystem::is_directory(dir, ec))
+    return false;
+  const auto probe = dir / ".reblue_write_probe";
+  {
+    std::ofstream out(probe, std::ios::trunc);
+    if (!out)
+      return false;
+  }
+  std::filesystem::remove(probe, ec);
+  return true;
 }
 
 } // namespace bd

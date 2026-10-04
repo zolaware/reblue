@@ -9,9 +9,12 @@
 #include <cstddef>
 
 #include <rex/hook.h>
+#include <rex/ppc.h>
 
 #include "core/memory_helpers.h"
+#include "engine/d2anime/anime_input.h"
 #include "engine/events.h"
+#include "engine/input/actions.h"
 
 namespace bd::engine {
 
@@ -96,4 +99,12 @@ REX_HOOK_RAW(ScriptManTask__UnloadScript) {
     bd::engine::Events::Publish(
         bd::engine::StageUnloading{bd::engine::Script(script)});
   __imp__ScriptManTask__UnloadScript(ctx, base);
+}
+
+// Script prompts poll the menu confirm alone, but the prompt a player is
+// answering is one Interact opened, so a key moved from Confirm onto Interact
+// has to answer it too.
+void bdScriptConfirmHook(PPCRegister &r3) {
+  if (!r3.u32 && bd::engine::CheckAction(bd::engine::Action::Interact))
+    r3.u64 = 1;
 }

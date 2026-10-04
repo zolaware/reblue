@@ -1,0 +1,15 @@
+# ic_btn cell picks (bodies in src/engine/prompt_textures.cpp).
+
+# ScriptMan's field action icon and the carriage prompt, on the first cmpwi of
+# the switch over Interact's button id in r11.
+[[midasm_hook]]
+address = 0x8219EC88
+name = "bdPromptIconButtonHook"
+registers = ["r11"]
+after_instruction = false
+
+[[midasm_hook]]
+address = 0x82228B68
+name = "bdPromptIconButtonHook"
+registers = ["r11"]
+after_instruction = false

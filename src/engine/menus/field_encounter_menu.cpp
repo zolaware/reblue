@@ -11,7 +11,7 @@
 #include <iterator>
 
 #include "core/memory_helpers.h"
-#include "engine/game.h"
+#include "gpu/gpu.h"
 
 namespace bd::engine {
 
@@ -81,7 +81,8 @@ constexpr f32 kItemBarW = 228.0f;
 constexpr f32 kBarAbove = 6.0f;
 constexpr f32 kBarH = 34.0f;
 constexpr int kVisibleRows = 9;
-constexpr int kSkillSlots = 2;
+constexpr f32 kSlideStep = 0.5f;
+constexpr u32 kNoHoldAnchor = 999;
 
 } // namespace
 
@@ -127,15 +128,32 @@ void FieldEncounterMenu::SetSelectedCount(u32 count) {
   self->selected = count;
 }
 
-int FieldEncounterMenu::CursorAt(f32 x, f32 y) const {
+bool FieldEncounterMenu::StateSettled() const {
+  const auto *self = Self<FieldEncounterMenu_t>();
+  if (!self)
+    return false;
+  const f32 rest = u32(self->state) == 0 ? 0.0f : 1.0f;
+  return f32(self->slide) == rest;
+}
+
+void FieldEncounterMenu::SetState(u32 state) {
+  auto *self = Self<FieldEncounterMenu_t>();
+  if (!self)
+    return;
+  self->state = state;
+  self->slideStep = kSlideStep;
+  self->holdAnchor = kNoHoldAnchor;
+}
+
+int FieldEncounterMenu::CursorAt(f32 x, f32 y, u32 &state) const {
   const auto *self = Self<FieldEncounterMenu_t>();
   if (!self)
     return -1;
 
-  const u32 state = self->state;
-  const f32 barW = state == 2 ? kItemBarW : kBarW;
-  if (x < kBarX || x > kBarX + barW)
+  x -= bd::gpu::Output::DesignOverscanX();
+  if (x < kBarX || x > kBarX + kBarW)
     return -1;
+  const bool inItemBar = x <= kBarX + kItemBarW;
   y += f32(self->slide) * kSlideRange;
 
   const auto onRow = [y](f32 textY) {
@@ -154,30 +172,30 @@ int FieldEncounterMenu::CursorAt(f32 x, f32 y) const {
     return row >= 0 && row < rows ? row : -1;
   };
 
-  switch (state) {
-  case 0:
-    if (onRow(kFightRowY))
-      return int(u32(self->enemyRows));
-    return scrolled(kRowTextY, int(u32(self->scroll)),
-                    int(u32(self->enemyRows)));
-  case 1:
-    for (int slot = 0; slot < kSkillSlots; ++slot)
-      if (onRow(kSkillBaseY + f32(slot + 1) * kRowStride))
-        return Game::Get().FieldPlayerEntity().HasFieldSkill(slot) ? slot : -1;
-    return -1;
-  case 2: {
-    if (onRow(kItemUseRowY))
-      return int(u32(self->itemRows));
-    const int rows =
-        std::min(int(u32(self->itemRows)), int(std::size(self->items)));
-    const int row = scrolled(kItemTextY, int(u32(self->itemScroll)), rows);
-    if (row < 0 || u32(self->items[row].id) == 0)
-      return -1;
+  state = 0;
+  if (onRow(kFightRowY))
+    return int(u32(self->enemyRows));
+  if (const int row = scrolled(kRowTextY, int(u32(self->scroll)),
+                               int(u32(self->enemyRows)));
+      row >= 0)
     return row;
-  }
-  default:
+
+  state = 1;
+  for (int slot = 0; slot < kSkillSlots; ++slot)
+    if (onRow(kSkillBaseY + f32(slot + 1) * kRowStride))
+      return slot;
+
+  state = 2;
+  if (!inItemBar)
     return -1;
-  }
+  if (onRow(kItemUseRowY))
+    return int(u32(self->itemRows));
+  const int rows =
+      std::min(int(u32(self->itemRows)), int(std::size(self->items)));
+  const int row = scrolled(kItemTextY, int(u32(self->itemScroll)), rows);
+  if (row < 0 || u32(self->items[row].id) == 0)
+    return -1;
+  return row;
 }
 
 int FieldEncounterMenu::LastCursor() const {

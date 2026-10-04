@@ -46,6 +46,9 @@ public:
   bool SetMsgSize(i32 v);
   i32 VoiceType() const;
   bool SetVoiceType(i32 v);
+  // The new game voice pick writes the engine global alone, the way the
+  // engine's own cursor does there, so a pick backed out of is not persisted.
+  bool SetEngineVoiceType(i32 v);
   i32 Ruby() const;
   bool SetRuby(i32 v);
   i32 Subtitles() const;
@@ -60,10 +63,6 @@ public:
   bool SetCamera(i32 v);
   i32 TargetFirst() const;
   bool SetTargetFirst(i32 v);
-  i32 CtlNormalType() const;
-  bool SetCtlNormalType(i32 v);
-  i32 CtlMechattType() const;
-  bool SetCtlMechattType(i32 v);
 
   f64 MusicVolume() const;
   bool SetMusicVolume(f64 v);

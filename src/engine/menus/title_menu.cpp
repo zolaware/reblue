@@ -16,6 +16,7 @@
 #include "engine/d2anime/d2anime.h"
 #include "engine/game.h"
 #include "engine/game_options.h"
+#include "engine/language.h"
 #include "engine/menus/config_menu.h"
 #include "engine/menus/config_menu_data.h"
 #include "engine/menus/title_task.h"
@@ -38,14 +39,15 @@
 #include <rex/system/kernel_state.h>
 #include <rex/types.h>
 
+using bd::engine::Action;
 using bd::engine::ActionButton;
 using bd::engine::Button;
 using bd::engine::CheckButton;
-using bd::engine::GameAction;
 using rex::memory::store_and_swap;
 
 REX_IMPORT(__imp__bdColor4fToARGB, Color4fToARGB, u32(u32));
 REX_IMPORT(__imp__bdTextCalcWidth, TextCalcWidth, f64(f64, u32, u32, u32, u32));
+REX_IMPORT(__imp__bdSelectDiscSettings, SelectDiscSettings, u32(u32));
 REX_IMPORT(__imp__SequenceHolder_FindSequenceByName, FindSequenceByName,
            u32(u32, u32));
 REX_EXTERN(__imp__Visual__method_7E60);
@@ -66,7 +68,10 @@ constexpr float kTextCursorOffset = 16.0f;
 // The title task's state.
 constexpr u32 kTitleStateMenu = 2; // navigable row list
 constexpr u32 kTitleStateChildRunning = 4;
+constexpr u32 kTitleStateDiscSettings = 6;
 constexpr u32 kTitleStateVoicePick = 7;
+
+constexpr int kDiscSettingRows = 3;
 
 bd::engine::ConfigMenu s_config_menu;
 bool s_create_config = false;
@@ -153,11 +158,63 @@ void NavigateNoSaveMenu(bd::engine::TitleTask title) {
 // The title rows are not an AnimeMenu, so the hover engine never sees them.
 // Their geometry is fixed and known: row i is a kEntrySpacing band centered on
 // kCursorBaseY + i * kEntrySpacing, and every label is centered horizontally.
-// The band tiles exactly, so a point maps to at most one row.
+// The band tiles exactly, so a point maps to at most one row. The disc
+// settings and voice picks after New Game draw their rows on the same grid.
 constexpr float kRowBandHalfWidth = 320.0f;
+constexpr int kNoRow = -1;
+
+int PointerRow() {
+  f32 x = 0.0f;
+  f32 y = 0.0f;
+  if (!bd::engine::CursorInMenuSpace(x, y))
+    return kNoRow;
+
+  const float centerX = bd::gpu::kDesignCanvasWidth * 0.5f;
+  if (x < centerX - kRowBandHalfWidth || x > centerX + kRowBandHalfWidth)
+    return kNoRow;
+
+  const float top = kCursorBaseY - kEntrySpacing * 0.5f;
+  if (y < top)
+    return kNoRow;
+  return static_cast<int>((y - top) / kEntrySpacing);
+}
+
+// The engine applies both picks only on frames without a confirm, so a hover
+// applies its row itself. Otherwise a click on the frame the pointer lands on
+// a row would confirm the one before it.
+bool HoverPick(bd::engine::TitleTask title, u32 state, int row) {
+  if (state == kTitleStateDiscSettings) {
+    if (row >= kDiscSettingRows ||
+        static_cast<u32>(row) == title.DiscSetting())
+      return false;
+    title.SetDiscSetting(static_cast<u32>(row));
+    SelectDiscSettings(static_cast<u32>(row));
+    return true;
+  }
+  if (row >= bd::engine::Language().VoiceCount() ||
+      static_cast<u32>(row) == title.VoicePick())
+    return false;
+  title.SetVoicePick(static_cast<u32>(row));
+  bd::engine::GameOptions::Get().SetEngineVoiceType(row + 1);
+  return true;
+}
+
+bool HoverMenuRow(bd::engine::TitleTask title, int row) {
+  // Row 0 is Load, which the engine hides and skips without save data.
+  const int first = title.HasSaveData() ? 0 : 1;
+  const int last = static_cast<int>(ExitIndex(title));
+  if (row < first || row > last)
+    return false;
+  if (static_cast<u32>(row) == title.Cursor())
+    return false;
+  title.SetCursor(static_cast<u32>(row));
+  return true;
+}
 
 void HoverTitleRows(bd::engine::TitleTask title) {
-  if (title.State() != kTitleStateMenu)
+  const u32 state = title.State();
+  if (state != kTitleStateMenu && state != kTitleStateDiscSettings &&
+      state != kTitleStateVoicePick)
     return;
 
   // Above the pointer gates, the way the battle's target step does it: this
@@ -170,30 +227,13 @@ void HoverTitleRows(bd::engine::TitleTask title) {
   if (!bd::engine::MenuMouse::Get().PointerActive())
     return;
 
-  f32 x = 0.0f;
-  f32 y = 0.0f;
-  if (!bd::engine::CursorInMenuSpace(x, y))
+  const int row = PointerRow();
+  if (row == kNoRow)
     return;
 
-  const float centerX = bd::gpu::kDesignCanvasWidth * 0.5f;
-  if (x < centerX - kRowBandHalfWidth || x > centerX + kRowBandHalfWidth)
-    return;
-
-  const float top = kCursorBaseY - kEntrySpacing * 0.5f;
-  if (y < top)
-    return;
-  const int row = static_cast<int>((y - top) / kEntrySpacing);
-
-  // Row 0 is Load, which the engine hides and skips without save data.
-  const int first = title.HasSaveData() ? 0 : 1;
-  const int last = static_cast<int>(ExitIndex(title));
-  if (row < first || row > last)
-    return;
-  if (static_cast<u32>(row) == title.Cursor())
-    return;
-
-  title.SetCursor(static_cast<u32>(row));
-  if (bd::engine::Settings::Get().MouseCursorSFX())
+  const bool moved = state == kTitleStateMenu ? HoverMenuRow(title, row)
+                                              : HoverPick(title, state, row);
+  if (moved && bd::engine::Settings::Get().MouseCursorSFX())
     sfx::Play(sfx::kCursor);
 }
 
@@ -261,16 +301,12 @@ void DrawTitleLabel(PPCContext &ctx, u8 *base, u32 index,
 
 } // namespace
 
-// The title asks for confirm and cancel by number, so the controller type the
-// rest of the game reads through bdGetCurrentMapPath never reached it and Type
-// B kept the stock A and B here. r5 still carries the number the engine picked,
-// which is what names the action this call site wants.
 void bdTitleActionButtonHook(PPCRegister &r5) {
-  GameAction action;
+  Action action;
   if (r5.u32 == static_cast<u32>(Button::A))
-    action = GameAction::Confirm;
+    action = Action::Confirm;
   else if (r5.u32 == static_cast<u32>(Button::B))
-    action = GameAction::Cancel;
+    action = Action::Cancel;
   else
     return;
   r5.u32 = static_cast<u32>(ActionButton(action));

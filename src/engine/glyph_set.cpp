@@ -12,15 +12,20 @@
 #include <string_view>
 #include <vector>
 
-#include <rex/cvar.h>
+#include <rex/graphics/pipeline/texture/conversion.h>
 #include <rex/graphics/pipeline/texture/util.h>
+#include <rex/graphics/xenos.h>
 #include <rex/hook.h>
 #include <rex/types.h>
+#include <rex/ui/keybinds.h>
 
 #include "core/logging.h"
 #include "core/memory_helpers.h"
+#include "engine/d2anime/anime_input.h"
 #include "engine/d2anime/anime_mount.h"
 #include "engine/d2anime/anime_mouse.h"
+#include "engine/input/actions.h"
+#include "engine/input/binding_store.h"
 #include "engine/prompt_textures.h"
 #include "engine/settings.h"
 #include "engine/virtual_buttons.h"
@@ -58,12 +63,9 @@ constexpr u32 kVarU1 = 0x30;
 constexpr u32 kVarV1 = 0x34;
 constexpr u32 kVarTypeElement = 0;
 
-// Cell grid of the served sheet.
-constexpr int kSheetCols = 8;
-constexpr int kSheetRows = 24;
+constexpr int kSheetCols = int(Glyphs::kSheetCols);
+constexpr int kSheetRows = int(Glyphs::kSheetRows);
 
-// The shipped controller block is pasted into the top-left quadrant, so its
-// eleven cells keep the arrangement Uv.csv describes. One cell per bindable key
 // follows, in kBindableKeys order, then the arrow cluster and the three
 // modifier caps close the run.
 constexpr int kKeyCellBase = 32;
@@ -71,40 +73,40 @@ constexpr int kClusterCell = kKeyCellBase + int(platform::kBindableKeyCount);
 constexpr int kModCellBase = kClusterCell + 1;
 constexpr int kModCellCount = 3;
 
-// One block of the eleven prompts per pad the player can pick, in PadSet
-// order from XboxSeries on. The 360 has no block: its art is the shipped one
-// already sitting in the cells Uv.csv names.
 constexpr int kPadSetBase = kModCellBase + kModCellCount;
-constexpr int kPadSetCells = Glyphs::kHelpCells;
-static_assert(kPadSetBase + kPadSetLast * kPadSetCells <=
+constexpr int kPadStickPressCell = Glyphs::kHelpCells;
+constexpr int kPadDpadCell = kPadStickPressCell + 2;
+constexpr int kPadStickDirCell = kPadDpadCell + 4;
+constexpr int kPadSetCells = kPadStickDirCell + 8;
+static_assert(kPadSetBase + (kPadSetLast + 1) * kPadSetCells <=
               kSheetCols * kSheetRows);
 
-// The shipped block fills only the left half of its four rows, so the right
 // half is transparent and pointing a prompt at it draws nothing. That is the
 // honest answer for a button with no key bound to it.
 constexpr int kBlankCell = kSheetCols - 1;
 
-// One prompt: the Uv.csv variable it reads, the controller cell it shows on a
-// pad, and the cvar naming the key it shows on a keyboard. The D-pad has no
-// single cvar because the arrows are synthesized rather than bound.
+constexpr Action kNoAction = Action::Count;
+constexpr int kNoPadButton = -1;
+
 struct GlyphCell {
   const char *name;
   int padCell;
-  const char *keybind;
+  int padButton;
+  Action action;
 };
 
 constexpr GlyphCell kCells[] = {
-    {"Help_A_Uv", 0, "keybind_a"},
-    {"Help_B_Uv", 1, "keybind_b"},
-    {"Help_X_Uv", 2, "keybind_x"},
-    {"Help_Y_Uv", 3, "keybind_y"},
-    {"Help_BACK_Uv", 8, "keybind_back"},
-    {"Help_CROSS_Uv", 9, nullptr},
-    {"Help_LB_Uv", 16, "keybind_left_shoulder"},
-    {"Help_RB_Uv", 17, "keybind_right_shoulder"},
-    {"Help_LT_Uv", 18, "keybind_left_trigger"},
-    {"Help_RT_Uv", 19, "keybind_right_trigger"},
-    {"Help_STARTUv", 24, "keybind_start"},
+    {"Help_A_Uv", 0, int(Button::A), Action::Confirm},
+    {"Help_B_Uv", 1, int(Button::B), Action::Cancel},
+    {"Help_X_Uv", 2, int(Button::X), Action::Attack},
+    {"Help_Y_Uv", 3, int(Button::Y), Action::MainMenu},
+    {"Help_BACK_Uv", 8, int(Button::Back), Action::Back},
+    {"Help_CROSS_Uv", 9, kNoPadButton, kNoAction},
+    {"Help_LB_Uv", 16, int(Button::LB), Action::FieldSkill2},
+    {"Help_RB_Uv", 17, int(Button::RB), Action::FieldSkill1},
+    {"Help_LT_Uv", 18, int(Button::LT), Action::ResetCamera},
+    {"Help_RT_Uv", 19, int(Button::RT), Action::FieldMenu},
+    {"Help_STARTUv", 24, int(Button::Start), Action::WorldMap},
 };
 static_assert(int(sizeof(kCells) / sizeof(kCells[0])) == Glyphs::kHelpCells);
 
@@ -122,8 +124,6 @@ UVRect CellRect(int cell) {
 
 // The sheet ships as tiled DXT5: a 64px cell is 16x16 blocks of 16 bytes, so a
 // cell moves between grid slots as raw block copies through the same offsets
-// the payload was tiled with. No decode, and the shipped block stays pristine
-// in its own cells.
 constexpr size_t kSheetPayload = 2048;
 constexpr u32 kSheetBlockPitch = 128;
 constexpr u32 kCellBlocks = 16;
@@ -151,21 +151,97 @@ void BlitSheetCell(u8 *dst, const u8 *src, size_t payloadBytes, int dstCell,
   }
 }
 
+constexpr u32 kBlockEdge = 4;
+
+u32 Expand565(u16 c, int shift, int bits) {
+  const u32 v = (c >> shift) & ((1u << bits) - 1u);
+  return v * 255u / ((1u << bits) - 1u);
+}
+
+// One DXT5 block, already in little-endian order, into a 4x4 RGBA patch.
+void DecodeBC3Block(const u8 *block, u8 *dst, u32 dstPitchPx) {
+  u8 alpha[8] = {block[0], block[1]};
+  if (alpha[0] > alpha[1]) {
+    for (int i = 0; i < 6; ++i)
+      alpha[2 + i] = u8(((6 - i) * alpha[0] + (i + 1) * alpha[1]) / 7);
+  } else {
+    for (int i = 0; i < 4; ++i)
+      alpha[2 + i] = u8(((4 - i) * alpha[0] + (i + 1) * alpha[1]) / 5);
+    alpha[6] = 0;
+    alpha[7] = 255;
+  }
+  u64 alphaBits = 0;
+  for (int i = 0; i < 6; ++i)
+    alphaBits |= u64(block[2 + i]) << (8 * i);
+
+  const u16 c0 = u16(block[8] | (block[9] << 8));
+  const u16 c1 = u16(block[10] | (block[11] << 8));
+  const u32 colorBits = u32(block[12]) | (u32(block[13]) << 8) |
+                        (u32(block[14]) << 16) | (u32(block[15]) << 24);
+  u32 color[4][3];
+  for (int ch = 0; ch < 3; ++ch) {
+    constexpr int kShift[3] = {11, 5, 0};
+    constexpr int kBits[3] = {5, 6, 5};
+    const u32 a = Expand565(c0, kShift[ch], kBits[ch]);
+    const u32 b = Expand565(c1, kShift[ch], kBits[ch]);
+    color[0][ch] = a;
+    color[1][ch] = b;
+    color[2][ch] = (2 * a + b) / 3;
+    color[3][ch] = (a + 2 * b) / 3;
+  }
+
+  for (u32 t = 0; t < kBlockEdge * kBlockEdge; ++t) {
+    u8 *px = dst + (size_t(t / kBlockEdge) * dstPitchPx + t % kBlockEdge) * 4;
+    const u32 *rgb = color[(colorBits >> (2 * t)) & 3];
+    px[0] = u8(rgb[0]);
+    px[1] = u8(rgb[1]);
+    px[2] = u8(rgb[2]);
+    px[3] = alpha[(alphaBits >> (3 * t)) & 7];
+  }
+}
+
 // The cell whose art a prompt should show on a keyboard: the cap of the bound
 // key, the arrow cluster for the D-pad, or the blank half-cell for a button
 // nobody bound.
 int ArtCell(const GlyphCell &c) {
-  if (!c.keybind)
+  if (c.action == kNoAction)
     return kClusterCell;
-  const int key = BoundKeyIndex(c.keybind);
+  const int key = BoundKeyIndex(c.action);
   return key < 0 ? kBlankCell : kKeyCellBase + key;
 }
 
-// The same question for a pad that is not the 360 the disc drew for: the
-// matching cell of that pad's own block, which is laid out in kCells order.
+// Position of a pad button's art inside one pad set's block.
+int PadSetIndex(int padButton) {
+  constexpr int kPadLS = 6, kPadRS = 7, kPadLSUp = int(Button::LSUp);
+  if (padButton >= int(Button::Up) && padButton <= int(Button::Right))
+    return kPadDpadCell + padButton - int(Button::Up);
+  if (padButton == kPadLS || padButton == kPadRS)
+    return kPadStickPressCell + padButton - kPadLS;
+  if (padButton >= kPadLSUp && padButton < kPadLSUp + 8)
+    return kPadStickDirCell + padButton - kPadLSUp;
+  for (int i = 0; i < Glyphs::kHelpCells; ++i) {
+    if (kCells[i].padButton >= 0 && kCells[i].padButton == padButton)
+      return i;
+  }
+  return -1;
+}
+
+int PadGlyphIndex(Action action) {
+  for (const Source &s : Bindings::Get().Sources(action)) {
+    if (s.kind == SourceKind::PadButton)
+      return PadSetIndex(int(s.code));
+  }
+  return -1;
+}
+
+int PadSetCell(PadSet pad, int idx) {
+  return kPadSetBase + static_cast<int>(pad) * kPadSetCells + idx;
+}
+
 int PadArtCell(PadSet pad, int cellIndex) {
-  const int set = static_cast<int>(pad);
-  return kPadSetBase + (set - 1) * kPadSetCells + cellIndex;
+  const GlyphCell &c = kCells[cellIndex];
+  const int idx = c.action == kNoAction ? cellIndex : PadGlyphIndex(c.action);
+  return idx < 0 ? kBlankCell : PadSetCell(pad, idx);
 }
 
 // Where a cap inks inside its 64px cell, and the wider band the modifier cells
@@ -177,30 +253,7 @@ constexpr f32 kInkY1 = 52.0f / 64.0f;
 constexpr f32 kModInkX0 = 4.0f / 64.0f;
 constexpr f32 kModInkX1 = 60.0f / 64.0f;
 
-std::string_view Trim(std::string_view s) {
-  while (!s.empty() && (s.front() == ' ' || s.front() == '\t'))
-    s.remove_prefix(1);
-  while (!s.empty() && (s.back() == ' ' || s.back() == '\t'))
-    s.remove_suffix(1);
-  return s;
-}
-
-// The first alternative of a comma-separated bind, with any modifier prefix
-// dropped. The sheet carries a cap per key, not per combination, so 'Shift+Up'
-// draws the up arrow.
-std::string_view PrimaryKey(std::string_view value) {
-  const size_t comma = value.find(',');
-  if (comma != std::string_view::npos)
-    value = value.substr(0, comma);
-  value = Trim(value);
-  const size_t plus = value.rfind('+');
-  if (plus != std::string_view::npos)
-    value = value.substr(plus + 1);
-  return value;
-}
-
 // The connected pad's own art, for PadSet::Auto. A pad the host cannot place
-// gets the 360's block, which is the one the disc ships.
 PadSet HostPadSet() {
   switch (platform::ConnectedPad()) {
   case platform::PadBrand::XboxSeries:
@@ -216,21 +269,6 @@ PadSet HostPadSet() {
   }
 }
 
-const char *HelpNameForAction(GameAction action) {
-  switch (ActionButton(action)) {
-  case Button::A:
-    return "Help_A_Uv";
-  case Button::B:
-    return "Help_B_Uv";
-  case Button::X:
-    return "Help_X_Uv";
-  case Button::Y:
-    return "Help_Y_Uv";
-  default:
-    return nullptr;
-  }
-}
-
 } // namespace
 
 int KeyIndex(std::string_view keyName) {
@@ -240,13 +278,15 @@ int KeyIndex(std::string_view keyName) {
   return -1;
 }
 
-int BoundKeyIndex(const char *keybindCvar) {
-  if (!keybindCvar)
-    return -1;
-  const std::string bind = rex::cvar::GetFlagByName(keybindCvar);
-  if (bind.empty())
-    return -1;
-  return KeyIndex(PrimaryKey(bind));
+int BoundKeyIndex(Action action) {
+  for (const Source &s : Bindings::Get().Sources(action)) {
+    if (s.kind != SourceKind::Key)
+      continue;
+    const std::string name =
+        rex::ui::VirtualKeyToString(static_cast<rex::ui::VirtualKey>(s.code));
+    return name.empty() ? -1 : KeyIndex(name);
+  }
+  return -1;
 }
 
 const char *ToString(GlyphSet set) {
@@ -294,18 +334,7 @@ void Glyphs::InitOnce() {
   mount.AddRaw(kSheetKey, [] { return Glyphs::Get().ComposeSheet(); });
   mount.Publish(kSheetMount);
   PromptTextures::Get().Publish();
-
-  // A rebind has to move the prompt with it. Reading ten cvars every tick would
-  // allocate ten strings a frame for an answer that changes almost never, so
-  // the keybind screen tells us instead.
-  for (const GlyphCell &cell : kCells) {
-    if (!cell.keybind)
-      continue;
-    rex::cvar::RegisterChangeCallback(
-        cell.keybind, [](std::string_view, std::string_view) {
-          Glyphs::Get().bindsDirty_.store(true, std::memory_order_relaxed);
-        });
-  }
+  bindGeneration_ = Bindings::Get().Generation();
 }
 
 void Glyphs::Rebind() {
@@ -351,15 +380,6 @@ void Glyphs::WriteCell(u32 va, int cell) const {
   GlyphCommitVar(va);
 }
 
-UVRect Glyphs::PromptUV(const PromptGlyph &glyph) const {
-  const char *name = nullptr;
-  if (std::strcmp(glyph.helpName, "Help_A_Uv") == 0)
-    name = HelpNameForAction(GameAction::Confirm);
-  else if (std::strcmp(glyph.helpName, "Help_B_Uv") == 0)
-    name = HelpNameForAction(GameAction::Cancel);
-  return CellUV(name ? name : glyph.helpName);
-}
-
 UVRect Glyphs::CellUV(const char *helpName) const {
   for (const GlyphCell &c : kCells) {
     if (std::strcmp(c.name, helpName) == 0)
@@ -375,6 +395,53 @@ UVRect Glyphs::KeyArtUV(int keyIndex) {
   const f32 h = c.v1 - c.v0;
   return {c.u0 + kInkX0 * w, c.v0 + kInkY0 * h, c.u0 + kInkX1 * w,
           c.v0 + kInkY1 * h};
+}
+
+std::vector<u8> Glyphs::SheetPixels() {
+  namespace tc = rex::graphics::texture_conversion;
+  namespace tu = rex::graphics::texture_util;
+  constexpr auto kSheet = bd::Embedded("glyphs/cmn_help_menue.dds");
+  if (kSheet.size <= kSheetPayload)
+    return {};
+  const u8 *src = kSheet.data + kSheetPayload;
+  const size_t bytes = kSheet.size - kSheetPayload;
+
+  constexpr u32 kWidth = kSheetCols * kSheetCellPx;
+  constexpr u32 kHeight = kSheetRows * kSheetCellPx;
+  std::vector<u8> rgba(size_t(kWidth) * kHeight * 4, 0);
+  for (u32 by = 0; by < kHeight / kBlockEdge; ++by) {
+    for (u32 bx = 0; bx < kWidth / kBlockEdge; ++bx) {
+      const i32 off = tu::GetTiledOffset2D(i32(bx), i32(by), kSheetBlockPitch,
+                                           kSheetBlockLog2);
+      if (off < 0 || size_t(off) + kSheetBlockBytes > bytes)
+        continue;
+      u8 block[kSheetBlockBytes];
+      tc::CopySwapBlock(rex::graphics::xenos::Endian::k8in16, block, src + off,
+                        kSheetBlockBytes);
+      DecodeBC3Block(
+          block,
+          rgba.data() + (size_t(by) * kBlockEdge * kWidth + bx * kBlockEdge) * 4,
+          kWidth);
+    }
+  }
+  return rgba;
+}
+
+int Glyphs::PadSheetCell(int padButton) const {
+  const int idx = PadSetIndex(padButton);
+  return idx < 0 ? -1 : PadSetCell(pad_, idx);
+}
+
+bool Glyphs::PadButtonUV(int padButton, UVRect &uv) const {
+  const int cell = PadSheetCell(padButton);
+  if (cell < 0)
+    return false;
+  const UVRect c = CellRect(cell);
+  const f32 w = c.u1 - c.u0;
+  const f32 h = c.v1 - c.v0;
+  uv = {c.u0 + kInkX0 * w, c.v0 + kInkY0 * h, c.u0 + kInkX1 * w,
+        c.v0 + kInkY1 * h};
+  return true;
 }
 
 int Glyphs::ModifierIndex(std::string_view prefix) {
@@ -417,18 +484,17 @@ void Glyphs::Apply() {
 std::vector<u8> Glyphs::ComposeSheet() const {
   constexpr auto kSheet = bd::Embedded("glyphs/cmn_help_menue.dds");
   std::vector<u8> blob(kSheet.data, kSheet.data + kSheet.size);
-  // The shipped block is a 360 pad's, so that is the one combination with
-  // nothing to substitute.
-  const bool keyboard = resolved_ == GlyphSet::Keyboard;
-  if ((!keyboard && pad_ == PadSet::Xbox360) || blob.size() <= kSheetPayload)
+  if (blob.size() <= kSheetPayload)
     return blob;
+  const bool keyboard = resolved_ == GlyphSet::Keyboard;
   u8 *payload = blob.data() + kSheetPayload;
   const u8 *src = kSheet.data + kSheetPayload;
   const size_t bytes = blob.size() - kSheetPayload;
   for (int i = 0; i < kHelpCells; ++i) {
     const GlyphCell &c = kCells[i];
-    BlitSheetCell(payload, src, bytes, c.padCell,
-                  keyboard ? ArtCell(c) : PadArtCell(pad_, i));
+    const int art = keyboard ? ArtCell(c) : PadArtCell(pad_, i);
+    if (art != c.padCell)
+      BlitSheetCell(payload, src, bytes, c.padCell, art);
   }
   return blob;
 }
@@ -452,9 +518,6 @@ void Glyphs::Tick() {
   const bool keyboard = platform::Keyboard().AnyDown() ||
                         platform::Mouse().AnyButtonDown();
 
-  // The keyboard wins a frame that shows both. The MnK driver turns a held key
-  // into pad state, so 'pad and keyboard together' is a keyboard frame with the
-  // driver doing its job, never a genuine second device.
   if (keyboard) {
     lastDevice_ = GlyphSet::Keyboard;
   } else if (pad) {
@@ -467,10 +530,11 @@ void Glyphs::Tick() {
 
   const GlyphSet want = Wanted();
   const PadSet wantPad = WantedPad();
-  const bool rebound = bindsDirty_.exchange(false, std::memory_order_relaxed);
-  if (want != resolved_ || wantPad != pad_ || rebound) {
+  const u32 bindGen = Bindings::Get().Generation();
+  if (want != resolved_ || wantPad != pad_ || bindGen != bindGeneration_) {
     resolved_ = want;
     pad_ = wantPad;
+    bindGeneration_ = bindGen;
     Apply();
   }
 

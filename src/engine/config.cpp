@@ -97,9 +97,9 @@ u32 Config::NewTables() const {
   return self ? static_cast<u32>(self->newTables) : 0;
 }
 
-u32 Config::AltMap() const {
+bool Config::CamRollInv() const {
   const auto *self = Self<Config_t>();
-  return self ? static_cast<u32>(self->altMap) : 0;
+  return self && static_cast<u32>(self->camRollInv) != 0;
 }
 
 bool Config::SetHddCache(u32 v) {

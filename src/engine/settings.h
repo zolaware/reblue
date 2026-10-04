@@ -47,8 +47,8 @@ public:
   bool MapGimmickMarkers() const { return mapGimmickMarkers_; }
   bool SetMapGimmickMarkers(bool v);
 
-  // Hovering a menu row moves the game's own cursor onto it.
-  bool MouseMenu() const { return mouseMenu_; }
+  bool MouseInput() const { return mouseInput_; }
+  bool SetMouseInput(bool v);
 
   // The cursor move sound effect on a mouse-driven row change.
   bool MouseCursorSFX() const { return mouseCursorSFX_; }
@@ -100,7 +100,7 @@ private:
   void AdoptMapGimmickMarkers();
   void AdoptHudMode();
   void AdoptHudFadeDelay();
-  void AdoptMouseMenu();
+  void AdoptMouseInput();
   void AdoptMouseCursorSFX();
   void AdoptMouseCursorOpacity();
   void AdoptGlyphSetMode();
@@ -116,7 +116,7 @@ private:
   bool mapGimmickMarkers_ = false;
   engine::HudMode hudMode_ = engine::HudMode::Always;
   f64 hudFadeDelay_ = 5.0;
-  bool mouseMenu_ = true;
+  bool mouseInput_ = true;
   bool mouseCursorSFX_ = true;
   i32 mouseCursorOpacity_ = 80;
   bool vibration_ = true;

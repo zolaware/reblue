@@ -16,9 +16,14 @@
 #include "engine/d2anime/d2anime.h"
 #include "engine/sfx.h"
 #include "engine/game_options.h"
+#include "engine/input/binding_store.h"
+#include "engine/input/input_sources.h"
 #include "engine/menus/config_layout.h"
 #include "engine/menus/config_menu_data.h"
 #include "platform/platform.h"
+
+#include <algorithm>
+#include <cstdlib>
 
 #include <rex/types.h>
 
@@ -26,20 +31,24 @@ namespace bd::engine {
 
 namespace {
 
-int PadArrowUnderPointer() {
-  f32 x = 0.0f, y = 0.0f;
-  if (!CursorInMenuSpace(x, y))
-    return 0;
-  constexpr f32 kSlop = 16.0f;
-  if (y < f32(kPadArrowY) - kSlop || y > f32(kPadArrowY + kPadArrowSize) + kSlop)
-    return 0;
-  if (x >= f32(kPadArrowLeftX) - kSlop &&
-      x <= f32(kPadArrowLeftX + kPadArrowSize) + kSlop)
-    return -1;
-  if (x >= f32(kPadArrowRightX) - kSlop &&
-      x <= f32(kPadArrowRightX + kPadArrowSize) + kSlop)
-    return 1;
-  return 0;
+bool IsBind(const BindEntry &entry) {
+  return entry.cell != BindCell::Header && entry.cell != BindCell::Blank;
+}
+
+bool PadPressed(Action action) {
+  for (const Source &source : Bindings::Get().Sources(action)) {
+    if (source.kind == SourceKind::PadButton &&
+        InputSources::Get().Active(source))
+      return true;
+  }
+  return false;
+}
+
+bool PadHeld(Button button) {
+  Source source;
+  source.kind = SourceKind::PadButton;
+  source.code = static_cast<u16>(button);
+  return InputSources::Get().Active(source);
 }
 
 } // namespace
@@ -88,14 +97,14 @@ bool ConfigMenu::PointerHop() {
 }
 
 void ConfigMenu::HandleSection() {
-  if (CheckAction(GameAction::Confirm)) {
+  if (CheckAction(Action::Confirm)) {
     const State next = SectionState(section_menu_.CursorIndex());
     if (next != State::SECTION)
       Transition(next);
     return;
   }
 
-  if (CheckAction(GameAction::Cancel)) {
+  if (CheckAction(Action::Cancel)) {
     if (DlcChanged() || LanguagesChanged() || settings_restart_dirty_)
       Transition(State::CONFIRM_REBOOT);
     else
@@ -105,7 +114,7 @@ void ConfigMenu::HandleSection() {
 
 // Read-only, so B is the only input the list takes.
 void ConfigMenu::HandleAchvlist() {
-  if (CheckAction(GameAction::Cancel))
+  if (CheckAction(Action::Cancel))
     Transition(State::SECTION);
 }
 
@@ -222,7 +231,7 @@ void ConfigMenu::HandleSettings() {
   if (SettingsSlotToRow(page, slot) < 0) {
     // A pointer parked on a title leaves the cursor there, so the way back out
     // has to be answered before the nudge returns.
-    if (CheckAction(GameAction::Cancel)) {
+    if (CheckAction(Action::Cancel)) {
       Transition(State::SECTION);
       return;
     }
@@ -267,10 +276,10 @@ void ConfigMenu::HandleSettings() {
   // row it started on: the bands are 34px and a drag along one would otherwise
   // fall off it.
   const bool pointer = MenuMouse::Get().MouseHasCursor();
-  const bool confirmDown = CheckAction(GameAction::Confirm);
+  const bool confirmDown = CheckAction(Action::Confirm);
   if (drag_row_ >= 0) {
     f32 x = 0.0f;
-    if (pointer && ActionHeld(GameAction::Confirm) &&
+    if (pointer && ActionHeld(Action::Confirm) &&
         CurrentSettingsList().RowPointerX(drag_row_, x)) {
       SetRowFromPointer(SettingsSlotToRow(page, drag_row_), x, true);
       return;
@@ -295,15 +304,8 @@ void ConfigMenu::HandleSettings() {
           sfx::Play(sfx::kDisabled);
           return;
       }
-      const SettingAction action = SettingsRowAction(page, row);
-      if (!SettingsDisabled(page, row)) {
-        if (action == SettingAction::Keybinds) {
-          Transition(State::KEYBINDS);
-        } else if (action != SettingAction::None) {
-          pad_action_ = action;
-          Transition(State::PADLAYOUT);
-        }
-      }
+      if (SettingsRowAction(page, row) == SettingAction::Keybinds)
+        Transition(State::KEYBINDS);
       return;
     }
 
@@ -339,119 +341,106 @@ void ConfigMenu::HandleSettings() {
     return;
   }
 
-  if (CheckAction(GameAction::Cancel))
+  if (CheckAction(Action::Cancel))
     Transition(State::SECTION);
 }
 
-void ConfigMenu::HandlePadLayout() {
-  MenuMouse::Get().MarkInputOwned();
+bool ConfigMenu::SkipBindSpacer() {
+  const int slot = bind_menu_.CursorIndex();
+  if (IsBind(BindGridEntry(slot)))
+    return false;
 
-  int step = 0;
-  if (CheckButton(Button::Right) || CheckButton(Button::LSRight) ||
-      CheckButton(Button::RB))
-    step = 1;
-  else if (CheckButton(Button::Left) || CheckButton(Button::LSLeft) ||
-           CheckButton(Button::LB))
-    step = -1;
-  else if (CheckAction(GameAction::Confirm) && MenuMouse::Get().PointerActive())
-    step = PadArrowUnderPointer();
-
-  if (step != 0) {
-    constexpr int kTypes = PadLayoutTemplate::kTypeCount;
-    auto &opts = GameOptions::Get();
-    const bool mechat = pad_action_ == SettingAction::MechatLayout;
-    int type = mechat ? opts.CtlMechattType() : opts.CtlNormalType();
-    if (type < 0 || type >= kTypes)
-      type = 0;
-    type = (type + step + kTypes) % kTypes;
-    if (mechat)
-      opts.SetCtlMechattType(type);
-    else
-      opts.SetCtlNormalType(type);
-    sfx::Play(sfx::kCursor);
-    settings_dirty_ = true;
-    RefreshPadLayout();
-    return;
+  constexpr int kCols = 2;
+  const int slots = BindGridRows() * kCols;
+  const int delta = slot - last_bind_slot_;
+  int to = -1;
+  if (delta != 0 && delta % kCols == 0) {
+    int step = delta > 0 ? kCols : -kCols;
+    if (std::abs(delta) > kCols)
+      step = -step;
+    for (int s = slot + step; s >= 0 && s < slots && to < 0; s += step)
+      if (IsBind(BindGridEntry(s)))
+        to = s;
+  } else {
+    for (int d = kCols; d < slots && to < 0; d += kCols) {
+      if (slot - d >= 0 && IsBind(BindGridEntry(slot - d)))
+        to = slot - d;
+      else if (slot + d < slots && IsBind(BindGridEntry(slot + d)))
+        to = slot + d;
+    }
   }
-
-  if (CheckAction(GameAction::Cancel))
-    Transition(State::SETTINGS);
+  if (to < 0)
+    to = last_bind_slot_;
+  bind_menu_.SetCursorIndex(to);
+  last_bind_slot_ = to;
+  return true;
 }
 
 void ConfigMenu::HandleKeybinds() {
-  constexpr auto page = SettingsPage::Keybinds;
-  const int gridSlot = keybind_menu_.CursorIndex();
-
-  // The empty cells are selectable, since the engine bounds the cursor by the
-  // entry count alone, so step the cursor over them in the direction it was
-  // traveling, column preserved. Off the grid's edge it backs out the way it
-  // came. The pointer stands down: hover parks wherever the mouse is, and
-  // fighting it would oscillate.
-  if (KeybindSlotIsSpacer(gridSlot)) {
-    if (!MenuMouse::Get().MouseHasCursor()) {
-      const int dir = last_keybind_slot_ <= gridSlot ? 2 : -2;
-      int to = gridSlot + dir;
-      while (to >= 0 && to < kKeybindSlotCount && KeybindSlotIsSpacer(to))
-        to += dir;
-      if (to < 0 || to >= kKeybindSlotCount) {
-        to = gridSlot - dir;
-        while (to >= 0 && to < kKeybindSlotCount && KeybindSlotIsSpacer(to))
-          to -= dir;
-      }
-      if (to >= 0 && to < kKeybindSlotCount)
-        keybind_menu_.SetCursorIndex(to);
-    }
-  } else {
-    last_keybind_slot_ = gridSlot;
-  }
-
-  const int count = static_cast<int>(SettingsCount(page));
-  const int cursor = KeybindSlotToIndex(gridSlot);
-  const bool onRow =
-      cursor >= 0 && cursor < count && !SettingsDisabled(page, cursor);
-
-  // The key box under the pointer, which a click rebinds and Delete empties.
+  AnimeMenu &list = bind_menu_;
   const bool pointer = MenuMouse::Get().MouseHasCursor();
-  int hoverSlot = -1, hoverChip = -1;
-  f32 hoverX = 0.0f;
-  if (pointer && keybind_menu_.PointerRowX(hoverSlot, hoverX))
-    hoverChip = KeybindItemTemplate::ChipAt(hoverX);
-  const int hoverIndex = KeybindSlotToIndex(hoverSlot);
-  const bool onHover = hoverIndex >= 0 && hoverIndex < count &&
-                       !SettingsDisabled(page, hoverIndex);
 
-  // Left/Right move the cursor across the 2-column grid (engine-driven).
-  // A click captures into the key box it lands on, the primary from anywhere
-  // else on its row. A pad press reads the cursor row instead of a pointer.
-  if (CheckAction(GameAction::Confirm)) {
-    const int target = pointer ? (onHover ? hoverIndex : -1)
-                               : (onRow ? cursor : -1);
-    if (target >= 0) {
-      capture_index_ = target;
-      capture_alt_ = pointer && hoverChip == 1;
-      bd::platform::BeginKeyCapture();
-      Transition(State::KEYBIND_CAPTURE);
+  const int cursor = list.CursorIndex();
+  const BindEntry current = BindGridEntry(cursor);
+  if (IsBind(current))
+    last_bind_slot_ = cursor;
+  else if (!pointer && SkipBindSpacer())
+    return;
+
+  int hoverRow = -1, hoverChip = -1;
+  f32 hoverX = 0.0f;
+  if (pointer && list.PointerRowX(hoverRow, hoverX))
+    hoverChip = KeybindItemTemplate::ChipAt(hoverX);
+  const BindEntry hovered = BindGridEntry(hoverRow);
+
+  if (CheckAction(Action::Confirm)) {
+    const int slot = pointer ? hoverRow : cursor;
+    int chip = 0;
+    if (pointer)
+      chip = std::max(hoverChip, 0);
+    else if (PadPressed(Action::Confirm))
+      chip = kBindPadChip;
+    const BindEntry entry = BindGridEntry(slot);
+    if (entry.cell == BindCell::MouseInput) {
+      if (ToggleMouseInput()) {
+        sfx::Play(sfx::kToggle);
+        settings_dirty_ = true;
+      }
+      return;
     }
+    if (!IsBind(entry))
+      return;
+    if (BindChipFixed(entry, chip)) {
+      sfx::Play(sfx::kDisabled);
+      return;
+    }
+    capture_slot_ = slot;
+    capture_chip_ = chip;
+    conflict_shown_ = false;
+    bd::platform::BeginKeyCapture();
+    Transition(State::KEYBIND_CAPTURE);
     return;
   }
 
-  // Hover plus Delete empties one key box. The bind list stores primary then
-  // alternate, so an emptied primary promotes the alternate beside it.
   const bool delDown =
       bd::platform::Keyboard().IsDown(rex::ui::VirtualKey::kDelete);
-  if (delDown && !del_held_ && onHover && hoverChip >= 0) {
-    if (!SettingsKeybindToken(page, hoverIndex, hoverChip == 1).empty() &&
-        SetKeybind(page, hoverIndex, "", hoverChip == 1))
+  if (delDown && !del_held_ && IsBind(hovered) && hoverChip >= 0) {
+    const bool cleared = hovered.cell == BindCell::MouseInput
+                             ? ClearBindEntry(hovered)
+                             : ClearBindChip(hovered, hoverChip);
+    if (cleared)
       settings_dirty_ = true;
   }
   del_held_ = delDown;
 
-  // Emptying a whole row lives here rather than inside the capture, so it
-  // costs no key: a capture that read Delete as 'clear' would be a Delete
-  // nobody could bind.
   if (CheckButton(Button::X)) {
-    if (onRow && ClearKeybind(page, cursor))
-      settings_dirty_ = true;
+    if (IsBind(current)) {
+      const bool cleared = PadHeld(Button::X)
+                               ? ClearBindChip(current, kBindPadChip)
+                               : ClearBindEntry(current);
+      if (cleared)
+        settings_dirty_ = true;
+    }
     return;
   }
 
@@ -460,13 +449,12 @@ void ConfigMenu::HandleKeybinds() {
     return;
   }
 
-  // settings_page_ is still Input, so return to the page that opened this.
-  if (CheckAction(GameAction::Cancel))
+  if (CheckAction(Action::Cancel))
     Transition(State::SETTINGS);
 }
 
 void ConfigMenu::HandleModlist() {
-  if (CheckAction(GameAction::Confirm)) {
+  if (CheckAction(Action::Confirm)) {
     Transition(State::REORDER);
     return;
   }
@@ -498,7 +486,7 @@ void ConfigMenu::HandleModlist() {
     return;
   }
 
-  if (CheckAction(GameAction::Cancel))
+  if (CheckAction(Action::Cancel))
     Transition(State::SECTION);
 }
 
@@ -529,7 +517,7 @@ void ConfigMenu::HandleDLCList() {
     return;
   }
 
-  if (CheckAction(GameAction::Cancel))
+  if (CheckAction(Action::Cancel))
     Transition(State::SECTION);
 }
 
@@ -553,7 +541,7 @@ void ConfigMenu::HandleLangList() {
   }
 #endif
 
-  if (CheckAction(GameAction::Cancel))
+  if (CheckAction(Action::Cancel))
     Transition(State::SECTION);
 }
 
@@ -643,7 +631,7 @@ void ConfigMenu::HandleLangJob() {
   std::string error;
   switch (PollLanguageJob(error)) {
   case LanguageJobOutcome::Running:
-    if (CheckAction(GameAction::Cancel) && LanguageJobCancelable())
+    if (CheckAction(Action::Cancel) && LanguageJobCancelable())
       RequestLanguageJobCancel();
     break;
   case LanguageJobOutcome::Canceled:
@@ -662,29 +650,32 @@ void ConfigMenu::HandleLangJob() {
 }
 
 void ConfigMenu::HandleLangNotice() {
-  if (CheckAction(GameAction::Confirm) || CheckAction(GameAction::Cancel))
+  if (CheckAction(Action::Confirm) || CheckAction(Action::Cancel))
     Transition(State::LANGLIST);
 }
 
 void ConfigMenu::HandleKeybindCapture() {
-  const std::string key = bd::platform::PollKeyCapture();
-  if (!key.empty()) {
-    if (SetKeybind(SettingsPage::Keybinds, capture_index_, key, capture_alt_))
+  const std::string token = bd::platform::PollKeyCapture();
+  if (!token.empty()) {
+    const BindEntry entry = BindGridEntry(capture_slot_);
+    Action owner = entry.action;
+    if (!BindChipAccepts(capture_chip_, token)) {
+      sfx::Play(sfx::kDisabled);
+    } else if (SetBindChip(entry, capture_chip_, token, &owner)) {
       settings_dirty_ = true;
-    capture_index_ = -1;
-    capture_alt_ = false;
+      conflict_action_ = owner;
+      conflict_shown_ = owner != entry.action;
+    }
+    capture_slot_ = -1;
+    capture_chip_ = -1;
     Transition(State::KEYBINDS);
     return;
   }
 
-  // A pad button is the only thing that can back out, because every key press
-  // is a bind. Reserving one to mean cancel would be one key nobody could bind,
-  // the case clearing from the list behind this exists to avoid. While a
-  // hit waits for its release, cancel stands down: a captured RMB or Escape is
-  // also the cancel bind, and the driver's press out of it is not a cancel.
-  if (!bd::platform::KeyCapturePending() && CheckAction(GameAction::Cancel)) {
-    capture_index_ = -1;
-    capture_alt_ = false;
+  if (bd::platform::KeyCaptureCanceled() ||
+      (!bd::platform::KeyCapturePending() && CheckAction(Action::Cancel))) {
+    capture_slot_ = -1;
+    capture_chip_ = -1;
     Transition(State::KEYBINDS);
     BD_DEBUG("[config] rebind canceled");
   }
@@ -700,13 +691,13 @@ void ConfigMenu::HandleReorder() {
     BD_DEBUG("[config] reorder: swapped to position {}", cursor);
   }
 
-  if (CheckAction(GameAction::Confirm)) {
+  if (CheckAction(Action::Confirm)) {
     Transition(State::MODLIST);
     BD_DEBUG("[config] reorder confirmed at position {}", cursor);
     return;
   }
 
-  if (CheckAction(GameAction::Cancel)) {
+  if (CheckAction(Action::Cancel)) {
     Transition(State::MODLIST);
     BD_DEBUG("[config] reorder canceled");
   }
@@ -788,11 +779,11 @@ void ConfigMenu::HandleConfirmResetBinds() {
   confirm_popup_.Kill();
 
   if (confirmed) {
-    if (ResetKeybinds(SettingsPage::Keybinds))
+    if (ResetAllKeybinds())
       settings_dirty_ = true;
-    BD_DEBUG("[config] keybinds reset to defaults");
+    BD_DEBUG("[config] binds reset to defaults");
   } else {
-    BD_DEBUG("[config] keybind reset declined");
+    BD_DEBUG("[config] bind reset declined");
   }
 
   Transition(State::KEYBINDS);

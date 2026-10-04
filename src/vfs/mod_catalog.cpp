@@ -9,7 +9,6 @@
  */
 #include "vfs/mod_catalog.h"
 #include "core/logging.h"
-#include "vfs/file_system.h"
 #include "vfs/mounts.h"
 
 #include <algorithm>
@@ -52,6 +51,51 @@ size_t CountEnabled(const std::vector<ModPackage> &packages) {
   return n;
 }
 
+void MergeDbRows(const toml::table &tbl, const std::filesystem::path &toml_path,
+                 DbRows &rows) {
+  const auto *db = tbl["db"].as_table();
+  if (!db)
+    return;
+  for (auto &&[name, node] : *db) {
+    auto &table = rows[Key::FromRelative(name.str())];
+    if (const auto row = node.value<std::string>()) {
+      table.push_back(*row);
+    } else if (const auto *list = node.as_array()) {
+      for (const auto &element : *list) {
+        if (const auto row = element.value<std::string>())
+          table.push_back(*row);
+        else
+          BD_WARN("[mods] {} [db] '{}' holds a row that is not a string",
+                  toml_path.string(), name.str());
+      }
+    } else {
+      BD_WARN("[mods] {} [db] '{}' is neither a row nor an array of rows",
+              toml_path.string(), name.str());
+    }
+  }
+}
+
+ModPackage MergeEntityDbRows(const std::filesystem::path &mod_dir,
+                             ModPackage pkg) {
+  namespace fs = std::filesystem;
+
+  std::error_code ec;
+  const fs::path entities = mod_dir / "entities";
+  if (!fs::is_directory(entities, ec))
+    return pkg;
+  for (const auto &entry : fs::directory_iterator(entities, ec)) {
+    const fs::path toml_path = entry.path() / "entity.toml";
+    if (!entry.is_directory() || !fs::exists(toml_path, ec))
+      continue;
+    try {
+      MergeDbRows(toml::parse_file(toml_path.string()), toml_path, pkg.db);
+    } catch (const toml::parse_error &e) {
+      BD_WARN("[mods] failed to parse {}: {}", toml_path.string(), e.what());
+    }
+  }
+  return pkg;
+}
+
 } // namespace
 
 std::filesystem::path ModCatalog::OrderFilePath() const {
@@ -62,16 +106,22 @@ std::filesystem::path ModCatalog::OrderFilePath() const {
 
 ModPackage ModCatalog::ParseTOML(const std::filesystem::path &mod_dir,
                                  const std::string &folder_name) {
+  namespace fs = std::filesystem;
+
   ModPackage pkg;
   pkg.folder = folder_name;
   pkg.name = folder_name;
 
+  // A ShadowForge source tree names its toml after the mod instead.
   auto toml_path = mod_dir / "mod.toml";
-  if (!std::filesystem::exists(toml_path))
-    return pkg;
+  if (!fs::exists(toml_path))
+    toml_path = mod_dir / (folder_name + ".toml");
+  if (!fs::exists(toml_path))
+    return MergeEntityDbRows(mod_dir, std::move(pkg));
 
   try {
     auto tbl = toml::parse_file(toml_path.string());
+    MergeDbRows(tbl, toml_path, pkg.db);
     auto mod = tbl["mod"];
 
     if (auto v = mod["name"].value<std::string>())
@@ -95,7 +145,7 @@ ModPackage ModCatalog::ParseTOML(const std::filesystem::path &mod_dir,
     BD_WARN("[mods] failed to parse {}: {}", toml_path.string(), e.what());
   }
 
-  return pkg;
+  return MergeEntityDbRows(mod_dir, std::move(pkg));
 }
 
 // Rebuilds packages_ from disk: every mod_order.txt entry (enabled, in file
@@ -199,6 +249,13 @@ bool ModCatalog::IsEnabled(size_t i) const {
   return packages_[i].enabled;
 }
 
+bool ModCatalog::IsEnabled(std::string_view folder) const {
+  auto it =
+      std::find_if(packages_.begin(), packages_.end(),
+                   [&](const ModPackage &pkg) { return pkg.folder == folder; });
+  return it != packages_.end() && it->enabled;
+}
+
 void ModCatalog::SetEnabled(size_t i, bool on) {
   if (i >= packages_.size())
     return;
@@ -275,8 +332,16 @@ size_t ModCatalog::MountMods() {
     files += mount->KeyCount();
 
     auto name = "mod:" + pkg.folder;
+    auto patch_name = name + ":db";
     files_->Add(name, kPriorityMod, std::move(mount));
     mount_names_.push_back(std::move(name));
+
+    // Registered after the mod's own files so it sits above them: rows a mod
+    // declares extend a table it also ships whole.
+    if (pkg.db.empty())
+      continue;
+    files_->AddPatch(patch_name, kPriorityMod, pkg.db);
+    mount_names_.push_back(std::move(patch_name));
   }
   return files;
 }

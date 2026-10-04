@@ -15,8 +15,6 @@
 #include <plume_render_interface.h>
 
 #include "core/logging.h"
-#include "gpu/frame_stats.h"
-#include "gpu/gpu_timing.h"
 #include "gpu/hooks/tweaks.h"
 #include "gpu/occlusion.h"
 
@@ -118,8 +116,6 @@ void Occlusion::Begin() {
       plume::RenderBarrierStage::COPY,
       plume::RenderBufferBarrier(s.occlusion_counter[slot].get(),
                                  plume::RenderBufferAccess::WRITE));
-  NoteBarrierCall(1, BarrierSite::Occlusion);
-  MarkResolve(s.command_list);
   s.command_list->copyBufferRegion(s.occlusion_counter[slot]->at(0),
                                    s.occlusion_zero->at(0), 4);
   s.command_list->barriers(
@@ -127,8 +123,6 @@ void Occlusion::Begin() {
       plume::RenderBufferBarrier(s.occlusion_counter[slot].get(),
                                  plume::RenderBufferAccess::READ |
                                      plume::RenderBufferAccess::WRITE));
-  NoteBarrierCall(1, BarrierSite::Occlusion);
-  MarkResolve(s.command_list);
 
   s.occlusion_counting = true;
   Video::SetDirtyValue(s.dirtyStates.pipelineState, s.pipelineState.occlusionCounting,
@@ -152,8 +146,6 @@ void Occlusion::End() {
       plume::RenderBarrierStage::COPY,
       plume::RenderBufferBarrier(s.occlusion_counter[slot].get(),
                                  plume::RenderBufferAccess::READ));
-  NoteBarrierCall(1, BarrierSite::Occlusion);
-  MarkResolve(s.command_list);
   s.command_list->copyBufferRegion(s.occlusion_readback[slot]->at(0),
                                    s.occlusion_counter[slot]->at(0), 4);
   s.occlusion_result_pending[slot] = true;

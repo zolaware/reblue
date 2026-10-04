@@ -15,6 +15,7 @@
 #include "engine/d2anime/anime_hittest.h"
 #include "engine/d2anime/anime_menu.h"
 #include "engine/d2anime/command_select_task.h"
+#include "engine/input/action_state.h"
 #include "engine/sfx.h"
 #include "engine/settings.h"
 #include "engine/virtual_buttons.h"
@@ -90,7 +91,7 @@ MenuMouse &MenuMouse::Get() {
 }
 
 bool MenuMouse::PointerActive() const {
-  return mouseHasCursor_ && Settings::Get().MouseMenu();
+  return mouseHasCursor_ && Settings::Get().MouseInput();
 }
 
 int MenuMouse::TakeWheelDetents() {
@@ -120,7 +121,7 @@ void MenuMouse::Observe(u32 menuVA) {
 
   // Above the hit test, not below it: edge scrolling runs off a pointer parked
   // clear of the rows and would otherwise never see the pad take the cursor.
-  if (menu.InputBits() != 0) {
+  if (menu.InputBits() != 0 && !InputActions::Get().Forced()) {
     mouseHasCursor_ = false;
     return;
   }
@@ -153,7 +154,8 @@ void MenuMouse::ObserveCommandSelect(u32 taskVA) {
   sawAnyMenu_ = true;
   focusedSelect_ = task;
 
-  if ((task.InputBits() & kCmdSelectDirectionBits) != 0) {
+  if ((task.InputBits() & kCmdSelectDirectionBits) != 0 &&
+      !InputActions::Get().Forced()) {
     mouseHasCursor_ = false;
     return;
   }
@@ -463,7 +465,7 @@ void MenuMouse::BeginFrame() {
   // their hover bands, and with no focused menu the detents stay banked for
   // the area map's zoom.
   if (wheel_ != 0 && !focusedSelect && focusedMenu &&
-      Settings::Get().MouseMenu()) {
+      Settings::Get().MouseInput()) {
     WheelScroll(focusedMenu.Address(), TakeWheelDetents());
     pendingMenu_.Reset();
     pendingIndex_ = -1;

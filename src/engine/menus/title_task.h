@@ -26,6 +26,9 @@ public:
   u32 Cursor() const;
   void SetCursor(u32 cursor);
 
+  u32 DiscSetting() const;
+  void SetDiscSetting(u32 setting);
+
   u32 VoicePick() const;
   void SetVoicePick(u32 pick);
 

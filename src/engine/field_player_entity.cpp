@@ -29,13 +29,21 @@ struct FieldSkillSlot_t {
 };
 static_assert(sizeof(FieldSkillSlot_t) == 0x0C);
 
+enum class PlyManState : u32 {
+  kControlled = 1,
+  kControlledAlt = 12,
+};
+
 struct FieldPlayerEntity_t {
-  /* 0x000 */ u8 _pad000[0x78];
+  /* 0x000 */ u8 _pad000[0x70];
+  /* 0x070 */ be_u32 state;
+  /* 0x074 */ u8 _pad074[0x78 - 0x74];
   /* 0x078 */ be_u32 rosterHead;
   /* 0x07C */ be_u32 activeHead;
   /* 0x080 */ u8 _pad080[0x250 - 0x080];
   /* 0x250 */ FieldSkillSlot_t fieldSkills[2];
 };
+static_assert(offsetof(FieldPlayerEntity_t, state) == 0x070);
 static_assert(offsetof(FieldPlayerEntity_t, rosterHead) == 0x078);
 static_assert(offsetof(FieldPlayerEntity_t, activeHead) == 0x07C);
 static_assert(offsetof(FieldPlayerEntity_t, fieldSkills) == 0x250);
@@ -77,6 +85,18 @@ List<PlyTask> FieldPlayerEntity::Roster() const {
 }
 
 PlyTask FieldPlayerEntity::Leader() const { return Party().At(0); }
+
+bool FieldPlayerEntity::HasControl() const {
+  const auto *self = Self<FieldPlayerEntity_t>();
+  if (!self)
+    return false;
+  switch (static_cast<PlyManState>(static_cast<u32>(self->state))) {
+  case PlyManState::kControlled:
+  case PlyManState::kControlledAlt:
+    return true;
+  }
+  return false;
+}
 
 bool FieldPlayerEntity::HasFieldSkill(int slot) const {
   const auto *self = Self<FieldPlayerEntity_t>();

@@ -30,8 +30,6 @@
 #include "gpu/d3d.h"
 #include "gpu/device.h"
 #include "gpu/format.h"
-#include "gpu/frame_stats.h"
-#include "gpu/gpu_timing.h"
 #include "gpu/host_resource_heap.h"
 #include "gpu/output.h"
 #include "gpu/shaders/shader_cache.h"
@@ -98,7 +96,6 @@ void DispatchDraw(u32 device_guest, u32 primitive_type, const char *name,
   // GPU number in the capture. Coarse GPU cost comes from the per-frame zones.
   BD_CPU_ZONE_DYN(zone_name);
 #endif
-  bd::gpu::NoteDraw();
   // One lock across the whole recording sequence: loader threads record texture
   // uploads and Present records under the same mutex, and the per-frame command
   // list they all write is single-producer.
@@ -121,7 +118,6 @@ void DispatchDraw(u32 device_guest, u32 primitive_type, const char *name,
   auto *cmd_list = s.command_list;
   if (!cmd_list)
     return;
-  bd::gpu::MarkDraw(cmd_list);
 
   if (primitive_type == 13) {
     u32 quads = args.vertexOrIndexCount / 4;
@@ -170,8 +166,8 @@ enum class UVEdges {
   CellSeam, // only edges sitting on an interior texel boundary
 };
 
-void FitDesignCanvasVertices(u8 *verts, u32 vertexCount, u32 vertexStride,
-                             bool normalized);
+void FitDesignCanvasVertices(u8 *verts, u32 primitiveType, u32 vertexCount,
+                             u32 vertexStride, bool normalized);
 void InsetQuadUVs(u8 *verts, u32 vertexCount, u32 vertexStride, UVEdges edges);
 bool IsScreenSpriteQuad(u32 primitiveType, u32 vertexCount, u32 vertexStride);
 
@@ -185,7 +181,8 @@ bool UploadAndBindUpVertices(u32 primitiveType, u32 pVertexData,
   if (!alloc.memory)
     return false;
   const bool text_batch = pVertexData == kTextQuadBatchEA;
-  FitDesignCanvasVertices(alloc.memory, vertexCount, vertexStride, text_batch);
+  FitDesignCanvasVertices(alloc.memory, primitiveType, vertexCount,
+                          vertexStride, text_batch);
   if (text_batch)
     InsetQuadUVs(alloc.memory, vertexCount, vertexStride, UVEdges::All);
   else if (IsScreenSpriteQuad(primitiveType, vertexCount, vertexStride))
@@ -361,6 +358,17 @@ void InsetQuadUVs(u8 *verts, u32 vertexCount, u32 vertexStride, UVEdges edges) {
 // Authored extents this far apart still count as the same canvas edge.
 constexpr float kCanvasEdgeTolerance = 8.0f;
 
+bool IsOnePrimitive(u32 primitiveType, u32 vertexCount) {
+  switch (static_cast<xe::PrimitiveType>(primitiveType)) {
+  case xe::PrimitiveType::kTriangleStrip:
+  case xe::PrimitiveType::kTriangleFan:
+  case xe::PrimitiveType::kLineStrip:
+    return true;
+  default:
+    return vertexCount <= 4;
+  }
+}
+
 // Scales one 2D draw about the canvas center. It has to be the geometry rather
 // than a shrunk viewport: the rasterizer clips to the NDC box before the
 // viewport transform, so a backdrop reaching for the surface edge would be cut
@@ -368,8 +376,8 @@ constexpr float kCanvasEdgeTolerance = 8.0f;
 //
 // Applied to the uploaded copy, so guest memory is untouched. 'normalized' says
 // the draw arrived already divided by the 2D basis, as the text batch is.
-void FitDesignCanvasVertices(u8 *verts, u32 vertexCount, u32 vertexStride,
-                             bool normalized) {
+void FitDesignCanvasVertices(u8 *verts, u32 primitiveType, u32 vertexCount,
+                             u32 vertexStride, bool normalized) {
   if (!verts || !bd::gpu::Video::DesignCanvasDrain() ||
       !Is2DPrimStride(vertexStride) || !vertexCount)
     return;
@@ -403,11 +411,13 @@ void FitDesignCanvasVertices(u8 *verts, u32 vertexCount, u32 vertexStride,
   // Covering the canvas, not matching it: a menu's ground is often authored
   // well past the edges, and scaling one of those inward opens a gap at the
   // very edge it was oversized to reach.
-  const bool one_quad = vertexCount <= 4;
-  const bool spans_x =
-      one_quad && min_x <= tol_x && max_x >= canvas_x - tol_x;
-  const bool spans_y =
-      one_quad && min_y <= tol_y && max_y >= canvas_y - tol_y;
+  const bool one = IsOnePrimitive(primitiveType, vertexCount);
+  const bool covers_x = one && min_x <= tol_x && max_x >= canvas_x - tol_x;
+  const bool covers_y = one && min_y <= tol_y && max_y >= canvas_y - tol_y;
+  const bool flush_x = one && (min_x <= tol_x || max_x >= canvas_x - tol_x);
+  const bool flush_y = one && (min_y <= tol_y || max_y >= canvas_y - tol_y);
+  const bool spans_x = covers_x || (covers_y && flush_x);
+  const bool spans_y = covers_y || (covers_x && flush_y);
   const float scale_x = spans_x ? 1.0f : kx;
   const float scale_y = spans_y ? 1.0f : ky;
   if (scale_x == 1.0f && scale_y == 1.0f)

@@ -42,6 +42,7 @@ void VFS::Init(const std::filesystem::path &game_root,
                const std::filesystem::path &cache_root) {
   paths_ = vfs::Paths(game_root, paths_.Profile());
   BD_INFO("[vfs] install root {}", paths_.Install().string());
+  files_.SetDiscRoot(paths_.Game());
   dlc_.Init(paths_.DLC());
   mods_.Init(paths_.Mods(), files_);
   // Content packs carry no per-profile enable state, so unlike the other two

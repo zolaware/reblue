@@ -1,10 +1,4 @@
 [[midasm_hook]]
-address = 0x821335A4
-name = "bdSceneFSAASeedHook"
-registers = ["r11"]
-after_instruction = true
-
-[[midasm_hook]]
 address = 0x82186C40
 name = "bdSceneTilingSuppressHook"
 registers = []
@@ -16,6 +10,12 @@ address = 0x8213307C
 name = "bdSceneRenderScaleHook"
 registers = ["r31"]
 after_instruction = true
+
+[[midasm_hook]]
+address = 0x8213597C
+name = "bdSceneRenderScaleHook"
+registers = ["r31"]
+after_instruction = false
 
 [[midasm_hook]]
 address = 0x82178670
@@ -60,6 +60,12 @@ registers = ["r3", "r4"]
 after_instruction = false
 
 [[midasm_hook]]
+address = 0x82175308
+name = "bdShadowMapTextureResizeHook"
+registers = ["r31"]
+after_instruction = false
+
+[[midasm_hook]]
 address = 0x82175974
 name = "bdShadowCoverageScaleHook"
 registers = ["f1"]
@@ -99,6 +105,12 @@ after_instruction = false
 address = 0x82215B28
 name = "bdBloomBlurTapStepHook"
 registers = ["f0", "f13"]
+after_instruction = false
+
+[[midasm_hook]]
+address = 0x8221B238
+name = "bdBloomPoolInvalidateHook"
+registers = ["r31"]
 after_instruction = false
 
 [[midasm_hook]]
@@ -148,4 +160,10 @@ jump_address_on_true = 0x822191A0
 address = 0x82217600
 name = "bdDOFIntermediateScaleHook"
 registers = ["r28", "r26"]
+after_instruction = false
+
+[[midasm_hook]]
+address = 0x82217130
+name = "bdDOFPoolInvalidateHook"
+registers = ["r31"]
 after_instruction = false

@@ -56,6 +56,8 @@ public:
 
   ScaOp CurrentOp() const;
 
+  bool Busy() const;
+
   engine::SceneFile Scene() const;
   std::string ScenePath() const;
 

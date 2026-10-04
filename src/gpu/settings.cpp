@@ -14,6 +14,8 @@
 
 #include "core/logging.h"
 #include "core/settings.h" // kCvarGroup
+#include "gpu/output.h"
+#include "gpu/pipeline/pso_predictor.h"
 
 REXCVAR_DECLARE(bool, bd_pso_precache);
 REXCVAR_DECLARE(bool, bd_geometry_gpu_upload);
@@ -22,7 +24,6 @@ REXCVAR_DECLARE(bool, bd_scene_color_r11g11b10);
 REXCVAR_DECLARE(i32, bd_anisotropy);
 REXCVAR_DECLARE(i32, bd_supersampling);
 REXCVAR_DECLARE(i32, bd_msaa);
-REXCVAR_DECLARE(i32, bd_render_scale);
 REXCVAR_DECLARE(i32, bd_post_quality);
 REXCVAR_DECLARE(i32, bd_reflection_quality);
 REXCVAR_DECLARE(bool, bd_ntsc_filter);
@@ -61,56 +62,40 @@ REXCVAR_DEFINE_INT32(bd_anisotropy, bd::gpu::kDefaultSettings.anisotropy,
 REXCVAR_DEFINE_INT32(bd_supersampling, bd::gpu::kDefaultSettings.superSampling,
                      kCvarGroup,
                      "Render the scene at 2x the output resolution and "
-                     "downsample. 1 = off, 2 = on. Requires restart.")
+                     "downsample. 1 = off, 2 = on.")
     .range(1, 2)
     .validator([](std::string_view v) {
       int n = 0;
       auto r = std::from_chars(v.data(), v.data() + v.size(), n);
       return r.ec == std::errc() && (n == 1 || n == 2);
-    })
-    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+    });
 
 REXCVAR_DEFINE_INT32(bd_msaa, bd::gpu::kDefaultSettings.msaa, kCvarGroup,
                      "MSAA sample count for the 3D scene: 0 = off, 2, 4, 8. "
-                     "Clamped to device support. Requires restart.")
+                     "Clamped to device support.")
     .range(0, 8)
     .validator([](std::string_view v) {
       int n = 0;
       auto r = std::from_chars(v.data(), v.data() + v.size(), n);
       return r.ec == std::errc() && (n == 0 || n == 2 || n == 4 || n == 8);
-    })
-    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
-
-REXCVAR_DEFINE_INT32(bd_render_scale, bd::gpu::kDefaultSettings.renderScale,
-                     kCvarGroup,
-                     "Percent of the output resolution the 3D scene renders "
-                     "at, upscaled at present. 100 renders at the output "
-                     "resolution, and the design canvas of 1280x720 is the "
-                     "floor whatever the percent works out to. Requires "
-                     "restart.")
-    .range(50, 100)
-    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+    });
 
 REXCVAR_DEFINE_INT32(bd_post_quality,
                      static_cast<i32>(bd::gpu::kDefaultSettings.postQuality),
                      kCvarGroup,
                      "Resolution the bloom and depth-of-field chain runs at: "
                      "0 = half the scene, 1 = the scene, 2 = the widened "
-                     "bloom target the native renderer builds. Requires "
-                     "restart.")
+                     "bloom target the native renderer builds.")
     .range(static_cast<i32>(bd::gpu::PostQuality::Low),
-           static_cast<i32>(bd::gpu::PostQuality::High))
-    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+           static_cast<i32>(bd::gpu::PostQuality::High));
 
 REXCVAR_DEFINE_INT32(
     bd_reflection_quality,
     static_cast<i32>(bd::gpu::kDefaultSettings.reflectionQuality), kCvarGroup,
     "How far a planar reflection grows past the size BD authored: 0 = not at "
-    "all, 1 = with the render resolution, 2 = with supersampling too. "
-    "Requires restart.")
-    .range(static_cast<i32>(bd::gpu::ReflectionQuality::Off),
-           static_cast<i32>(bd::gpu::ReflectionQuality::High))
-    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+    "all, 1 = with the render resolution, 2 = with supersampling too.")
+    .range(static_cast<i32>(bd::gpu::ReflectionQuality::Low),
+           static_cast<i32>(bd::gpu::ReflectionQuality::High));
 
 REXCVAR_DEFINE_BOOL(bd_ntsc_filter, false, kCvarGroup,
                     "Restore BD's analog-TV scanline filter. Every shipped "
@@ -131,15 +116,14 @@ REXCVAR_DEFINE_DOUBLE(bd_dof_strength, 1.0, kCvarGroup,
 REXCVAR_DEFINE_INT32(bd_shadow_dimension,
                      bd::gpu::kDefaultSettings.shadowDimension, kCvarGroup,
                      "Sun shadow-map resolution in pixels. Only "
-                     "512/1024/2048/4096/8192, requires restart.")
+                     "512/1024/2048/4096/8192.")
     .range(512, 8192)
     .validator([](std::string_view v) {
       int n = 0;
       auto r = std::from_chars(v.data(), v.data() + v.size(), n);
       return r.ec == std::errc() &&
              (n == 512 || n == 1024 || n == 2048 || n == 4096 || n == 8192);
-    })
-    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+    });
 
 // A range alone does not reject NaN: neither NaN < min nor NaN > max is ever
 // true, so it passes validation and reaches shadowPcfScale, where clamp and
@@ -203,6 +187,7 @@ void Settings::AdoptShadowDistance() {
 void Settings::AdoptVsync() { vsync_ = REXCVAR_GET(bd_vsync); }
 void Settings::AdoptAspectRatio() {
   aspectRatio_ = REXCVAR_GET(bd_aspect_ratio);
+  Output::Recompute();
 }
 void Settings::AdoptFOVOffset() { fovOffset_ = REXCVAR_GET(bd_fov_offset); }
 void Settings::AdoptShadowDimension() {
@@ -221,9 +206,11 @@ void Settings::AdoptSceneColorR11G11B10() {
 void Settings::AdoptSuperSampling() {
   superSampling_ = REXCVAR_GET(bd_supersampling);
 }
-void Settings::AdoptMSAA() { msaa_ = REXCVAR_GET(bd_msaa); }
-void Settings::AdoptRenderScale() {
-  renderScale_ = REXCVAR_GET(bd_render_scale);
+void Settings::AdoptMSAA() {
+  const i32 was = msaa_;
+  msaa_ = REXCVAR_GET(bd_msaa);
+  if (msaa_ != was && msaa_ != 0)
+    ReemitPredictions();
 }
 void Settings::AdoptPostQuality() {
   postQuality_ = REXCVAR_GET(bd_post_quality);
@@ -286,10 +273,6 @@ bool Settings::SetMSAA(i32 v) {
   return rex::cvar::SetFlagByName("bd_msaa", FormatCvar(v));
 }
 
-bool Settings::SetRenderScale(i32 v) {
-  return rex::cvar::SetFlagByName("bd_render_scale", FormatCvar(v));
-}
-
 bool Settings::SetPostQuality(i32 v) {
   return rex::cvar::SetFlagByName("bd_post_quality", FormatCvar(v));
 }
@@ -305,7 +288,6 @@ gpu::QualityPreset Settings::QualityPreset() const {
         anisotropy_ == p.anisotropy &&
         std::abs(shadowDistance_ - p.shadowDistance) < kShadowDistanceEpsilon &&
         shadowDimension_ == p.shadowDimension &&
-        renderScale_ == p.renderScale &&
         postQuality_ == static_cast<i32>(p.postQuality) &&
         reflectionQuality_ == static_cast<i32>(p.reflectionQuality)) {
       return static_cast<gpu::QualityPreset>(i);
@@ -326,7 +308,6 @@ bool Settings::SetQualityPreset(gpu::QualityPreset preset) {
   ok = rex::cvar::SetFlagByName("bd_shadow_dimension",
                                 FormatCvar(p.shadowDimension)) &&
        ok;
-  ok = SetRenderScale(p.renderScale) && ok;
   ok = SetPostQuality(static_cast<i32>(p.postQuality)) && ok;
   ok = SetReflectionQuality(static_cast<i32>(p.reflectionQuality)) && ok;
   BD_DEBUG("[config] quality preset = {}", ToString(preset));
@@ -348,7 +329,6 @@ void Settings::AdoptCvars() {
   AdoptSceneColorR11G11B10();
   AdoptSuperSampling();
   AdoptMSAA();
-  AdoptRenderScale();
   AdoptPostQuality();
   AdoptReflectionQuality();
 }
@@ -376,9 +356,13 @@ void Settings::Init() {
   reg("bd_scene_color_r11g11b10", &Settings::AdoptSceneColorR11G11B10);
   reg("bd_supersampling", &Settings::AdoptSuperSampling);
   reg("bd_msaa", &Settings::AdoptMSAA);
-  reg("bd_render_scale", &Settings::AdoptRenderScale);
   reg("bd_post_quality", &Settings::AdoptPostQuality);
   reg("bd_reflection_quality", &Settings::AdoptReflectionQuality);
+
+  rex::cvar::RegisterChangeCallback(
+      "resolution", [](std::string_view, std::string_view) {
+        Output::Recompute();
+      });
 }
 
 } // namespace bd::gpu

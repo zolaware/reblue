@@ -10,7 +10,6 @@ set(reblue_backend_only
     gpu/dred.cpp
     gpu/frame_ring.cpp
     gpu/gpu_profiling.cpp
-    gpu/gpu_timing.cpp
     gpu/hooks/shader.cpp
     gpu/imgui_overlay_drawer.cpp
     gpu/occlusion.cpp

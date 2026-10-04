@@ -7,6 +7,8 @@
 #include <cstddef>
 #include <string>
 
+#include <rex/types.h>
+
 namespace bd::platform {
 
 // Names must match the rex keybind names (rex::ui::ParseVirtualKey) so a
@@ -42,6 +44,8 @@ inline constexpr size_t kBindableKeyCount =
     sizeof(kBindableKeys) / sizeof(kBindableKeys[0]);
 
 
+void SetCapturePadButtons(u32 buttons);
+
 // Snapshot current key state. Keys already held are ignored until released.
 void BeginKeyCapture();
 
@@ -61,5 +65,7 @@ std::string PollKeyCapture();
 // cancel has to stand down through this window: the driver may synthesize a
 // cancel press out of the very key being captured.
 bool KeyCapturePending();
+
+bool KeyCaptureCanceled();
 
 } // namespace bd::platform

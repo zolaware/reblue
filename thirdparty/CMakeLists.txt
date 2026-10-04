@@ -22,8 +22,6 @@ if(NOT TARGET xxHash::xxhash)
 endif()
 
 add_library(reblue_thirdparty OBJECT
-    implot/implot.cpp
-    implot/implot_items.cpp
     miniz/miniz.cpp
     stb/stb_image.cpp
     zstd/zstddeclib.c
@@ -39,7 +37,6 @@ endif()
 
 target_include_directories(reblue_thirdparty PUBLIC
     discord-rpc/include
-    implot
     miniz
     picosha2
     stb
@@ -47,8 +44,3 @@ target_include_directories(reblue_thirdparty PUBLIC
     XenosRecomp/thirdparty/smol-v/source)
 target_compile_options(reblue_thirdparty PRIVATE -w)
 target_link_libraries(reblue_thirdparty PRIVATE rex::runtime)
-
-# GImGui is data in rexruntime.dll with no import thunk. Marking the whole API
-# dllimport instead breaks ImRect, whose inline members are never exported.
-set_source_files_properties(implot/implot.cpp implot/implot_items.cpp
-    PROPERTIES COMPILE_DEFINITIONS "GImGui=ImGui::GetCurrentContext()")

@@ -15,7 +15,6 @@
 #include <string_view>
 
 #include <SDL3/SDL_video.h>
-#include <implot.h>
 
 #include <rex/cvar.h>
 #include <rex/dbg.h>
@@ -34,13 +33,13 @@
 #include "core/app_root.h"
 #include "core/build_info.h"
 #include "core/logging.h"
-#include "core/perf.h"
 #include "core/profiling.h"
 #include "core/settings.h"
 #include "core/settings_migration.h"
 #include "core/settings_model.h"
 #include "core/shutdown.h"
 #include "core/threading.h"
+#include "core/ui_thread.h"
 #include "engine/discord_presence.h"
 #include "engine/engine.h"
 #include "generated/reblue_init.h"
@@ -113,6 +112,8 @@ ResolveSavesRoot(const std::filesystem::path &profile_root) {
 
 constexpr u64 kLogDirBudget = u64(50) << 20;
 
+constexpr bool kOfficialBuild = REBLUE_OFFICIAL_BUILD != 0;
+
 // Created if absent so PSO capture can write into it.
 std::filesystem::path ResolveCacheRoot() {
   std::filesystem::path root = bd::CacheRootFor(bd::AppRootFolder());
@@ -144,13 +145,13 @@ std::string SanitizeProfileName(const std::string &raw) {
 }
 
 // Resolve install_root without the wizard: --game_data_root's parent if set,
-// else a schema-matched registry entry. nullopt on a fresh, unregistered
+// else a schema-matched install record. nullopt on a fresh, unregistered
 // install (the installer wires the profile later, in FinishInstaller).
 std::optional<std::filesystem::path> EarlyInstallRoot() {
   std::string gdr(REXCVAR_GET(game_data_root));
   if (!gdr.empty())
     return std::filesystem::absolute(std::filesystem::path(gdr)).parent_path();
-  if (auto cfg = bd::installer::ReadInstallRegistry())
+  if (auto cfg = bd::installer::InstallConfig::Read())
     if (cfg->schema_version == bd::installer::kInstallSchemaVersion)
       return cfg->install_root;
   return std::nullopt;
@@ -177,18 +178,6 @@ bool SetCvarDefault(std::string_view name, const std::string &value) {
 // Called from the ReblueApp constructor, after every cvar has registered and
 // before ReXApp::OnInitialize loads the config.
 void ApplyReblueCvarDefaults() {
-  // The SDK registers mnk_mode off, but re:Blue wants the keyboard live out of
-  // the box. This also overrides a command-line --no-mnk_mode, which leaves the
-  // value equal to the SDK default and so reads as untouched.
-  if (!SetCvarDefault("mnk_mode", "true"))
-    BD_WARN("mnk_mode not registered, keyboard default not applied");
-
-  // The SDK leaves this off because an ungated title would hold the cursor for
-  // as long as the keyboard is enabled. re:Blue gates it on the look button, so
-  // the pointer is free except while that button is held.
-  if (!SetCvarDefault("mnk_mouse", "true"))
-    BD_WARN("mnk_mouse not registered, mouse look default not applied");
-
   // The SDK's bind defaults are arbitrary. These are the PC convention layout
   // for this game. SetCvarDefault moves the default rather than the value, so a
   // user who has already rebound a key keeps what they chose.
@@ -247,6 +236,7 @@ ReblueApp::Create(rex::ui::WindowedAppContext &ctx) {
 
 ReblueApp::ReblueApp(rex::ui::WindowedAppContext &ctx)
     : rex::ReXApp(ctx, "reblue", PPCImageConfig) {
+  bd::engine::Bindings::Get().Init();
   ApplyReblueCvarDefaults();
 }
 
@@ -265,6 +255,7 @@ void ReblueApp::OnPostInitLogging() {
   bd::vfs::Settings::Get().Init();
   bd::ui::Settings::Get().Init();
   bd::engine::Settings::Get().Init();
+  bd::engine::Bindings::Get().ReportParseErrors();
   bd::engine::GameOptions::Get().Init();
 
   bd::engine::Achievements::Init();
@@ -281,8 +272,9 @@ void ReblueApp::OnPostInitLogging() {
 
   BD_INFO("re:Blue v" REBLUE_VERSION_STRING " [" REXGLUE_BUILD_CONFIG
           "] " REBLUE_BUILD_PLATFORM);
-  BD_INFO("  commit:  " REBLUE_GIT_COMMIT " on " REBLUE_GIT_BRANCH "{}",
-          REBLUE_GIT_DIRTY ? " (local modifications)" : "");
+  BD_INFO("  commit:  " REBLUE_GIT_COMMIT " on " REBLUE_GIT_BRANCH "{}{}",
+          REBLUE_GIT_DIRTY ? " (local modifications)" : "",
+          kOfficialBuild ? "" : " (development build)");
   BD_INFO("  built:   " REBLUE_BUILD_TIMESTAMP " with " REBLUE_BUILD_COMPILER);
   BD_INFO("  sdk:     rexglue-v" REXGLUE_VERSION_STRING
           " " REXGLUE_BUILD_PLATFORM " @" REXGLUE_BUILD_TIMESTAMP);
@@ -324,10 +316,9 @@ void ReblueApp::OnPreSetup(rex::RuntimeConfig &config) {
 }
 
 void ReblueApp::OnConfigureFonts(ImFontAtlas *atlas) {
+  bd::ui::PauseOverlay::InitFonts(atlas);
 #ifdef REBLUE_BUILD_INSTALLER
   bd::installer::InitInstallerFonts(atlas);
-#else
-  (void)atlas;
 #endif
 }
 
@@ -342,36 +333,24 @@ void ReblueApp::OnCreateDialogs(rex::ui::ImGuiDrawer *drawer) {
   bd::platform::Keyboard().Attach(window());
   bd::platform::Mouse().Attach(window());
 
-  i32 cursor_hide_s = bd::ui::Settings::Get().CursorHideSeconds();
-  if (cursor_hide_s > 0) {
-    window()->SetCursorAutoHideDelayMs(u32(cursor_hide_s) * 1000u);
-    window()->SetCursorVisibility(
-        rex::ui::Window::CursorVisibility::kAutoHidden);
-  }
-
-  ImPlot::CreateContext();
-  // Sized for the 120 fps cap. An uncapped run covers proportionally less time.
-  bd::PerfConfigure(u32(bd::Settings::Get().PerfHistorySeconds()) * 120u);
-  // Installing the applier applies the stage Settings already holds, so the
-  // startup path needs no separate call. Nothing clears it, which is safe only
-  // because every exit path ends in RequestShutdown and the drawer is never
-  // reset. Ordered shutdown would have to drop the applier first.
-  bd::ui::Settings::Get().SetOverlayApplier([this, drawer](i32 stage) {
-    SetPerfOverlayStage(static_cast<bd::ui::OverlayStage>(stage), drawer);
+  bd::ui::Settings::Get().SetCursorApplier([this](i32 seconds) {
+    app_context().CallInUIThread([this, seconds] {
+      if (seconds > 0) {
+        window()->SetCursorAutoHideDelayMs(u32(seconds) * 1000u);
+        window()->SetCursorVisibility(
+            rex::ui::Window::CursorVisibility::kAutoHidden);
+      } else {
+        window()->SetCursorVisibility(
+            rex::ui::Window::CursorVisibility::kVisible);
+      }
+    });
   });
 
   fade_overlay_ = std::make_unique<bd::ui::FadeOverlay>(drawer);
+  pause_overlay_ = std::make_unique<bd::ui::PauseOverlay>(drawer);
 
   rex::ui::UnregisterBind("bind_debug_overlay");
-  if (bd::Settings::Get().Devmode()) {
-    rex::ui::RegisterBind(
-        "bind_reblue_menu", "F3", "Cycle reblue perf overlay", [] {
-          const auto stage =
-              bd::ui::NextOverlayStage(static_cast<bd::ui::OverlayStage>(
-                  bd::ui::Settings::Get().PerfOverlay()));
-          bd::ui::Settings::Get().SetPerfOverlay(static_cast<i32>(stage));
-        });
-  } else {
+  if (!bd::Settings::Get().Devmode()) {
     rex::ui::UnregisterBind("bind_settings");
     rex::ui::UnregisterBind("bind_achievements");
   }
@@ -387,6 +366,10 @@ void ReblueApp::OnCreateDialogs(rex::ui::ImGuiDrawer *drawer) {
   });
   bd::SetShutdownUIPump(
       [this] { app_context().ExecutePendingFunctionsFromUIThread(); });
+
+  bd::SetUIThreadDispatcher([this](std::function<void()> fn) {
+    return app_context().CallInUIThread(std::move(fn));
+  });
 
   // Warm reboot: the guest config menu requests it, and the relaunch must run
   // on the UI thread, where the kernel state is reachable (mirrors OnClosing).
@@ -508,10 +491,7 @@ ReblueApp::PathsForInstall(const rex::PathConfig &defaults,
 bool ReblueApp::NeedsUpgradePrompt(
     const bd::installer::InstallConfig &cfg) const {
 #if defined(_WIN32) && defined(REBLUE_BUILD_INSTALLER)
-  // From outside the install this is a downloaded build run over an older one,
-  // not a swap the updater already made. Asking also keeps a build-dir exe off
-  // the install a developer is testing against.
-  return ProgramDir() != cfg.install_root;
+  return !cfg.Portable() && ProgramDir() != cfg.install_root;
 #else
   (void)cfg;
   return false;
@@ -519,8 +499,9 @@ bool ReblueApp::NeedsUpgradePrompt(
 }
 
 void ReblueApp::RestampInstall(const bd::installer::InstallConfig &cfg) {
-  if (!bd::installer::WriteInstallRegistry(cfg))
-    BD_WARN("Registry restamp failed, this upgrade will be offered again");
+  if (!cfg.Write())
+    BD_WARN(
+        "Install record restamp failed, this upgrade will be offered again");
 }
 
 #if defined(_WIN32) && defined(REBLUE_BUILD_INSTALLER)
@@ -598,27 +579,32 @@ ReblueApp::OnFinalizePaths(const rex::PathConfig &defaults,
 #endif
 
   std::optional<bd::installer::InstallConfig> existing_install;
-  if (auto cfg = bd::installer::ReadInstallRegistry()) {
+  if (auto cfg = bd::installer::InstallConfig::Read()) {
     if (cfg->schema_version == bd::installer::kInstallSchemaVersion &&
         !repair_requested) {
       if (cfg->app_version != REBLUE_VERSION_STRING) {
         BD_INFO("Install at {} records version '{}', running '{}'",
                 cfg->install_root.string(), cfg->app_version,
                 REBLUE_VERSION_STRING);
+        const bool newer = bd::platform::Version::Compare(
+                               REBLUE_VERSION_STRING, cfg->app_version) > 0;
+        if (kOfficialBuild && newer) {
 #if defined(_WIN32) && defined(REBLUE_BUILD_INSTALLER)
-        if (NeedsUpgradePrompt(*cfg)) {
-          // The prompt draws through the pre-guest pump, so the renderer has
-          // to be up before it is raised. From here BeginUpgrade owns the
-          // boot: it either resumes or quits.
-          if (!BeginPreGuestUI())
+          if (NeedsUpgradePrompt(*cfg)) {
+            // The prompt draws through the pre-guest pump, so the renderer has
+            // to be up before it is raised. From here BeginUpgrade owns the
+            // boot: it either resumes or quits.
+            if (!BeginPreGuestUI())
+              return std::nullopt;
+            BeginUpgrade(*cfg, defaults, resume);
             return std::nullopt;
-          BeginUpgrade(*cfg, defaults, resume);
-          return std::nullopt;
-        }
+          }
 #endif
-        RestampInstall(*cfg);
+          RestampInstall(*cfg);
+        }
       }
-      BD_INFO("Resolved install from registry");
+      BD_INFO("Resolved install from {}",
+              bd::installer::ToString(cfg->connector));
       BD_INFO("  install root:   {}", cfg->install_root.string());
       BD_INFO("  game data:      {}", cfg->game_data_path().string());
       BD_INFO("  user data:      {}", cfg->user_data_path().string());
@@ -666,7 +652,7 @@ ReblueApp::OnFinalizePaths(const rex::PathConfig &defaults,
   return std::nullopt;
 #else
   // No built-in installer: the external reBlue launcher performs the install,
-  // writing the registry that ReadInstallRegistry consumes above.
+  // writing the install record that InstallConfig::Read consumes above.
   (void)resume;
   bd::platform::ShowFatalError(
       "reblue - game not installed",
@@ -769,8 +755,9 @@ void ReblueApp::FinishInstaller(rex::PathConfig defaults,
   }
 #endif
 
-  if (!bd::installer::WriteInstallRegistry(cfg))
-    BD_WARN("Registry write failed, continuing into game for this session");
+  if (!cfg.Write())
+    BD_WARN(
+        "Install record write failed, continuing into game for this session");
   BD_INFO("Installed to {}", cfg.install_root.string());
   for (int i = 0; i < bd::installer::kDiscCount; ++i)
     BD_INFO("  disc{} hash:     {}", i + 1, cfg.iso_fingerprints[i]);
@@ -878,10 +865,9 @@ void ReblueApp::OnPreLaunchModule() {
   bd::vfs::VFS::Get().Init(rt->game_data_root(), rt->cache_root());
   bd::vfs::VFS::Get().SetProfile(profile_root);
 
-  // Arms the channel watch only. The check itself runs at the title, ahead of
+  // Arms the channel watch. The check itself runs at the title, ahead of
   // the guest's own downloadable-content load.
-  bd::platform::Updates::Get().Start();
-  bd::engine::UpdatePrompt::Get().Init(install_root_);
+  bd::platform::Updates::Get().Init(install_root_);
 
   bd::engine::MountSaveStore(rt->file_system(), ResolveSavesRoot(profile_root));
 
@@ -946,7 +932,7 @@ bool ReblueApp::PendingOverlayWork() const {
   auto &updates = Updates::Get();
   if (updates.State() == Updates::Stage::kChecking)
     return true;
-  if (Updates::CanApply() && updates.HasNewer() &&
+  if (updates.CanApply() && updates.HasNewer() &&
       updates.Generation() != update_prompt_generation_)
     return true;
   const auto sync = Sync::Get().State();
@@ -963,7 +949,7 @@ void ReblueApp::UpdateCheckStatus() {
 }
 
 void ReblueApp::MaybeShowUpdatePrompt() {
-  if (!bd::platform::Updates::CanApply())
+  if (!bd::platform::Updates::Get().CanApply())
     return;
   const u32 generation = bd::platform::Updates::Get().Generation();
   if (generation == update_prompt_generation_)
@@ -979,7 +965,6 @@ void ReblueApp::MaybeShowUpdatePrompt() {
   update_prompt_generation_ = generation;
 
   bd::ui::UpdatePromptContext ctx;
-  ctx.install_root = install_root_;
   ctx.version = newer->version;
   if (const auto manifest = bd::platform::Updates::Get().Current()) {
     if (const auto *artifact = manifest->ArtifactForThisPlatform())
@@ -993,20 +978,6 @@ void ReblueApp::OnWindowPixelSizeChanged(u32 pixel_width, u32 pixel_height) {
   (void)pixel_width;
   (void)pixel_height;
   bd::gpu::Video::RequestResize();
-}
-
-void ReblueApp::SetPerfOverlayStage(bd::ui::OverlayStage stage,
-                                    rex::ui::ImGuiDrawer *drawer) {
-  if (stage == bd::ui::OverlayStage::Off) {
-    perf_overlay_.reset();
-    watermark_.reset();
-    return;
-  }
-  if (!perf_overlay_)
-    perf_overlay_ = std::make_unique<bd::ui::PerfOverlay>(drawer);
-  if (!watermark_)
-    watermark_ = std::make_unique<bd::ui::WatermarkOverlay>(drawer);
-  perf_overlay_->SetStage(stage);
 }
 
 bool ReblueApp::OnWindowCloseRequested() {

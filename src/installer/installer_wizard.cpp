@@ -8,6 +8,7 @@
 #include "installer/installer_wizard.h"
 
 #include <imgui.h>
+#include <rex/filesystem.h>
 #include <stb_image.h>
 
 #include <algorithm>
@@ -81,7 +82,7 @@ void InitInstallerFonts(ImFontAtlas *atlas) {
   cfg.OversampleV = 2;
 
   auto load = [&](float px) {
-    constexpr auto kFont = bd::Embedded("installer/HelveticaNeueRoman.otf");
+    constexpr auto kFont = bd::Embedded("fonts/HelveticaNeueRoman.otf");
     return atlas->AddFontFromMemoryTTF(const_cast<u8 *>(kFont.data),
                                        static_cast<int>(kFont.size),
                                        px, &cfg);
@@ -111,7 +112,12 @@ InstallerWizard::InstallerWizard(
   if (existing) {
     for (int i = 0; i < kDiscCount; ++i)
       discs_[i].fingerprint = existing->iso_fingerprints[i];
+    connector_ = existing->connector;
   }
+  picked_dir_ = install_dir_;
+  portable_allowed_ = !repair_ && !bd::IsPackagedApplication() &&
+                      bd::DirectoryWritable(
+                          rex::filesystem::GetExecutableFolder());
 
   InitDLCCatalog();
 }
@@ -132,6 +138,7 @@ void InstallerWizard::Finish(bool completed) {
 
   InstallConfig cfg;
   cfg.install_root = std::filesystem::absolute(install_dir_);
+  cfg.connector = connector_;
   for (int i = 0; i < kDiscCount; ++i)
     cfg.iso_fingerprints[i] = discs_[i].fingerprint;
 
@@ -265,8 +272,25 @@ void InstallerWizard::PickInstallDir() {
   if (!picked)
     return;
   install_dir_ = *picked;
+  picked_dir_ = install_dir_;
   install_status_.clear();
   // The store lives under the install root, so the picker has to follow it.
+  InitDLCCatalog();
+}
+
+void InstallerWizard::SetPortable(bool portable) {
+  const bool was_portable = connector_ == InstallConnector::kPortableFile;
+  if (portable == was_portable)
+    return;
+  if (portable) {
+    picked_dir_ = install_dir_;
+    install_dir_ = rex::filesystem::GetExecutableFolder();
+    connector_ = InstallConnector::kPortableFile;
+  } else {
+    install_dir_ = picked_dir_;
+    connector_ = kPlatformConnector;
+  }
+  install_status_.clear();
   InitDLCCatalog();
 }
 
@@ -565,9 +589,29 @@ void InstallerWizard::DrawContent() {
 
   ImGui::Dummy(ImVec2(0, 10));
   SectionHeader(T("installer.section.install_dir"));
-  DirectoryRow(T("installer.install_location"),
-               T(repair_ ? "installer.hint.existing" : "installer.hint.space"),
-               install_dir_, "install_dir", [this]() { PickInstallDir(); });
+  if (!repair_)
+    DrawInstallMode();
+  if (connector_ == InstallConnector::kPortableFile) {
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(T("installer.install_location"));
+    ImGui::SameLine();
+    ImGui::PushStyleColor(ImGuiCol_Text, bd::ui::Theme::White(0.55f));
+    ImGui::TextUnformatted(
+        T(repair_ ? "installer.hint.existing" : "installer.hint.portable"));
+    ImGui::PopStyleColor();
+    if (g_path_font)
+      ImGui::PushFont(g_path_font);
+    ImGui::Indent(12.0f);
+    ImGui::TextWrapped("%s", install_dir_.string().c_str());
+    ImGui::Unindent(12.0f);
+    if (g_path_font)
+      ImGui::PopFont();
+  } else {
+    DirectoryRow(
+        T("installer.install_location"),
+        T(repair_ ? "installer.hint.existing" : "installer.hint.space"),
+        install_dir_, "install_dir", [this]() { PickInstallDir(); });
+  }
 
   ImGui::Dummy(ImVec2(0, 10));
   DrawDLCSection();
@@ -687,6 +731,25 @@ void InstallerWizard::DrawLanguages() {
       voices.empty() ? i18n::Text("installer.language.movies")
                      : i18n::Fmt("installer.language.movies_of", voices);
   ImGui::Checkbox(movies_label.c_str(), &movies_);
+}
+
+void InstallerWizard::DrawInstallMode() {
+  const bool portable = connector_ == InstallConnector::kPortableFile;
+  if (ImGui::RadioButton(T("installer.mode.installed"), !portable))
+    SetPortable(false);
+  ImGui::SameLine(0, 24);
+  ImGui::BeginDisabled(!portable_allowed_);
+  if (ImGui::RadioButton(T("installer.mode.portable"), portable))
+    SetPortable(true);
+  ImGui::EndDisabled();
+  if (!portable_allowed_) {
+    ImGui::SameLine();
+    ImGui::PushStyleColor(ImGuiCol_Text, bd::ui::Theme::White(0.55f));
+    ImGui::TextUnformatted(T(bd::IsPackagedApplication()
+                                 ? "installer.hint.portable_packaged"
+                                 : "installer.hint.portable_readonly"));
+    ImGui::PopStyleColor();
+  }
 }
 
 void InstallerWizard::DrawOptions() {

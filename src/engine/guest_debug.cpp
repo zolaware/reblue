@@ -52,17 +52,17 @@ void ApplyDebugConfig() {
   Game::Get().SetMindowsHidden(!dev);
 }
 
-void ToggleMindows() {
+} // namespace
+
+void Game::ToggleMindows() {
   if (!bd::Settings::Get().Devmode())
     return;
 
-  Game &game = Game::Get();
-  const bool hidden = game.MindowsHidden();
-  game.SetMindowsHidden(!hidden);
+  const bool hidden = MindowsHidden();
+  SetMindowsHidden(!hidden);
   BD_INFO("Mindows overlay {}", hidden ? "shown" : "hidden");
 }
 
-} // namespace
 } // namespace bd::engine
 
 // Fires after bdGameSettingsInit writes defaults.
@@ -81,7 +81,7 @@ void bdKeyboardPollHook() {
   if (!bd::Settings::Get().Devmode())
     return;
   if (bd::platform::PollMindowsHotkey())
-    bd::engine::ToggleMindows();
+    bd::engine::Game::Get().ToggleMindows();
   bd::platform::PollKeyboardToGuest();
 }
 

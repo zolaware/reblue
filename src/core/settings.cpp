@@ -16,8 +16,6 @@ REXCVAR_DECLARE(bool, bd_dbgprint);
 REXCVAR_DECLARE(std::string, bd_language);
 REXCVAR_DECLARE(bool, bd_i18n_keys);
 REXCVAR_DECLARE(std::string, bd_lang_path);
-REXCVAR_DECLARE(i32, bd_perf_history_seconds);
-REXCVAR_DECLARE(bool, bd_perf_csv);
 REXCVAR_DECLARE(bool, bd_profiler);
 REXCVAR_DECLARE(i32, bd_shutdown_timeout_ms);
 REXCVAR_DECLARE(bool, bd_update_check);
@@ -46,15 +44,6 @@ REXCVAR_DEFINE_STRING(bd_lang_path, "lang", kCvarGroup,
                       "Folder searched for a localization.toml of UI text "
                       "overrides. Relative to the app data folder.");
 
-REXCVAR_DEFINE_INT32(bd_perf_history_seconds, 20, kCvarGroup,
-                     "Seconds of per-frame telemetry retained for the F3 "
-                     "overlay and CSV capture.")
-    .range(5, 120);
-
-REXCVAR_DEFINE_BOOL(bd_perf_csv, false, kCvarGroup,
-                    "Write per-frame telemetry to logs/perf/*.csv. Toggling "
-                    "starts a new file.");
-
 REXCVAR_DEFINE_BOOL(bd_profiler, false, kCvarGroup,
                     "Start the Tracy profiler at boot so a viewer can attach. "
                     "Read at startup only, and inert in playtest builds, which "
@@ -81,12 +70,9 @@ REXCVAR_DEFINE_STRING(bd_update_channel, REBLUE_UPDATE_CHANNEL, kCvarGroup,
                       "Which builds the check offers: stable or nightly. "
                       "Names the manifest read under bd_update_base.");
 
-// Saves live beside the game, NOT under user_data_root: that root is handed to
-// the XAM content manager, so nesting saves inside it makes the two contend
-// over the same host subtree and breaks overwrites.
 REXCVAR_DEFINE_STRING(
     bd_saves_path, "", "reblue",
-    "Save-game directory. Empty = <install_root>/saves (beside the game).");
+    "Save-game directory. Empty = the active profile's saves folder.");
 REXCVAR_DEFINE_STRING(
     bd_cache_path, "", "reblue",
     "Transient cache directory (PSO capture). Empty = <exe_dir>/cache.");
@@ -136,10 +122,6 @@ void Settings::AdoptI18nKeys() { i18nKeys_ = REXCVAR_GET(bd_i18n_keys); }
 void Settings::AdoptLanguagePath() {
   languagePath_ = REXCVAR_GET(bd_lang_path);
 }
-void Settings::AdoptPerfHistorySeconds() {
-  perfHistorySeconds_ = REXCVAR_GET(bd_perf_history_seconds);
-}
-void Settings::AdoptPerfCSV() { perfCSV_ = REXCVAR_GET(bd_perf_csv); }
 void Settings::AdoptProfiler() { profiler_ = REXCVAR_GET(bd_profiler); }
 void Settings::AdoptShutdownTimeoutMs() {
   shutdownTimeoutMs_ = REXCVAR_GET(bd_shutdown_timeout_ms);
@@ -165,11 +147,6 @@ void Settings::ComposeUpdateUrl() {
                    : updateBase_ + "/manifest/" + ToString(updateChannel_) +
                          ".toml";
 }
-
-void Settings::AdoptMnk() {
-  mnk_ = rex::cvar::GetFlagByName("mnk_mode") == "true";
-}
-
 
 void Settings::AdoptSavesPath() { savesPath_ = REXCVAR_GET(bd_saves_path); }
 void Settings::AdoptCachePath() { cachePath_ = REXCVAR_GET(bd_cache_path); }
@@ -201,14 +178,6 @@ bool Settings::SetI18nKeys(bool v) {
   return rex::cvar::SetFlagByName("bd_i18n_keys", FormatCvar(v));
 }
 
-bool Settings::SetPerfHistorySeconds(i32 v) {
-  return rex::cvar::SetFlagByName("bd_perf_history_seconds", FormatCvar(v));
-}
-
-bool Settings::SetPerfCSV(bool v) {
-  return rex::cvar::SetFlagByName("bd_perf_csv", FormatCvar(v));
-}
-
 bool Settings::SetShutdownTimeoutMs(i32 v) {
   return rex::cvar::SetFlagByName("bd_shutdown_timeout_ms", FormatCvar(v));
 }
@@ -228,12 +197,9 @@ bool Settings::SetUpdateChannel(bd::UpdateChannel v) {
 void Settings::AdoptCvars() {
   AdoptDevmode();
   AdoptDbgPrint();
-  AdoptMnk();
   AdoptLanguage();
   AdoptI18nKeys();
   AdoptLanguagePath();
-  AdoptPerfHistorySeconds();
-  AdoptPerfCSV();
   AdoptProfiler();
   AdoptShutdownTimeoutMs();
   AdoptUpdateCheck();
@@ -255,12 +221,9 @@ void Settings::Init() {
   };
   reg("bd_devmode", &Settings::AdoptDevmode);
   reg("bd_dbgprint", &Settings::AdoptDbgPrint);
-  reg("mnk_mode", &Settings::AdoptMnk);
   reg("bd_language", &Settings::AdoptLanguage);
   reg("bd_i18n_keys", &Settings::AdoptI18nKeys);
   reg("bd_lang_path", &Settings::AdoptLanguagePath);
-  reg("bd_perf_history_seconds", &Settings::AdoptPerfHistorySeconds);
-  reg("bd_perf_csv", &Settings::AdoptPerfCSV);
   reg("bd_profiler", &Settings::AdoptProfiler);
   reg("bd_shutdown_timeout_ms", &Settings::AdoptShutdownTimeoutMs);
   reg("bd_update_check", &Settings::AdoptUpdateCheck);

@@ -42,6 +42,8 @@ public:
   FieldEncounterMenu() = default;
   explicit FieldEncounterMenu(u32 address) : Object(address) {}
 
+  static constexpr int kSkillSlots = 2;
+
   List<FieldEncounterRow> Rows() const;
 
   // 0 enemy list, 1 field skills, 2 item list.
@@ -50,10 +52,14 @@ public:
   u32 EnemyRows() const;
   void SetSelectedCount(u32 count);
 
+  bool StateSettled() const;
+
+  void SetState(u32 state);
+
   // The cursor value whose highlight bar covers the point, or -1. The inverse
   // of bdFieldEncounterMenuCursorPos, so the pointer and the drawn bar can
   // never disagree about which row was meant.
-  int CursorAt(f32 x, f32 y) const;
+  int CursorAt(f32 x, f32 y, u32 &state) const;
 
   // The last cursor value the current state accepts: the fight or use row on
   // the lists, the second skill slot between them.

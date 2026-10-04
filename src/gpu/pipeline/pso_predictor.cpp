@@ -492,6 +492,16 @@ void OnDeclRegistered(u32 slotVa, u8 stride) {
   EmitAssetDeclLocked(asset, rec);
 }
 
+void ReemitPredictions() {
+  std::lock_guard<std::mutex> lock(g_mutex);
+  g_emitted.clear();
+  if (!TrySnapshotLocked())
+    return;
+  for (const auto &[lm, asset] : g_assets)
+    for (const DeclRecord &d : asset.decls)
+      EmitAssetDeclLocked(asset, d);
+}
+
 bool IsPairPredicted(u64 vsHash, u64 psHash) {
   std::lock_guard<std::mutex> lock(g_mutex);
   return g_predicted.contains(PairKey(vsHash, psHash));

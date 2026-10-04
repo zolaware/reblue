@@ -26,7 +26,6 @@
 
 #include "core/logging.h"
 #include "gpu/constant_buffers.h"
-#include "gpu/gpu_timing.h"
 #include "gpu/host_resource_heap.h"
 #include "gpu/native_texture_mirror.h"
 #include "gpu/physical_buffers.h"
@@ -61,7 +60,6 @@ void BeginCommandList(VideoState &s) {
   s.command_list->setGraphicsDescriptorSet(s.texture_descriptor_set.get(), 1);
   s.command_list->setGraphicsDescriptorSet(s.texture_descriptor_set.get(), 2);
   s.command_list->setGraphicsDescriptorSet(s.sampler_descriptor_set.get(), 3);
-  FrameBegin(s.device.get(), s.command_list, cur);
   s.command_list_open = true;
   s.dirtyStates.vertexStreamFirst = 0;
   s.dirtyStates.vertexStreamLast = 15;
@@ -228,7 +226,6 @@ void AdvanceAndWaitReused(VideoState &s) {
   if (s.command_list_submitted[slot]) {
     s.queue->waitForCommandFence(s.fences[slot].get());
     s.command_list_submitted[slot] = false;
-    CollectGPUTimings(slot);
 #if defined(REXGLUE_ENABLE_PROFILING) && defined(REBLUE_D3D12)
     if (auto *ctx = GpuProfilerCtx()) {
       TracyD3D12NewFrame(ctx);
@@ -243,7 +240,6 @@ void SubmitOpenListLocked(VideoState &s) {
   if (!s.command_list_open)
     return;
   const u32 cur = s.frame.load(std::memory_order_relaxed);
-  FrameEnd(s.command_lists[cur].get());
   s.command_lists[cur]->end();
   s.command_list_open = false;
   const plume::RenderCommandList *lists[] = {s.command_lists[cur].get()};

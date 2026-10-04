@@ -28,24 +28,10 @@ public:
   void AdoptCvars();
 
   // Seconds of mouse inactivity over the window before the cursor hides.
-  // 0 = never hide. Restart-bound: the value updates here as soon as it is
-  // set, but the cursor keeps the timeout it booted with.
   i32 CursorHideSeconds() const { return cursorHideSeconds_; }
   bool SetCursorHideSeconds(i32 v);
 
-  // F3 overlay stage: 0 off, 1 KPI strip, 2 graphs, 3 interactive.
-  i32 PerfOverlay() const { return perfOverlay_; }
-  bool SetPerfOverlay(i32 v);
-
-  // Perf overlay background opacity, percent.
-  i32 PerfOverlayAlpha() const { return perfOverlayAlpha_; }
-  bool SetPerfOverlayAlpha(i32 v);
-
-  // The overlay stage is applied through the ImGui drawer, which does not
-  // exist yet when Init runs. ReblueApp installs the applier once it does,
-  // and from then on every stage change reaches it, including one typed at
-  // the console.
-  void SetOverlayApplier(std::function<void(i32)> applier);
+  void SetCursorApplier(std::function<void(i32)> applier);
 
 private:
   Settings() = default;
@@ -56,14 +42,10 @@ private:
   // calls every one. Each setting's registered change callback calls only its
   // own, so one setting changing never re-reads the others.
   void AdoptCursorHideSeconds();
-  void AdoptPerfOverlay();
-  void AdoptPerfOverlayAlpha();
 
   i32 cursorHideSeconds_ = 5;
-  i32 perfOverlay_ = 0;
-  i32 perfOverlayAlpha_ = 35;
 
-  std::function<void(i32)> overlayApplier_;
+  std::function<void(i32)> cursorApplier_;
 };
 
 } // namespace bd::ui

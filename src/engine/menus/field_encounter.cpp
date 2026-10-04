@@ -14,7 +14,6 @@
 #include "engine/d2anime/anime_hittest.h"
 #include "engine/d2anime/anime_input.h"
 #include "engine/d2anime/anime_mouse.h"
-#include "engine/game.h"
 #include "engine/menus/field_encounter_menu.h"
 #include "engine/settings.h"
 #include "engine/sfx.h"
@@ -42,6 +41,30 @@ void MoveCursor(FieldEncounterMenu menu, int to) {
     sfx::Play(sfx::kCursor);
 }
 
+bool CrossStates(FieldEncounterMenu menu, u32 to, int &cursor) {
+  const u32 from = menu.State();
+  if (from == to)
+    return true;
+  if (!menu.StateSettled() || (from != 0 && from != 1) || (to != 0 && to != 1))
+    return false;
+  if (cursor < 0)
+    cursor = to == 0 ? int(menu.EnemyRows()) : 0;
+  menu.SetState(to);
+  return true;
+}
+
+void SpinCursor(FieldEncounterMenu menu, int cursor, int last, int detents) {
+  int next = std::clamp(cursor - detents, 0, last);
+  if (next == cursor) {
+    next = -1;
+    const u32 to = detents < 0 ? 1 : 0;
+    if (to == menu.State() || !CrossStates(menu, to, next))
+      return;
+  }
+  MenuMouse::Get().ArmWheelGuard();
+  MoveCursor(menu, next);
+}
+
 void DriveEncounterMouse(FieldEncounterMenu menu) {
   auto &mm = MenuMouse::Get();
 
@@ -52,7 +75,7 @@ void DriveEncounterMouse(FieldEncounterMenu menu) {
 
   if (!menu)
     return;
-  if (!Settings::Get().MouseMenu())
+  if (!Settings::Get().MouseInput())
     return;
 
   if (PadMovedCursor()) {
@@ -65,17 +88,8 @@ void DriveEncounterMouse(FieldEncounterMenu menu) {
   if (last < 0)
     return;
 
-  // Wheel up walks toward the top of the list. The engine's own update pulls
-  // the scroll window after the cursor, so a step past the window's edge
-  // needs nothing more here.
   if (const int detents = mm.TakeWheelDetents()) {
-    const int next = std::clamp(cursor - detents, 0, last);
-    if (next != cursor &&
-        (menu.State() != 1 ||
-         Game::Get().FieldPlayerEntity().HasFieldSkill(next))) {
-      mm.ArmWheelGuard();
-      MoveCursor(menu, next);
-    }
+    SpinCursor(menu, cursor, last, detents);
     return;
   }
 
@@ -85,8 +99,11 @@ void DriveEncounterMouse(FieldEncounterMenu menu) {
   f32 y = 0.0f;
   if (!CursorInMenuSpace(x, y))
     return;
-  const int hit = menu.CursorAt(x, y);
-  if (hit < 0 || hit == cursor)
+  u32 hitState = 0;
+  int hit = menu.CursorAt(x, y, hitState);
+  if (hit < 0 || (hitState == menu.State() && hit == cursor))
+    return;
+  if (!CrossStates(menu, hitState, hit))
     return;
   MoveCursor(menu, hit);
 }

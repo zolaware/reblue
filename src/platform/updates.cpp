@@ -70,18 +70,21 @@ Updates &Updates::Get() {
   return s;
 }
 
-bool Updates::CanApply() {
-#if defined(_WIN32) || defined(__APPLE__)
-  return true;
-#else
-  static const bool can_apply = !RunningAppImage().empty();
-  return can_apply;
-#endif
-}
-
-void Updates::Start() {
+void Updates::Init(std::filesystem::path install_root) {
   if (started_.exchange(true))
     return;
+  install_root_ = std::move(install_root);
+
+#if defined(_WIN32) || defined(__APPLE__)
+  const std::filesystem::path target = install_root_;
+#else
+  const std::filesystem::path appimage = RunningAppImage();
+  const std::filesystem::path target =
+      appimage.empty() ? std::filesystem::path{} : appimage.parent_path();
+#endif
+  can_apply_ = !target.empty() && bd::DirectoryWritable(target);
+  if (!can_apply_)
+    BD_INFO("Updates cannot be applied here, none will be offered");
 
   // Settings registered its own callback at OnPostInitLogging and callbacks
   // run in registration order, so the URL below is already the new channel's.
@@ -89,6 +92,8 @@ void Updates::Start() {
       "bd_update_channel",
       [this](std::string_view, std::string_view) { BeginCheck(); });
 }
+
+bool Updates::CanApply() const { return can_apply_; }
 
 void Updates::BeginCheck() {
   const auto &settings = bd::Settings::Get();
@@ -186,7 +191,7 @@ u64 Updates::ApplyBytesDone() const { return apply_done_.load(); }
 
 u64 Updates::ApplyBytesTotal() const { return apply_total_.load(); }
 
-void Updates::BeginApply(const std::filesystem::path &install_root) {
+void Updates::BeginApply() {
   if (apply_started_.exchange(true))
     return;
   apply_done_.store(0);
@@ -196,13 +201,13 @@ void Updates::BeginApply(const std::filesystem::path &install_root) {
   // Detached, and this singleton outlives the process: nothing that raised the
   // offer has to stay alive for the download, and quitting mid-download never
   // waits on it.
-  std::thread([this, install_root] {
-    apply_result_.store(Apply(install_root));
+  std::thread([this] {
+    apply_result_.store(Apply());
     apply_stage_.store(ApplyStage::kDone);
   }).detach();
 }
 
-Updates::ApplyResult Updates::Apply(const std::filesystem::path &install_root) {
+Updates::ApplyResult Updates::Apply() {
   const DownloadProgress progress = [this](u64 done, u64 total) {
     apply_done_.store(done, std::memory_order_relaxed);
     if (total != 0)
@@ -220,7 +225,6 @@ Updates::ApplyResult Updates::Apply(const std::filesystem::path &install_root) {
 
   namespace fs = std::filesystem;
 #if !defined(_WIN32) && !defined(__APPLE__)
-  (void)install_root;
   const fs::path appimage = RunningAppImage();
   if (appimage.empty()) {
     BD_ERROR("Update apply needs a running Type 2 AppImage");
@@ -258,9 +262,9 @@ Updates::ApplyResult Updates::Apply(const std::filesystem::path &install_root) {
           manifest->app_version, appimage.string());
   return ApplyResult::kStaged;
 #else
-  const auto zip = bd::CacheRootFor(install_root) / "update" /
+  const auto zip = bd::CacheRootFor(install_root_) / "update" /
                    ("reblue-" + manifest->app_version + ".zip");
-  const auto staging = install_root / kStagingDir;
+  const auto staging = install_root_ / kStagingDir;
 
 #if defined(__APPLE__)
   // Nothing to swap the download into, so this fails before spending the

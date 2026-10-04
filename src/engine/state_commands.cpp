@@ -499,7 +499,5 @@ REXCVAR_DEFINE_COMMAND_ARGS(
               "pos_y={:.2f}",
               o.MusicVolume(), o.SeVolume(), o.Brightness(), o.ScreenPosX(),
               o.ScreenPosY());
-      BD_INFO("[game] ctl_normal={} ctl_mechatt={}", o.CtlNormalType(),
-              o.CtlMechattType());
     },
     "GameState", "Dump the stock game options");

@@ -50,8 +50,6 @@ void KeyboardInput::Set(rex::ui::VirtualKey vk, bool down) {
 }
 
 bool KeyboardInput::IsDown(rex::ui::VirtualKey vk) const {
-  if (!bd::Settings::Get().Mnk())
-    return false;
   auto idx = static_cast<u16>(vk);
   if (idx >= 256)
     return false;
@@ -64,8 +62,6 @@ bool KeyboardInput::WindowFocused() const {
 }
 
 bool KeyboardInput::AnyDown() const {
-  if (!bd::Settings::Get().Mnk())
-    return false;
   for (const auto &word : keys_)
     if (word.load(std::memory_order_relaxed) != 0)
       return true;

@@ -35,8 +35,8 @@ enum class PostQuality : i32 {
 };
 
 enum class ReflectionQuality : i32 {
-  Off = 0,
-  Low = 1,
+  Low = 0,
+  Medium = 1,
   High = 2,
 };
 
@@ -54,10 +54,10 @@ constexpr const char *ToString(PostQuality quality) {
 
 constexpr const char *ToString(ReflectionQuality quality) {
   switch (quality) {
-  case ReflectionQuality::Off:
-    return "opt.off";
   case ReflectionQuality::Low:
     return "opt.preset.low";
+  case ReflectionQuality::Medium:
+    return "opt.preset.medium";
   case ReflectionQuality::High:
     return "opt.preset.high";
   }
@@ -85,19 +85,18 @@ struct PresetBundle {
   i32 anisotropy;
   f64 shadowDistance;
   i32 shadowDimension;
-  i32 renderScale;
   PostQuality postQuality;
   ReflectionQuality reflectionQuality;
 };
 
 inline constexpr PresetBundle kPresets[kQualityPresetCount] = {
-    /* Low    */ {1, 0, 16, 1.0, 1024, 75, PostQuality::Low,
-                  ReflectionQuality::Off},
-    /* Medium */ {1, 4, 16, 2.0, 4096, 100, PostQuality::Medium,
+    /* Low    */ {1, 0, 16, 1.0, 1024, PostQuality::Low,
                   ReflectionQuality::Low},
-    /* High   */ {2, 4, 16, 2.0, 4096, 100, PostQuality::High,
+    /* Medium */ {1, 4, 16, 2.0, 4096, PostQuality::Medium,
+                  ReflectionQuality::Medium},
+    /* High   */ {2, 4, 16, 2.0, 4096, PostQuality::High,
                   ReflectionQuality::High},
-    /* Ultra  */ {2, 8, 16, 4.0, 8192, 100, PostQuality::High,
+    /* Ultra  */ {2, 8, 16, 4.0, 8192, PostQuality::High,
                   ReflectionQuality::High},
 };
 
@@ -190,9 +189,6 @@ public:
   i32 MSAA() const { return msaa_; }
   bool SetMSAA(i32 v);
 
-  i32 RenderScale() const { return renderScale_; }
-  bool SetRenderScale(i32 v);
-
   gpu::PostQuality PostQuality() const {
     return static_cast<gpu::PostQuality>(postQuality_);
   }
@@ -229,7 +225,6 @@ private:
   void AdoptSceneColorR11G11B10();
   void AdoptSuperSampling();
   void AdoptMSAA();
-  void AdoptRenderScale();
   void AdoptPostQuality();
   void AdoptReflectionQuality();
 
@@ -239,7 +234,6 @@ private:
   i32 anisotropy_ = kDefaultSettings.anisotropy;
   i32 superSampling_ = kDefaultSettings.superSampling;
   i32 msaa_ = kDefaultSettings.msaa;
-  i32 renderScale_ = kDefaultSettings.renderScale;
   i32 postQuality_ = static_cast<i32>(kDefaultSettings.postQuality);
   i32 reflectionQuality_ = static_cast<i32>(kDefaultSettings.reflectionQuality);
   bool ntscFilter_ = false;

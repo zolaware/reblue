@@ -15,6 +15,8 @@
 #include "engine/achievements/achievement_list.h"
 #include "engine/d2anime/anime_mouse.h"
 #include "engine/d2anime/d2anime.h"
+#include "engine/input/binding_store.h"
+#include "engine/input/input_sources.h"
 #include "engine/sfx.h"
 #include "engine/glyph_set.h"
 #include "engine/menus/config_layout.h"
@@ -32,8 +34,8 @@ namespace bd::engine {
 
 std::array<AnimeMenu *, ConfigMenu::kMenuCount> ConfigMenu::Menus() {
   std::array<AnimeMenu *, kMenuCount> all = {
-      &section_menu_,  &modlist_menu_, &dlclist_menu_,
-      &langlist_menu_, &achvlist_menu_, &keybind_menu_};
+      &section_menu_,  &modlist_menu_,  &dlclist_menu_,
+      &langlist_menu_, &achvlist_menu_, &bind_menu_};
   for (int p = 0; p < kSettingsSectionCount; ++p)
     all[kFixedMenus + p] = &settings_menus_[p];
   return all;
@@ -172,10 +174,7 @@ void ConfigMenu::ApplyVisibility() {
     break;
   case State::KEYBINDS:
   case State::KEYBIND_CAPTURE:
-    ShowOnly({&keybind_menu_});
-    break;
-  case State::PADLAYOUT:
-    ShowOnly({});
+    ShowOnly({&bind_menu_});
     break;
   default:
     // The popups keep whichever list they were raised over.
@@ -199,10 +198,11 @@ void ConfigMenu::SetHeaders(const std::string &sections,
 
 void ConfigMenu::SetKeybindChrome(const char *hintKey) {
   auto &layout = GetLayout();
-  layout.hdrActions.set(i18n::Text("menu.header.actions"));
-  layout.hdrMovement.set(i18n::Text("menu.header.movement"));
-  layout.hdrCompat.set(i18n::Text("menu.header.compat"));
-  layout.kbHint.set(hintKey ? i18n::Text(hintKey) : std::string());
+  if (conflict_shown_)
+    layout.kbHint.set(
+        i18n::Fmt("menu.hint.conflict", BindRowLabel(conflict_action_)));
+  else
+    layout.kbHint.set(hintKey ? i18n::Text(hintKey) : std::string());
   layout.kbChromeVis.set(1.0);
 }
 
@@ -235,7 +235,10 @@ void ConfigMenu::Create(Task parent, Surface surface, PPCFunc *parentUpdate) {
   wants_restart_ = false;
   cursor_.Reset();
   reorder_origin_ = -1;
-  capture_index_ = -1;
+  capture_slot_ = -1;
+  capture_chip_ = -1;
+  last_bind_slot_ = 0;
+  conflict_shown_ = false;
   settings_page_ = SettingsPage::Gameplay;
   glyph_gen_ = 0;
   ResetMenus();
@@ -314,7 +317,8 @@ void ConfigMenu::Destroy() {
   wants_restart_ = false;
   cursor_.Reset();
   reorder_origin_ = -1;
-  capture_index_ = -1;
+  capture_slot_ = -1;
+  conflict_shown_ = false;
 
   BD_DEBUG("[config] destroyed");
 }
@@ -339,7 +343,8 @@ void ConfigMenu::Dismiss() {
   wants_restart_ = false;
   cursor_.Reset();
   reorder_origin_ = -1;
-  capture_index_ = -1;
+  capture_slot_ = -1;
+  conflict_shown_ = false;
   held_dir_ = 0;
   held_frames_ = 0;
   drag_row_ = -1;
@@ -368,7 +373,7 @@ bool ConfigMenu::DiscoverMenus() {
   achvlist_menu_ = task_.FindMenu("AchvList");
   for (int p = 0; p < kSettingsSectionCount; ++p)
     settings_menus_[p] = task_.FindMenu(ConfigLayout::kSettingsListNames[p]);
-  keybind_menu_ = task_.FindMenu("KeybindList");
+  bind_menu_ = task_.FindMenu(GetLayout().bindList.name);
 
   if (!MenusReady()) {
     ResetMenus();
@@ -398,7 +403,6 @@ void ConfigMenu::Transition(State next) {
         if (next == State::CLOSING ||
             (state_ != State::SECTION && next == State::SECTION) ||
             (state_ == State::KEYBINDS && next == State::SETTINGS) ||
-            (state_ == State::PADLAYOUT && next == State::SETTINGS) ||
             (state_ == State::KEYBIND_CAPTURE && next == State::KEYBINDS) ||
             (state_ == State::REORDER && next == State::MODLIST)) {
             sfx::Play(sfx::kCancel);
@@ -408,7 +412,7 @@ void ConfigMenu::Transition(State next) {
             sfx::Play(sfx::kOpen);
         }
         // Opening submenus, reorder mode, capture, and popups -> play kOpen
-        else if (next == State::KEYBINDS || next == State::PADLAYOUT ||
+        else if (next == State::KEYBINDS ||
             next == State::KEYBIND_CAPTURE || next == State::REORDER ||
             next == State::CONFIRM_DELETE || next == State::CONFIRM_REBOOT ||
             next == State::CONFIRM_RESET_BINDS || next == State::LANGADD ||
@@ -455,10 +459,7 @@ void ConfigMenu::Transition(State next) {
     break;
   case State::KEYBINDS:
   case State::KEYBIND_CAPTURE:
-    keybind_menu_.SetActive(false);
-    break;
-  case State::PADLAYOUT:
-    HidePadLayout();
+    bind_menu_.SetActive(false);
     break;
   case State::CONFIRM_DELETE:
   case State::CONFIRM_REBOOT:
@@ -485,9 +486,6 @@ void ConfigMenu::Transition(State next) {
   layout.rowDesc0.set("");
   layout.rowDesc1.set("");
   layout.rowDescC.set("");
-  layout.hdrActions.set("");
-  layout.hdrMovement.set("");
-  layout.hdrCompat.set("");
   layout.kbHint.set("");
   layout.kbChromeVis.set(-1.0);
 
@@ -641,31 +639,32 @@ void ConfigMenu::Transition(State next) {
   }
 
   case State::KEYBINDS:
-    open(keybind_menu_);
+    open(bind_menu_);
+    if (bind_menu_) {
+      const BindCell cell = BindGridEntry(bind_menu_.CursorIndex()).cell;
+      if (cell == BindCell::Header || cell == BindCell::Blank) {
+        int first = 0;
+        while (BindGridEntry(first).cell == BindCell::Header)
+          first += 2;
+        bind_menu_.SetCursorIndex(first);
+      }
+    }
+    last_bind_slot_ = bind_menu_.CursorIndex();
     HideDetailPanel();
     HideDLCDetail();
     RefreshKeybindVisuals();
     SetHeaders("", "", "");
     // The pointer interactions are the ones nothing on screen names.
-    SetKeybindChrome("menu.hint.keybinds");
+    SetKeybindChrome("menu.hint.binds");
     BD_DEBUG("[config] state -> KEYBINDS");
     break;
 
   case State::KEYBIND_CAPTURE:
     RefreshKeybindVisuals();
-    SetKeybindChrome("menu.hint.capture");
-    BD_DEBUG("[config] state -> KEYBIND_CAPTURE (row {})", capture_index_);
-    break;
-
-  case State::PADLAYOUT:
-    HideDetailPanel();
-    HideDLCDetail();
-    SetHeaders("", "", "");
-    layout.title.set(i18n::Text(pad_action_ == SettingAction::MechatLayout
-                                    ? "settings.controls.mechat_layout.label"
-                                    : "settings.controls.pad_layout.label"));
-    RefreshPadLayout();
-    BD_DEBUG("[config] state -> PADLAYOUT");
+    SetKeybindChrome(capture_chip_ == kBindPadChip ? "menu.hint.capture_pad"
+                                                   : "menu.hint.capture");
+    BD_DEBUG("[config] state -> KEYBIND_CAPTURE ({} chip {})",
+             BindEntryLabel(BindGridEntry(capture_slot_)), capture_chip_);
     break;
 
   case State::REORDER:
@@ -711,7 +710,7 @@ void ConfigMenu::Transition(State next) {
   case State::CONFIRM_RESET_BINDS:
     // The list stays up behind the popup, so its section panels and titles,
     // which every transition clears, have to be put back with it.
-    SetKeybindChrome("menu.hint.keybinds");
+    SetKeybindChrome("menu.hint.binds");
     confirm_popup_.Create(task_, i18n::Text("menu.confirm.reset_binds").c_str(),
                           i18n::Text("menu.confirm.undone").c_str());
     ActivateOnly(nullptr);
@@ -753,10 +752,9 @@ void ConfigMenu::EnforceActiveFlags() {
     ActivateOnly(&CurrentSettingsList());
     break;
   case State::KEYBINDS:
-    ActivateOnly(&keybind_menu_);
+    ActivateOnly(&bind_menu_);
     break;
   case State::KEYBIND_CAPTURE:
-  case State::PADLAYOUT:
   case State::LANGADD:
   case State::LANGPICK:
   case State::LANGJOB:
@@ -805,7 +803,7 @@ void ConfigMenu::Update(PPCContext &ctx, u8 *base) {
     if (gen != glyph_gen_) {
       glyph_gen_ = gen;
       for (const PromptGlyph &g : ConfigLayout::kFooterGlyphs) {
-        const UVRect r = Glyphs::Get().PromptUV(g);
+        const UVRect r = Glyphs::Get().CellUV(g.helpName);
         task_.SetFloat(g.uv.u0, r.u0);
         task_.SetFloat(g.uv.v0, r.v0);
         task_.SetFloat(g.uv.u1, r.u1);
@@ -883,20 +881,33 @@ void ConfigMenu::Update(PPCContext &ctx, u8 *base) {
     break;
   case State::SETTINGS:
     RefreshSettingsVisuals();
-    cursor_.Poll(CurrentSettingsList(), [&](int) { UpdateFooter(); });
+    cursor_.Poll(CurrentSettingsList(), [&](int slot) {
+      UpdateSettingsRowDesc(slot);
+      UpdateFooter();
+    });
     break;
   case State::KEYBINDS:
   case State::KEYBIND_CAPTURE:
     RefreshKeybindVisuals();
-    break;
-  case State::PADLAYOUT:
-    RefreshPadLayout();
     break;
   default:
     break;
   }
 
   GetLayout().SyncVars(task_.AnimeData());
+
+  if (state_ == State::KEYBINDS || state_ == State::KEYBIND_CAPTURE) {
+    constexpr u16 kPadIdCount = 24;
+    u32 buttons = 0;
+    for (u16 id = 0; id < kPadIdCount; ++id) {
+      Source source;
+      source.kind = SourceKind::PadButton;
+      source.code = id;
+      if (InputSources::Get().Active(source))
+        buttons |= 1u << id;
+    }
+    bd::platform::SetCapturePadButtons(buttons);
+  }
 
   // Ahead of the handlers, so a click made as the pointer crosses between the
   // sidebar and the list beside it is read by the one it hit.
@@ -938,9 +949,6 @@ void ConfigMenu::Update(PPCContext &ctx, u8 *base) {
     break;
   case State::KEYBIND_CAPTURE:
     HandleKeybindCapture();
-    break;
-  case State::PADLAYOUT:
-    HandlePadLayout();
     break;
   case State::REORDER:
     HandleReorder();

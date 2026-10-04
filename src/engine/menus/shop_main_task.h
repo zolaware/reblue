@@ -12,9 +12,26 @@
 #include <rex/types.h>
 
 #include "engine/d2anime/anime_menu.h"
+#include "engine/d2anime/d2anime_task.h"
 #include "engine/task.h"
 
 namespace bd::engine {
+
+// The twelve CSVs bdShopTaskConstruct loads, in the order it loads them.
+enum class ShopLayout : u32 {
+  Header = 0,
+  Top = 1,
+  MechatTop = 2,
+  MedalTop = 3,
+  Buy = 4,
+  Sell = 5,
+  Equipment = 6,
+  BuyMechat = 7,
+  YesNo = 8,
+  Strings = 9,
+  MedalHeader = 10,
+  MedalExchange = 11,
+};
 
 class ShopMainTask : public Task {
 public:
@@ -23,6 +40,8 @@ public:
 
   // The menu bound to the state the screen is in, empty for a state with none.
   AnimeMenu StateMenu() const;
+
+  D2AnimeTask Layout(ShopLayout which) const;
 };
 
 } // namespace bd::engine

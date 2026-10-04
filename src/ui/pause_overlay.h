@@ -1,6 +1,6 @@
 /**
- * @file    ui/watermark.h
- * @brief   Build watermark in the bottom-right corner, up with the F3 overlay.
+ * @file    ui/pause_overlay.h
+ * @brief   The notice box shown while a cutscene is paused.
  *
  * @copyright Copyright (c) 2026 Tom Clay <tomc@tctechstuff.com>
  *            All rights reserved.
@@ -11,6 +11,7 @@
 
 #include <rex/ui/imgui_dialog.h>
 
+struct ImFontAtlas;
 struct ImGuiIO;
 
 namespace rex::ui {
@@ -19,10 +20,12 @@ class ImGuiDrawer;
 
 namespace bd::ui {
 
-class WatermarkOverlay final : public rex::ui::ImGuiDialog {
+class PauseOverlay final : public rex::ui::ImGuiDialog {
 public:
-  explicit WatermarkOverlay(rex::ui::ImGuiDrawer *drawer);
-  ~WatermarkOverlay();
+  explicit PauseOverlay(rex::ui::ImGuiDrawer *drawer);
+  ~PauseOverlay();
+
+  static void InitFonts(ImFontAtlas *atlas);
 
 protected:
   void OnDraw(ImGuiIO &io) override;

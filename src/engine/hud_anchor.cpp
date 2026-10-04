@@ -211,3 +211,12 @@ void bdNowLoadingAnchorHook(PPCRegister &r31) {
   bag.SetFloat("pos.x", kNowLoadingX - over_x);
   bag.SetFloat("pos.y", kNowLoadingY + over_y);
 }
+
+void bdFieldEncounterMenuAnchorHook(PPCRegister &f30) {
+  f30.f64 += bd::gpu::Output::DesignOverscanX();
+}
+
+void bdFieldEncounterPanelAnchorHook(PPCRegister &f1) {
+  constexpr double mid = bd::gpu::kDesignCanvasWidth * 0.5;
+  f1.f64 = mid + (f1.f64 - mid) * bd::gpu::Output::DesignScaleX();
+}

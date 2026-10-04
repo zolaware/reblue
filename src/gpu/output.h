@@ -33,10 +33,13 @@ constexpr double kDesignCanvasAspectEpsilon = 0.01;
 class Output {
 public:
   static void Init(rex::ui::Window *window);
+
+  static bool Recompute();
+  static u32 Generation();
+
   static bool RenderSize(u32 &w, u32 &h);
 
   static double RenderDensity();
-  static double RenderFraction();
 
   // The ratio bd_aspect_ratio asks for, or 0 to take whatever the window is.
   static double ConfiguredAspect();

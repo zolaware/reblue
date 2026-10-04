@@ -103,6 +103,8 @@ private:
   void AddSource(const std::filesystem::path &file);
   void RemoveSource(int index);
   void PickInstallDir();
+  void SetPortable(bool portable);
+  void DrawInstallMode();
   bool AllDiscsFilled() const;
   bool InputsReady() const;
   void RefreshLanguageChoices();
@@ -119,6 +121,9 @@ private:
   CompletionCallback on_done_;
   bool finished_ = false;
   bool repair_ = false; // existing install detected: verify + copy missing only
+  InstallConnector connector_ = kPlatformConnector;
+  bool portable_allowed_ = false;
+  std::filesystem::path picked_dir_;
 
   std::unique_ptr<rex::ui::ImmediateTexture> background_texture_;
   bool background_tried_ = false;

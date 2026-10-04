@@ -60,12 +60,15 @@ bool SetRenderResolution(const char *preset) {
   rex::cvar::ResetToDefault("video_mode_width");
   rex::cvar::ResetToDefault("video_mode_height");
   i32 w = 0, h = 0;
+  bool ok = true;
   if (!preset || !*preset ||
       !rex::graphics::video_mode_util::TryParseResolutionPreset(preset, w, h)) {
     rex::cvar::ResetToDefault("resolution");
-    return true;
+  } else {
+    ok = rex::cvar::SetFlagByName("resolution", preset);
   }
-  return rex::cvar::SetFlagByName("resolution", preset);
+  gpu::Output::Recompute();
+  return ok;
 }
 
 constexpr SettingOption kDisplayMode[] = {
@@ -126,8 +129,6 @@ constexpr SettingOption kFPS[] = {
     {.text = "90", .num = 90},
     {.text = "120", .num = 120},
     {.text = "Unlimited", .num = 0, .key = "opt.unlimited"}};
-// Shared by Settings-bound rows and by the two mnk_* rows still on the name
-// path, so this one keeps its value strings.
 constexpr SettingOption kOnOff[] = {
     {.text = "Off", .num = 0, .value = "false", .key = "opt.off"},
     {.text = "On", .num = 1, .value = "true", .key = "opt.on"}};
@@ -233,10 +234,6 @@ constexpr i32 kAnisotropyOn = 16;
 constexpr SettingOption kAniso[] = {
     {.text = "Off", .num = 0, .key = "opt.off"},
     {.text = "On", .num = kAnisotropyOn, .key = "opt.on"}};
-constexpr SettingOption kRenderScale[] = {
-    {.text = "50%", .num = 50},  {.text = "60%", .num = 60},
-    {.text = "75%", .num = 75},  {.text = "85%", .num = 85},
-    {.text = "100%", .num = 100}};
 constexpr SettingOption kPostQuality[] = {
     {.text = "Low",
      .num = static_cast<double>(static_cast<i32>(gpu::PostQuality::Low)),
@@ -248,12 +245,13 @@ constexpr SettingOption kPostQuality[] = {
      .num = static_cast<double>(static_cast<i32>(gpu::PostQuality::High)),
      .key = gpu::ToString(gpu::PostQuality::High)}};
 constexpr SettingOption kReflectionQuality[] = {
-    {.text = "Off",
-     .num = static_cast<double>(static_cast<i32>(gpu::ReflectionQuality::Off)),
-     .key = gpu::ToString(gpu::ReflectionQuality::Off)},
     {.text = "Low",
      .num = static_cast<double>(static_cast<i32>(gpu::ReflectionQuality::Low)),
      .key = gpu::ToString(gpu::ReflectionQuality::Low)},
+    {.text = "Medium",
+     .num =
+         static_cast<double>(static_cast<i32>(gpu::ReflectionQuality::Medium)),
+     .key = gpu::ToString(gpu::ReflectionQuality::Medium)},
     {.text = "High",
      .num = static_cast<double>(static_cast<i32>(gpu::ReflectionQuality::High)),
      .key = gpu::ToString(gpu::ReflectionQuality::High)}};
@@ -508,12 +506,10 @@ constexpr SettingRow kDisplaySettings[] = {
                  .cvar = "fullscreen",
                  .cvar2 = "fullscreen_exclusive"},
      .options = kDisplayMode,
-     .count = OptCount(kDisplayMode),
-     .restart = true},
+     .count = OptCount(kDisplayMode)},
     {.label = "settings.display.monitor.label",
      .group = "menu.header.window",
      .binding = {.cvar = "monitor"},
-     .restart = true,
      .sliderUi = true,
      .special = SettingSpecial::Monitor},
     {.label = "settings.display.resolution.label",
@@ -521,14 +517,12 @@ constexpr SettingRow kDisplaySettings[] = {
      .binding = {.get = RenderResolutionNum, .setText = SetRenderResolution},
      .options = kResolution,
      .count = OptCount(kResolution),
-     .restart = true,
      .sliderUi = true},
     {.label = "settings.display.window_size.label",
      .group = "menu.header.window",
      .binding = {.cvar = "window_width", .cvar2 = "window_height"},
      .options = kWindowSize,
      .count = OptCount(kWindowSize),
-     .restart = true,
      .sliderUi = true,
      .windowedGated = true},
     {.label = "settings.display.aspect_ratio.label",
@@ -544,7 +538,6 @@ constexpr SettingRow kDisplaySettings[] = {
              }},
      .options = kAspect,
      .count = OptCount(kAspect),
-     .restart = true,
      .sliderUi = true},
     {.label = "settings.display.cursor_auto_hide.label",
      .group = "menu.header.window",
@@ -559,7 +552,6 @@ constexpr SettingRow kDisplaySettings[] = {
                            static_cast<i32>(v));
                      }},
      .kind = SettingKind::Slider,
-     .restart = true,
      .smin = 0.0,
      .smax = 30.0,
      .sstep = 1.0,
@@ -616,6 +608,7 @@ constexpr SettingRow kDisplaySettings[] = {
 constexpr SettingRow kGraphicsSettings[] = {
     {.label = "settings.graphics.quality_preset.label",
      .group = "menu.header.preset",
+     .desc = "settings.graphics.quality_preset.desc",
      .binding = {.get =
                      [] {
                        return static_cast<double>(static_cast<u32>(
@@ -629,7 +622,6 @@ constexpr SettingRow kGraphicsSettings[] = {
                      }},
      .options = kPresetOpts,
      .count = OptCount(kPresetOpts),
-     .restart = true,
      .optionDisabled =
          [](const SettingOption &o) {
            return static_cast<int>(o.num) == kPresetCustom &&
@@ -638,6 +630,7 @@ constexpr SettingRow kGraphicsSettings[] = {
          }},
     {.label = "settings.graphics.msaa.label",
      .group = "menu.header.anti_aliasing",
+     .desc = "settings.graphics.msaa.desc",
      .binding = {.get =
                      [] {
                        return static_cast<double>(gpu::Settings::Get().MSAA());
@@ -648,10 +641,10 @@ constexpr SettingRow kGraphicsSettings[] = {
                            static_cast<i32>(v));
                      }},
      .options = kMSAA,
-     .count = OptCount(kMSAA),
-     .restart = true},
+     .count = OptCount(kMSAA)},
     {.label = "settings.graphics.supersampling.label",
      .group = "menu.header.anti_aliasing",
+     .desc = "settings.graphics.supersampling.desc",
      .binding = {.get =
                      [] {
                        return static_cast<double>(
@@ -663,26 +656,10 @@ constexpr SettingRow kGraphicsSettings[] = {
                            static_cast<i32>(v));
                      }},
      .options = kSuperSampling,
-     .count = OptCount(kSuperSampling),
-     .restart = true},
-    {.label = "settings.graphics.render_scale.label",
-     .group = "menu.header.detail",
-     .binding = {.get =
-                     [] {
-                       return static_cast<double>(
-                           gpu::Settings::Get().RenderScale());
-                     },
-                 .set =
-                     [](double v) {
-                       return gpu::Settings::Get().SetRenderScale(
-                           static_cast<i32>(v));
-                     }},
-     .options = kRenderScale,
-     .count = OptCount(kRenderScale),
-     .restart = true,
-     .sliderUi = true},
+     .count = OptCount(kSuperSampling)},
     {.label = "settings.graphics.anisotropic.label",
      .group = "menu.header.detail",
+     .desc = "settings.graphics.anisotropic.desc",
      .binding = {.get =
                      [] {
                        return gpu::Settings::Get().Anisotropy() > 0
@@ -698,6 +675,7 @@ constexpr SettingRow kGraphicsSettings[] = {
      .count = OptCount(kAniso)},
     {.label = "settings.graphics.shadow_quality.label",
      .group = "menu.header.detail",
+     .desc = "settings.graphics.shadow_quality.desc",
      .binding = {.get = [] { return gpu::Settings::Get().ShadowDistance(); },
                  .setPair =
                      [](double distance, double dimension) {
@@ -706,10 +684,10 @@ constexpr SettingRow kGraphicsSettings[] = {
                      }},
      .options = kShadowQuality,
      .count = OptCount(kShadowQuality),
-     .restart = true,
      .sliderUi = true},
     {.label = "settings.graphics.reflections.label",
      .group = "menu.header.detail",
+     .desc = "settings.graphics.reflections.desc",
      .binding = {.get =
                      [] {
                        return static_cast<double>(static_cast<i32>(
@@ -722,10 +700,10 @@ constexpr SettingRow kGraphicsSettings[] = {
                      }},
      .options = kReflectionQuality,
      .count = OptCount(kReflectionQuality),
-     .restart = true,
      .sliderUi = true},
     {.label = "settings.graphics.post_processing.label",
      .group = "menu.header.detail",
+     .desc = "settings.graphics.post_processing.desc",
      .binding = {.get =
                      [] {
                        return static_cast<double>(static_cast<i32>(
@@ -738,12 +716,12 @@ constexpr SettingRow kGraphicsSettings[] = {
                      }},
      .options = kPostQuality,
      .count = OptCount(kPostQuality),
-     .restart = true,
      .sliderUi = true},
     // Counted in percent, so the row reads as how much of the effect is left
     // rather than as the multiplier the setting stores.
     {.label = "settings.graphics.depth_of_field.label",
      .group = "menu.header.detail",
+     .desc = "settings.graphics.depth_of_field.desc",
      .binding = {.get =
                      [] { return gpu::Settings::Get().DOFStrength() * 100.0; },
                  .set =
@@ -848,14 +826,10 @@ constexpr SettingRow kControlsSettings[] = {
      .smax = engine::Settings::kCameraSpeedMax,
      .sstep = 0.10,
      .sfmt = "%.2f"},
-    {.label = "settings.controls.pad_layout.label",
+    {.label = "settings.controls.bindings.label",
      .group = "menu.header.controller",
      .kind = SettingKind::Action,
-     .action = SettingAction::PadLayout},
-    {.label = "settings.controls.mechat_layout.label",
-     .group = "menu.header.controller",
-     .kind = SettingKind::Action,
-     .action = SettingAction::MechatLayout},
+     .action = SettingAction::Keybinds},
     {.label = "settings.controls.vibration.label",
      .group = "menu.header.controller",
      .binding = {.get =
@@ -868,25 +842,13 @@ constexpr SettingRow kControlsSettings[] = {
                      }},
      .options = kOnOff,
      .count = OptCount(kOnOff)},
-    {.label = "settings.controls.keyboard_mode.label",
-     .group = "menu.header.keyboard_mouse",
-     .binding = {.cvar = "mnk_mode"},
-     .options = kOnOff,
-     .count = OptCount(kOnOff)},
-    {.label = "settings.controls.mouse_mode.label",
-     .group = "menu.header.keyboard_mouse",
-     .binding = {.cvar = "mnk_mouse"},
-     .options = kOnOff,
-     .count = OptCount(kOnOff),
-     .kbGated = true},
     {.label = "settings.controls.mouse_sensitivity.label",
      .group = "menu.header.keyboard_mouse",
      .binding = {.cvar = "mnk_sensitivity"},
      .kind = SettingKind::Slider,
      .smin = 0.25,
      .smax = 10.0,
-     .sstep = 0.25,
-     .mouseGated = true},
+     .sstep = 0.25},
     {.label = "settings.controls.mouse_cursor_opacity.label",
      .group = "menu.header.keyboard_mouse",
      .binding = {.get =
@@ -903,130 +865,7 @@ constexpr SettingRow kControlsSettings[] = {
      .smin = static_cast<double>(engine::Settings::kMouseCursorOpacityMin),
      .smax = static_cast<double>(engine::Settings::kMouseCursorOpacityMax),
      .sstep = 5.0,
-     .sfmt = "%.0f",
-     .kbGated = true},
-    {.label = "settings.controls.keyboard_binds.label",
-     .group = "menu.header.keyboard_mouse",
-     .kind = SettingKind::Action,
-     .kbGated = true,
-     .action = SettingAction::Keybinds},
-};
-
-// The keybind screen draws this list as a 2-column grid, row-major, so the
-// order interleaves its sections column-wise: even indices walk the Actions
-// column, odd indices the Movement & Camera column. The tail is the Controller
-// Compatibility band, back and the stick presses down the left column and the
-// D-pad down the right. The grid slots the indices map to, including the
-// cells that carry no bind, are kKeybindSlotBind in config_layout.h.
-constexpr SettingRow kKeybindSettings[] = {
-    {.label = "settings.keybind.a.label",
-     .binding = {.cvar = "keybind_a"},
-     .padButton = 8,
-     .kind = SettingKind::Keybind,
-     .kbGated = true},
-    {.label = "settings.keybind.move_up.label",
-     .binding = {.cvar = "keybind_lstick_up"},
-     .kind = SettingKind::Keybind,
-     .kbGated = true},
-    {.label = "settings.keybind.b.label",
-     .binding = {.cvar = "keybind_b"},
-     .padButton = 9,
-     .kind = SettingKind::Keybind,
-     .kbGated = true},
-    {.label = "settings.keybind.move_down.label",
-     .binding = {.cvar = "keybind_lstick_down"},
-     .kind = SettingKind::Keybind,
-     .kbGated = true},
-    {.label = "settings.keybind.y.label",
-     .binding = {.cvar = "keybind_y"},
-     .padButton = 11,
-     .kind = SettingKind::Keybind,
-     .kbGated = true},
-    {.label = "settings.keybind.move_left.label",
-     .binding = {.cvar = "keybind_lstick_left"},
-     .kind = SettingKind::Keybind,
-     .kbGated = true},
-    {.label = "settings.keybind.right_trigger.label",
-     .binding = {.cvar = "keybind_right_trigger"},
-     .padButton = 13,
-     .kind = SettingKind::Keybind,
-     .kbGated = true},
-    {.label = "settings.keybind.move_right.label",
-     .binding = {.cvar = "keybind_lstick_right"},
-     .kind = SettingKind::Keybind,
-     .kbGated = true},
-    {.label = "settings.keybind.x.label",
-     .binding = {.cvar = "keybind_x"},
-     .padButton = 10,
-     .kind = SettingKind::Keybind,
-     .kbGated = true},
-    {.label = "settings.keybind.pan_up.label",
-     .binding = {.cvar = "keybind_rstick_up"},
-     .kind = SettingKind::Keybind,
-     .kbGated = true},
-    {.label = "settings.keybind.start.label",
-     .binding = {.cvar = "keybind_start"},
-     .padButton = 4,
-     .kind = SettingKind::Keybind,
-     .kbGated = true},
-    {.label = "settings.keybind.pan_down.label",
-     .binding = {.cvar = "keybind_rstick_down"},
-     .kind = SettingKind::Keybind,
-     .kbGated = true},
-    {.label = "settings.keybind.right_shoulder.label",
-     .binding = {.cvar = "keybind_right_shoulder"},
-     .padButton = 15,
-     .kind = SettingKind::Keybind,
-     .kbGated = true},
-    {.label = "settings.keybind.pan_left.label",
-     .binding = {.cvar = "keybind_rstick_left"},
-     .kind = SettingKind::Keybind,
-     .kbGated = true},
-    {.label = "settings.keybind.left_shoulder.label",
-     .binding = {.cvar = "keybind_left_shoulder"},
-     .padButton = 14,
-     .kind = SettingKind::Keybind,
-     .kbGated = true},
-    {.label = "settings.keybind.pan_right.label",
-     .binding = {.cvar = "keybind_rstick_right"},
-     .kind = SettingKind::Keybind,
-     .kbGated = true},
-    {.label = "settings.keybind.left_trigger.label",
-     .binding = {.cvar = "keybind_left_trigger"},
-     .padButton = 12,
-     .kind = SettingKind::Keybind,
-     .kbGated = true},
-    {.label = "settings.keybind.back.label",
-     .binding = {.cvar = "keybind_back"},
-     .padButton = 5,
-     .kind = SettingKind::Keybind,
-     .kbGated = true},
-    {.label = "settings.keybind.dpad_up.label",
-     .binding = {.cvar = "keybind_dpad_up"},
-     .kind = SettingKind::Keybind,
-     .kbGated = true},
-    {.label = "settings.keybind.left_stick_press.label",
-     .binding = {.cvar = "keybind_lstick_press"},
-     .kind = SettingKind::Keybind,
-     .kbGated = true},
-    {.label = "settings.keybind.dpad_down.label",
-     .binding = {.cvar = "keybind_dpad_down"},
-     .kind = SettingKind::Keybind,
-     .kbGated = true},
-    {.label = "settings.keybind.right_stick_press.label",
-     .binding = {.cvar = "keybind_rstick_press"},
-     .kind = SettingKind::Keybind,
-     .kbGated = true},
-    {.label = "settings.keybind.dpad_left.label",
-     .binding = {.cvar = "keybind_dpad_left"},
-     .kind = SettingKind::Keybind,
-     .kbGated = true},
-    {.label = "settings.keybind.dpad_right.label",
-     .binding = {.cvar = "keybind_dpad_right"},
-     .kind = SettingKind::Keybind,
-     .kbGated = true},
-    // keybind_guide is deliberately absent: the guest has no Guide button
-    // handler, so a row for it would always read 'None'.
+     .sfmt = "%.0f"},
 };
 
 // Order matches SettingsPage, which is also sidebar order.
@@ -1041,8 +880,6 @@ constexpr SettingsPageTable kPages[kSettingsPageCount] = {
      static_cast<int>(std::size(kAudioSettings))},
     {"settings.page.controls", kControlsSettings,
      static_cast<int>(std::size(kControlsSettings))},
-    {"settings.page.keybinds", kKeybindSettings,
-     static_cast<int>(std::size(kKeybindSettings))},
 };
 
 } // namespace

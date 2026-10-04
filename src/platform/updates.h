@@ -55,8 +55,9 @@ public:
     kInstallFailed,  // payload is invalid or could not replace the application
   };
 
-  // Arms the channel watch. The first check is the title prompt's BeginCheck.
-  void Start();
+  // Arms the channel watch and fixes where an accepted update is applied. The
+  // first check is the title prompt's BeginCheck.
+  void Init(std::filesystem::path install_root);
 
   // Fetches the one document this build asks for and hands the content url it
   // names to ContentSync. State stays kIdle when there is nothing to ask.
@@ -74,10 +75,11 @@ public:
   // The same answer without taking the lock, for callers polling per frame.
   bool HasNewer() const;
 
-  // Whether this platform can install what the apply downloads. False means
-  // the check still runs and still logs, but nothing offers the user an
-  // update it would then fail to apply.
-  static bool CanApply();
+  // Whether this platform can install what the apply downloads, and whether
+  // the place it would write is writable. False means the check still runs
+  // and still logs, but nothing offers the user an update it would then fail
+  // to apply.
+  bool CanApply() const;
 
   // The manifest the last successful check read, whatever it said about
   // versions.
@@ -89,7 +91,7 @@ public:
   // downloaded AppImage over the running one, so the restart alone applies it.
   // The progress and the outcome are read back below rather than handed to a
   // callback, so nothing that raised this has to outlive it.
-  void BeginApply(const std::filesystem::path &install_root);
+  void BeginApply();
 
   ApplyStage ApplyState() const;
 
@@ -106,7 +108,7 @@ private:
   Updates &operator=(const Updates &) = delete;
 
   void Check(const std::string &url);
-  ApplyResult Apply(const std::filesystem::path &install_root);
+  ApplyResult Apply();
 
   mutable std::mutex mutex_;
   std::optional<Release> newer_;
@@ -116,6 +118,8 @@ private:
   std::atomic<Stage> stage_{Stage::kIdle};
   std::atomic<bool> has_newer_{false};
   std::atomic<u32> generation_{0};
+  std::filesystem::path install_root_;
+  bool can_apply_ = false;
 
   std::atomic<bool> apply_started_{false};
   std::atomic<ApplyStage> apply_stage_{ApplyStage::kIdle};

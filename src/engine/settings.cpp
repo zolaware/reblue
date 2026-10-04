@@ -18,7 +18,7 @@ REXCVAR_DECLARE(bool, bd_disable_tutorials);
 REXCVAR_DECLARE(bool, bd_map_gimmick_markers);
 REXCVAR_DECLARE(i32, bd_hud_mode);
 REXCVAR_DECLARE(f64, bd_hud_fade_delay);
-REXCVAR_DECLARE(bool, bd_mouse_menu);
+REXCVAR_DECLARE(bool, bd_mouse_input);
 REXCVAR_DECLARE(bool, bd_mouse_cursor_sfx);
 REXCVAR_DECLARE(i32, bd_mouse_cursor_opacity);
 REXCVAR_DECLARE(i32, bd_glyph_set);
@@ -49,9 +49,9 @@ REXCVAR_DEFINE_DOUBLE(bd_hud_fade_delay, 5.0, kCvarGroup,
                       "Seconds of no button before the idle field HUD starts "
                       "fading.");
 
-REXCVAR_DEFINE_BOOL(bd_mouse_menu, true, kCvarGroup,
-                    "Hovering a menu row moves the game's own cursor onto "
-                    "it.");
+REXCVAR_DEFINE_BOOL(bd_mouse_input, true, kCvarGroup,
+                    "Mouse input: raw mouse look in the field with the "
+                    "pointer locked, and the drawn cursor in menus.");
 
 REXCVAR_DEFINE_BOOL(bd_mouse_cursor_sfx, true, kCvarGroup,
                     "Play the cursor-move sound effect on a mouse-driven "
@@ -113,7 +113,9 @@ void Settings::AdoptHudFadeDelay() {
   hudFadeDelay_ = std::max(0.0, REXCVAR_GET(bd_hud_fade_delay));
 }
 
-void Settings::AdoptMouseMenu() { mouseMenu_ = REXCVAR_GET(bd_mouse_menu); }
+void Settings::AdoptMouseInput() {
+  mouseInput_ = REXCVAR_GET(bd_mouse_input);
+}
 
 void Settings::AdoptMouseCursorSFX() {
   mouseCursorSFX_ = REXCVAR_GET(bd_mouse_cursor_sfx);
@@ -183,6 +185,10 @@ bool Settings::SetMouseCursorOpacity(i32 v) {
   return rex::cvar::SetFlagByName("bd_mouse_cursor_opacity", FormatCvar(v));
 }
 
+bool Settings::SetMouseInput(bool v) {
+  return rex::cvar::SetFlagByName("bd_mouse_input", FormatCvar(v));
+}
+
 bool Settings::SetVibration(bool v) {
   return rex::cvar::SetFlagByName("bd_vibration", FormatCvar(v));
 }
@@ -198,7 +204,7 @@ void Settings::AdoptCvars() {
   AdoptMapGimmickMarkers();
   AdoptHudMode();
   AdoptHudFadeDelay();
-  AdoptMouseMenu();
+  AdoptMouseInput();
   AdoptMouseCursorSFX();
   AdoptMouseCursorOpacity();
   AdoptGlyphSetMode();
@@ -222,7 +228,7 @@ void Settings::Init() {
   reg("bd_map_gimmick_markers", &Settings::AdoptMapGimmickMarkers);
   reg("bd_hud_mode", &Settings::AdoptHudMode);
   reg("bd_hud_fade_delay", &Settings::AdoptHudFadeDelay);
-  reg("bd_mouse_menu", &Settings::AdoptMouseMenu);
+  reg("bd_mouse_input", &Settings::AdoptMouseInput);
   reg("bd_mouse_cursor_sfx", &Settings::AdoptMouseCursorSFX);
   reg("bd_mouse_cursor_opacity", &Settings::AdoptMouseCursorOpacity);
   reg("bd_glyph_set", &Settings::AdoptGlyphSetMode);

@@ -12,7 +12,6 @@
 
 #include <atomic>
 #include <chrono>
-#include <filesystem>
 #include <string>
 
 #include <rex/types.h>
@@ -27,8 +26,6 @@ namespace bd::engine {
 class UpdatePrompt {
 public:
   static UpdatePrompt &Get();
-
-  void Init(std::filesystem::path install_root);
 
   // Once per title tick. True for as long as the title must wait here.
   bool Hold(const Task &parent);
@@ -59,7 +56,6 @@ private:
   bool EnterContentOffer();
   void ShowCheckLine();
 
-  std::filesystem::path install_root_;
   std::string app_version_;
   u64 app_bytes_ = 0;
   std::chrono::steady_clock::time_point deadline_{};

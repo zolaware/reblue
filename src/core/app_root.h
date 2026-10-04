@@ -34,4 +34,8 @@ std::filesystem::path CacheRootFor(const std::filesystem::path &root);
 // neither is set, and on Windows, which anchors this data in HKCU.
 std::filesystem::path UserConfigFolder();
 
+// True when a file can be created in dir. A read-only mount and a package
+// both answer false.
+bool DirectoryWritable(const std::filesystem::path &dir);
+
 } // namespace bd
