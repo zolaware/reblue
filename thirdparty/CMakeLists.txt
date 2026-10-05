@@ -24,7 +24,11 @@ endif()
 add_library(reblue_thirdparty OBJECT
     miniz/miniz.cpp
     stb/stb_image.cpp
-    zstd/zstddeclib.c)
+    zstd/zstddeclib.c
+    discord-rpc/src/discord_rpc.cpp
+    discord-rpc/src/rpc_connection.cpp
+    $<$<PLATFORM_ID:Windows>:discord-rpc/src/connection_win.cpp>
+    $<$<NOT:$<PLATFORM_ID:Windows>>:discord-rpc/src/connection_unix.cpp>)
 
 if(REBLUE_VULKAN_TARGETS)
     target_sources(reblue_thirdparty PRIVATE
@@ -32,6 +36,7 @@ if(REBLUE_VULKAN_TARGETS)
 endif()
 
 target_include_directories(reblue_thirdparty PUBLIC
+    discord-rpc/include
     miniz
     picosha2
     stb
