@@ -93,12 +93,26 @@ void WriteGuestOutputDims(u32 w, u32 h) {
 bool ScaleDesignDims(f64 &w, f64 &h) {
   if (w > kDesignCanvasWidth || h > kDesignCanvasHeight)
     return false;
+  u32 fit_w, fit_h;
+  if (w == kDesignCanvasWidth && h == kDesignCanvasHeight &&
+      Output::RenderSize(fit_w, fit_h)) {
+    w = fit_w;
+    h = fit_h;
+    return true;
+  }
   const f64 s = Output::RenderDensity();
   if (s <= 1.0)
     return false;
   w *= s;
   h *= s;
   return true;
+}
+
+bool IsFullFrameView(f64 width) {
+  u32 fit_w, fit_h;
+  if (!Output::RenderSize(fit_w, fit_h))
+    fit_w = static_cast<u32>(kDesignCanvasWidth);
+  return width + kViewFitSlack >= fit_w;
 }
 
 } // namespace
@@ -237,14 +251,9 @@ void bdOutputResViewScaleHook(PPCRegister &w, PPCRegister &h) {
 }
 
 void bdSubViewRenderScaleHook(PPCRegister &r31) {
-  u32 fit_w = 0;
-  u32 fit_h = 0;
-  if (!Output::RenderSize(fit_w, fit_h))
-    return;
-  const f64 full = std::min<f64>(kDesignCanvasWidth * Output::RenderDensity(),
-                                 fit_w);
-  const f32 width = bd::mem::load<float>(r31.u32 + kCloseUpViewWidthOff);
-  if (width + kViewFitSlack >= full)
+  u32 fit_w, fit_h;
+  if (!Output::RenderSize(fit_w, fit_h) ||
+      IsFullFrameView(bd::mem::load<float>(r31.u32 + kCloseUpViewWidthOff)))
     return;
   bd::mem::store<float>(r31.u32 + kViewRateOff, 1.0f);
 }
@@ -267,17 +276,16 @@ void bdIssEventDimHook(PPCRegister &r10, PPCRegister &r11) {
   r10.u32 = static_cast<u32>(h);
 }
 
-// This site takes its aspect from the view's own width over height, so the
-// full-frame view renders at the design ratio and the composite stretches it
-// over the whole surface. Nothing here can see that stretch, so the full-frame
-// view is identified by size: anything narrower than the design canvas is a
-// sub-view drawn into a rect of its own ratio, where a widened projection would
-// be the distortion rather than the cure.
+// This site takes its aspect from the view's own width over height, which for
+// the full-frame view is already the render rect's. It still gets the framing
+// every other full-frame camera does, so it is handed in as the design ratio. A
+// sub-view is drawn into a rect of its own ratio and keeps it.
 void bdViewProjectionAspectHook(PPCRegister &r31, PPCRegister &fov_half,
                                 PPCRegister &aspect) {
-  if (bd::mem::load<float>(r31.u32 + kCloseUpViewWidthOff) <
-      kDesignCanvasWidth * bd::gpu::SceneRenderScale())
+  const f32 width = bd::mem::load<float>(r31.u32 + kCloseUpViewWidthOff);
+  if (!IsFullFrameView(width / bd::gpu::SceneRenderScale()))
     return;
+  aspect.f64 = kDesignCanvasAspect;
   bdProjectionAspectHook(fov_half, aspect);
 }
 
@@ -372,7 +380,6 @@ bool MaxMatches(float max_x, float max_y, double w, double h) {
 }
 
 void RenormalizeSizedQuads(u32 node, u32 out_w, u32 out_h) {
-  const double density = Output::RenderDensity();
   for (int guard = 0; node && guard < 4096; ++guard) {
     const auto *n = bd::mem::at<const Bd2DCommandNode>(node);
     if (!n) {
@@ -395,12 +402,9 @@ void RenormalizeSizedQuads(u32 node, u32 out_w, u32 out_h) {
         max_x = std::max(max_x, static_cast<float>(v->x));
         max_y = std::max(max_y, static_cast<float>(v->y));
       }
-      const bool spans_surface =
-          std::fabs(min_x) <= kEdgeTolerance &&
-          std::fabs(min_y) <= kEdgeTolerance &&
-          (MaxMatches(max_x, max_y, out_w, out_h) ||
-           MaxMatches(max_x, max_y, kDesignCanvasWidth * density,
-                      kDesignCanvasHeight * density));
+      const bool spans_surface = std::fabs(min_x) <= kEdgeTolerance &&
+                                 std::fabs(min_y) <= kEdgeTolerance &&
+                                 MaxMatches(max_x, max_y, out_w, out_h);
       if (spans_surface) {
         // Onto the canvas the pinned basis expects, flush to its edges, so
         // the drain's per-draw fit reads it as a backdrop.
