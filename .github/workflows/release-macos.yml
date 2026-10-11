@@ -1,0 +1,77 @@
+name: Release macOS
+
+# Builds the macOS app for a tag that already shipped without one and attaches
+# the zip to that tag's existing GitHub release. Dispatch only. Nothing here
+# publishes to R2, so the in-app updater does not see what this uploads.
+#
+# The tag is checked out by the reusable workflows, not dispatched against:
+# workflow_dispatch only sees this file on the default branch, so run it from
+# main and name the tag in the input.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build and attach to"
+        required: true
+        type: string
+      arch:
+        description: "Which macOS build to produce"
+        required: false
+        type: choice
+        default: arm64
+        options: [arm64, amd64, all]
+      sdk_ref:
+        description: "rexglue-sdk release: latest-nightly, latest-stable, or an explicit tag"
+        required: false
+        type: string
+        default: latest-nightly
+      attach:
+        description: "Upload the zip to the release. Off leaves it as a run artifact."
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-macos-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    uses: ./.github/workflows/_resolve.yml
+    with:
+      ref: ${{ inputs.tag }}
+      sdk_ref: ${{ inputs.sdk_ref }}
+    secrets: inherit
+
+  macos:
+    needs: resolve
+    uses: ./.github/workflows/_build-macos.yml
+    with:
+      ref: ${{ inputs.tag }}
+      arch: ${{ inputs.arch }}
+      sdk_tag: ${{ needs.resolve.outputs.sdk_tag }}
+      asset_base: ${{ needs.resolve.outputs.asset_base }}
+      update_channel: stable
+    secrets: inherit
+
+  attach:
+    needs: [resolve, macos]
+    if: inputs.attach
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download the macOS artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: reblue-mac-*
+          path: artifacts
+          merge-multiple: true
+
+      # --clobber so a rerun replaces a bad upload instead of failing on it.
+      - name: Attach to ${{ inputs.tag }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ inputs.tag }}" artifacts/*.zip --clobber --repo "${{ github.repository }}"

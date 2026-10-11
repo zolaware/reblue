@@ -4,18 +4,9 @@
  */
 #pragma once
 
-#include "engine/d2anime/d2anime_types.h"
+#include "engine/d2anime/anime_menu.h"
 
 namespace bd::engine {
-
-// AnimeMenu_Update tests *(*(menu + 0xA0) + 0xA4) == menu to decide whether a
-// menu is the active one. CursorTask has no struct here to hang a named field
-// off, so the offset stays a constant beside its uses.
-constexpr u32 kCursorTaskOwnerOffset = 0xA4;
-
-// AnimeMenu_Update drives the owning cursor task's visible flag here, writing 1
-// when the menu should be showing a cursor and 0 when it should not.
-constexpr u32 kCursorTaskVisibleOffset = 0x68;
 
 struct MenuCell {
   int row;
@@ -25,18 +16,18 @@ struct MenuCell {
 
 // Resolves a point in menu space to the entry under it. False when the point is
 // outside the menu's extent or falls past the last entry.
-bool MenuCellAt(const AnimeMenu_t &menu, f32 x, f32 y, MenuCell &out);
+bool MenuCellAt(const AnimeMenu &menu, f32 x, f32 y, MenuCell &out);
 
 // The entry under the pointer and where the pointer sits inside it, in the row
 // template's own coordinates: 0 at the row's left edge, itemW at its right.
 // Those are the coordinates a row template states its element offsets in, so
 // this resolves a click to the control it hit.
-bool MenuCellPointerX(const AnimeMenu_t &menu, int &index, f32 &localX);
+bool MenuCellPointerX(const AnimeMenu &menu, int &index, f32 &localX);
 
 // The same reading for one named entry, ignoring how far above or below its
 // row the pointer has wandered. What a drag reads once it has latched onto a
 // row, since a 34px row is easy to slip off of while dragging along it.
-bool MenuRowPointerX(const AnimeMenu_t &menu, int index, f32 &localX);
+bool MenuRowPointerX(const AnimeMenu &menu, int index, f32 &localX);
 
 // The scrollbar AnimeMenu_DrawScrollbar puts beside a list that outgrows its
 // window. Positions run along the track's own axis, so a vertical bar measures
@@ -51,17 +42,16 @@ struct MenuScrollbar {
 // The bar as the engine draws it, given the page count
 // AnimeMenu_GetScrollPageCount reports for the same menu. False when the list
 // fits its window, which is when no bar is drawn.
-bool MenuScrollbarAt(const AnimeMenu_t &menu, int pages, MenuScrollbar &out);
+bool MenuScrollbarAt(const AnimeMenu &menu, int pages, MenuScrollbar &out);
 
 // -1 when the pointer sits above the menu's rows, +1 when below, and 0 when it
 // is level with them or outside the list's own width. Holding the pointer in
 // either band is what walks a list past the edge of its scroll window.
-int CursorRowEdgeDirection(const AnimeMenu_t &menu);
+int CursorRowEdgeDirection(const AnimeMenu &menu);
 
 // Converts the mouse's window pixel position onto the 1280x720 design canvas
-// that AnimeMenu_t geometry is expressed in. False when the mouse position or
+// that a menu's geometry is expressed in. False when the mouse position or
 // window size is unavailable.
 bool CursorInMenuSpace(f32 &x, f32 &y);
-
 
 } // namespace bd::engine

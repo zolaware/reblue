@@ -25,6 +25,7 @@
 #include <rex/ui/windowed_app_context.h>
 
 #include "core/settings_model.h"
+#include "installer/boot_languages.h"
 #include "installer/disc_install.h"
 #include "installer/install_registry.h"
 #include "vfs/vfs.h"
@@ -87,6 +88,7 @@ private:
   void DrawContent();
   void DrawOptions();
   void DrawDiscs();
+  void DrawLanguages();
   void DrawDLCSection();
   void DrawPreferences();
   void DrawFooter();
@@ -97,10 +99,16 @@ private:
   void DrawRebuildingIndex();
   void DrawDone();
 
-  void PickISO(int index);
+  void PickSource();
+  void AddSource(const std::filesystem::path &file);
+  void RemoveSource(int index);
   void PickInstallDir();
-  void ValidateISO(int index);
+  void SetPortable(bool portable);
+  void DrawInstallMode();
+  bool AllDiscsFilled() const;
   bool InputsReady() const;
+  void RefreshLanguageChoices();
+  InstallSelection BuildSelection() const;
   void StartInstall();
   void StartIndexRebuild();
   void Finish(bool completed);
@@ -113,27 +121,33 @@ private:
   CompletionCallback on_done_;
   bool finished_ = false;
   bool repair_ = false; // existing install detected: verify + copy missing only
+  InstallConnector connector_ = kPlatformConnector;
+  bool portable_allowed_ = false;
+  std::filesystem::path picked_dir_;
 
   std::unique_ptr<rex::ui::ImmediateTexture> background_texture_;
   bool background_tried_ = false;
 
   Page page_ = Page::Content;
 
-  std::array<std::filesystem::path, kDiscCount> iso_paths_;
-  std::array<bool, kDiscCount> iso_valid_ = {};
-  std::array<std::string, kDiscCount> iso_status_;
-  std::array<std::string, kDiscCount> iso_fingerprints_;
-  // [Language] codes per validated disc.
-  std::array<std::set<std::string>, kDiscCount> iso_languages_;
+  struct DiscSlot {
+    std::filesystem::path source;
+    std::string fingerprint;
+    BootLanguages languages;
+    bool Filled() const { return !source.empty(); }
+  };
+  std::array<DiscSlot, kDiscCount> discs_;
+  std::string sources_status_;
+
+  BootLanguages disc_langs_;
+  std::vector<LanguageChoice> lang_picks_;
+  bool movies_ = true;
 
   std::filesystem::path
       install_dir_; // install_dir/{game,user} created at install time
   std::string install_status_;
 
   WizardChoices choices_;
-  // Recorded in the install registry, not the profile config: the exe reads it
-  // before any config is loaded.
-  Renderer renderer_ = Renderer::D3D12;
   // Checkbox state, seeded from the live settings.
   bool update_check_ = false;
   bool create_shortcut_ = false;

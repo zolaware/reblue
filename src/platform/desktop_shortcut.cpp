@@ -32,7 +32,49 @@ std::wstring ShortcutFileName(std::string_view name) {
   return out;
 }
 
-bool WriteShortcut(const std::filesystem::path &target, std::string_view name,
+// S_FALSE still took a reference and has to be released. Only
+// RPC_E_CHANGED_MODE leaves nothing to tear down.
+class ComScope {
+public:
+  ComScope() {
+    const HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    owned_ = SUCCEEDED(hr);
+    ok_ = owned_ || hr == RPC_E_CHANGED_MODE;
+  }
+  ~ComScope() {
+    if (owned_)
+      CoUninitialize();
+  }
+  ComScope(const ComScope &) = delete;
+  ComScope &operator=(const ComScope &) = delete;
+  explicit operator bool() const { return ok_; }
+
+private:
+  bool ok_ = false;
+  bool owned_ = false;
+};
+
+bool DesktopShortcutPath(std::string_view name, std::filesystem::path &out,
+                         std::string &error) {
+  const std::wstring file = ShortcutFileName(name);
+  if (file.empty()) {
+    error = "shortcut name is empty once path characters are removed";
+    return false;
+  }
+  PWSTR desktop = nullptr;
+  const HRESULT hr =
+      SHGetKnownFolderPath(FOLDERID_Desktop, 0, nullptr, &desktop);
+  if (FAILED(hr)) {
+    error = "SHGetKnownFolderPath(FOLDERID_Desktop) failed";
+    return false;
+  }
+  out = std::filesystem::path(desktop) / (file + L".lnk");
+  CoTaskMemFree(desktop);
+  return true;
+}
+
+bool WriteShortcut(const std::filesystem::path &target,
+                   const std::filesystem::path &shortcut_path,
                    std::string &error) {
   IShellLinkW *link = nullptr;
   HRESULT hr =
@@ -65,26 +107,6 @@ bool WriteShortcut(const std::filesystem::path &target, std::string_view name,
     return false;
   }
 
-  PWSTR desktop = nullptr;
-  hr = SHGetKnownFolderPath(FOLDERID_Desktop, 0, nullptr, &desktop);
-  if (FAILED(hr)) {
-    persist_file->Release();
-    link->Release();
-    error = "SHGetKnownFolderPath(FOLDERID_Desktop) failed";
-    return false;
-  }
-  const std::wstring file = ShortcutFileName(name);
-  if (file.empty()) {
-    CoTaskMemFree(desktop);
-    persist_file->Release();
-    link->Release();
-    error = "shortcut name is empty once path characters are removed";
-    return false;
-  }
-  const std::filesystem::path shortcut_path =
-      std::filesystem::path(desktop) / (file + L".lnk");
-  CoTaskMemFree(desktop);
-
   hr = persist_file->Save(shortcut_path.c_str(), TRUE);
   persist_file->Release();
   link->Release();
@@ -99,20 +121,15 @@ bool WriteShortcut(const std::filesystem::path &target, std::string_view name,
 
 bool CreateDesktopShortcut(const std::filesystem::path &target,
                            std::string_view name, std::string &error) {
-  const HRESULT co_hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-  if (FAILED(co_hr) && co_hr != RPC_E_CHANGED_MODE) {
+  const ComScope com;
+  if (!com) {
     error = "CoInitializeEx failed";
     return false;
   }
-  // S_FALSE still took a reference and has to be released. Only
-  // RPC_E_CHANGED_MODE leaves nothing to tear down.
-  const bool we_own_com = SUCCEEDED(co_hr);
-
-  const bool ok = WriteShortcut(target, name, error);
-
-  if (we_own_com)
-    CoUninitialize();
-  return ok;
+  std::filesystem::path shortcut_path;
+  if (!DesktopShortcutPath(name, shortcut_path, error))
+    return false;
+  return WriteShortcut(target, shortcut_path, error);
 }
 
 } // namespace bd::platform

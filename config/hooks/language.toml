@@ -1,0 +1,19 @@
+# Movie audio track selection (bodies in src/engine/language.cpp).
+
+[[midasm_hook]]
+address = 0x820C3060
+name = "bdDemoPlayMovieVoiceHook"
+registers = ["r4"]
+after_instruction = true
+
+[[midasm_hook]]
+address = 0x823D6FB0
+name = "viewMovieVoiceHook"
+registers = ["r4"]
+after_instruction = true
+
+[[midasm_hook]]
+address = 0x824185CC
+name = "bdEventSceneMovieVoiceHook"
+registers = ["r4"]
+after_instruction = true

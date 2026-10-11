@@ -22,7 +22,7 @@
 
 // ReXGlue numbers GPR ordinals over integer parameters only, so every register a
 // float argument reserves has to be spelled out as a placeholder for the ones
-// behind it to sit where the guest reads them.
+// behind it to sit where the engine reads them.
 
 namespace bd::engine {
 
@@ -97,7 +97,7 @@ u32 Fade(u32 color, i32 percent) {
   return (alpha << 24) | (color & 0x00FFFFFFu);
 }
 
-// Wall time rather than the guest tick, so the spin stays smooth above 30fps.
+// Wall time rather than the engine tick, so the spin stays smooth above 30fps.
 f32 SpinSeconds() {
   static const auto start = std::chrono::steady_clock::now();
   return std::chrono::duration<f32>(std::chrono::steady_clock::now() - start)
@@ -153,7 +153,7 @@ void MouseCursorTick() {
   // screen and the drawn one off it while the debug menu is up. The
   // title rows publish MenuOwnsInput now, so without this the pointer opening
   // that menu is the one the game is still holding.
-  const bool wanted = Settings::Get().MouseMenu() && MenuOwnsInput() &&
+  const bool wanted = Settings::Get().MouseInput() && MenuOwnsInput() &&
                       !HostOverlayOwnsPointer();
   // The pad takes the pointer off screen with it, mouse motion brings it back.
   g_visible.store(wanted && MenuMouse::Get().MouseHasCursor(),

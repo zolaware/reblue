@@ -7,4 +7,5 @@
 #pragma once
 
 #include "audio/audio_debug.h"
+#include "audio/playback.h"
 #include "audio/settings.h"

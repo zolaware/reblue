@@ -74,9 +74,13 @@ function(reblue_write_build_info out_header)
         set(REBLUE_VERSION_SUFFIX "")
     endif()
 
+    if(NOT DEFINED REBLUE_OFFICIAL_BUILD)
+        set(REBLUE_OFFICIAL_BUILD 0)
+    endif()
+
     configure_file("${CMAKE_CURRENT_FUNCTION_LIST_DIR}/build_info.h.in" "${out_header}" @ONLY)
 
     message(STATUS "reblue v${reblue_VERSION}${REBLUE_VERSION_SUFFIX} ${REBLUE_GIT_COMMIT} on "
-                   "${REBLUE_GIT_BRANCH} (dirty=${REBLUE_GIT_DIRTY}) "
+                   "${REBLUE_GIT_BRANCH} (dirty=${REBLUE_GIT_DIRTY}, official=${REBLUE_OFFICIAL_BUILD}) "
                    "${REBLUE_BUILD_PLATFORM}")
 endfunction()

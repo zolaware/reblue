@@ -9,5 +9,14 @@
 #pragma once
 
 #include "engine/menus/achievements_menu.h"
+#include "engine/menus/camp_config_main_task.h"
+#include "engine/menus/camp_diary_main_task.h"
+#include "engine/menus/camp_item_main_task.h"
+#include "engine/menus/camp_main_task.h"
+#include "engine/menus/camp_rank_main_task.h"
 #include "engine/menus/config_menu.h"
+#include "engine/menus/field_encounter_menu.h"
+#include "engine/menus/mechatt_map_main_task.h"
+#include "engine/menus/shop_main_task.h"
+#include "engine/menus/title_task.h"
 #include "engine/menus/update_prompt.h"

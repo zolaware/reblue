@@ -14,7 +14,7 @@
 #include <rex/filesystem.h>
 
 #include "core/logging.h"
-#include "installer/program_files.h"
+#include "core/program_files.h"
 
 namespace bd::installer {
 

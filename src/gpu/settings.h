@@ -1,7 +1,6 @@
 /**
  * @file    gpu/settings.h
- * @brief   Graphics settings. The AA path and the quality presets are policy
- *          over several settings at once, so they live here, not in the menu.
+ * @brief   Graphics settings.
  * @license BSD 3-Clause, see LICENSE
  */
 #pragma once
@@ -9,14 +8,6 @@
 #include <rex/types.h>
 
 namespace bd::gpu {
-
-// Which anti-aliasing path the scene takes. One multiplier, two paths:
-// supersampling renders above output resolution and downsamples, multisampling
-// samples at output resolution.
-enum class AAMode : u32 {
-  MultiSample = 0,
-  SuperSample = 1,
-};
 
 // The ratio BD's render target is fit to inside the window. Every mode but
 // Original reprojects the scene to hold the vertical view while the 2D layer
@@ -32,19 +23,47 @@ enum class AspectMode : i32 {
   Stretch = 6,
 };
 
-// The most of adapter VRAM the render-target pool may hold parked. Past this
-// the pool stops holding its live working set anyway, and the frame's own
-// allocations need the rest of the card, so it is both what the menu offers as
-// Max and where the setting's own range stops.
-inline constexpr i32 kSurfacePoolBudgetCapPercent = 50;
-
 // The field of view the game frames itself at, horizontal degrees at 16:9.
 // bdCameraInit seeds every camera with 3*pi/20 of vertical view, 27 degrees,
 // which is this across that ratio. bd_fov_offset moves off it, and 0 keeps it.
 inline constexpr i32 kAuthoredFOVDegrees = 46;
 
-// Cost-ranked bundles over the five quality settings. Medium is exactly the
-// shipped defaults, so a fresh install reads Medium rather than Custom.
+enum class PostQuality : i32 {
+  Low = 0,
+  Medium = 1,
+  High = 2,
+};
+
+enum class ReflectionQuality : i32 {
+  Low = 0,
+  Medium = 1,
+  High = 2,
+};
+
+constexpr const char *ToString(PostQuality quality) {
+  switch (quality) {
+  case PostQuality::Low:
+    return "opt.preset.low";
+  case PostQuality::Medium:
+    return "opt.preset.medium";
+  case PostQuality::High:
+    return "opt.preset.high";
+  }
+  return "";
+}
+
+constexpr const char *ToString(ReflectionQuality quality) {
+  switch (quality) {
+  case ReflectionQuality::Low:
+    return "opt.preset.low";
+  case ReflectionQuality::Medium:
+    return "opt.preset.medium";
+  case ReflectionQuality::High:
+    return "opt.preset.high";
+  }
+  return "";
+}
+
 enum class QualityPreset : u32 {
   Low = 0,
   Medium = 1,
@@ -53,6 +72,41 @@ enum class QualityPreset : u32 {
   Custom = 4,
 };
 inline constexpr u32 kQualityPresetCount = 4; // Custom is a state, not a target
+
+// The eight settings a preset spans, in cost order from Low. The AA path is
+// the expensive one, so Low and Medium stay on multisampling and High and
+// Ultra step onto supersampling on top of it. The 8192 shadow map costs real
+// VRAM and fill, so it is Ultra only. Anisotropic filtering is near-free on
+// modern GPUs and the menus offer it as a plain on/off, so every preset takes
+// the full level.
+struct PresetBundle {
+  i32 superSampling;
+  i32 msaa;
+  i32 anisotropy;
+  f64 shadowDistance;
+  i32 shadowDimension;
+  PostQuality postQuality;
+  ReflectionQuality reflectionQuality;
+};
+
+inline constexpr PresetBundle kPresets[kQualityPresetCount] = {
+    /* Low    */ {1, 0, 16, 1.0, 1024, PostQuality::Low,
+                  ReflectionQuality::Low},
+    /* Medium */ {1, 4, 16, 2.0, 4096, PostQuality::Medium,
+                  ReflectionQuality::Medium},
+    /* High   */ {2, 4, 16, 2.0, 4096, PostQuality::High,
+                  ReflectionQuality::High},
+    /* Ultra  */ {2, 8, 16, 4.0, 8192, PostQuality::High,
+                  ReflectionQuality::High},
+};
+
+// Every cvar default below comes from this bundle, so the settings a fresh
+// install boots on are a named tier rather than a set of values that happens
+// to sit near one. The installer reads the same row the menu does, so the
+// wizard opens on Medium instead of Custom.
+inline constexpr QualityPreset kDefaultPreset = QualityPreset::Medium;
+inline constexpr PresetBundle kDefaultSettings =
+    kPresets[static_cast<u32>(kDefaultPreset)];
 
 // Catalog keys, so the menu and the installer label a preset from one place.
 constexpr const char *ToString(QualityPreset preset) {
@@ -99,11 +153,6 @@ public:
   f64 ShadowDistance() const { return shadowDistance_; }
   bool SetShadowDistance(f64 v);
 
-  // How far above the size BD asks for the planar reflection may be scaled.
-  // The game's own distance LOD still picks that size. This only bounds how
-  // far the render rect and supersampling are allowed to lift it.
-  f64 ReflectionUpscale() const { return reflectionUpscale_; }
-
   // Coverage and map dimension are one setting between them: coverage is live
   // and the dimension restart-bound, but a step that moved only one would
   // leave texel density wrong for as long as the coverage change is visible.
@@ -111,9 +160,6 @@ public:
 
   bool Vsync() const { return vsync_; }
   bool SetVsync(bool v);
-
-  i32 DiagVerbosity() const { return diagVerbosity_; }
-  bool SetDiagVerbosity(i32 v);
 
   // The raw cvar value, for the menu row that cycles it.
   // Output::ConfiguredAspect turns it into a ratio.
@@ -137,29 +183,21 @@ public:
   bool PSOPrecache() const { return psoPrecache_; }
   bool GeometryGPUUpload() const { return geometryGPUUpload_; }
   bool DRED() const { return dred_; }
-  // Percent of adapter VRAM the render-target pool may hold parked, capped at
-  // kSurfacePoolBudgetCapPercent. 0 = auto, which the pool sizes itself. Read
-  // on every park, so a change takes effect at once.
-  i32 SurfacePoolBudgetPercent() const { return surfacePoolBudgetPercent_; }
-  bool SetSurfacePoolBudgetPercent(i32 v);
-
-  // The AA path and its multiplier, as the user asked for them. Clamping to
-  // what the device actually supports stays with the device, the only place
-  // that knows.
-  gpu::AAMode AAMode() const;
-  i32 AALevel() const;
+  bool SceneColorR11G11B10() const { return sceneColorR11G11B10_; }
   i32 SuperSampling() const { return superSampling_; }
+  bool SetSuperSampling(i32 v);
   i32 MSAA() const { return msaa_; }
+  bool SetMSAA(i32 v);
 
-  // Both are restart-bound, and both write the pair, because the two settings
-  // encode one setting between them.
-  bool SetAAMode(gpu::AAMode mode);
-  bool SetAALevel(i32 level);
+  gpu::PostQuality PostQuality() const {
+    return static_cast<gpu::PostQuality>(postQuality_);
+  }
+  bool SetPostQuality(i32 v);
 
-  // The highest level the path accepts. A menu that grays out levels asks for
-  // this rather than repeating the cap, so it cannot disagree with what
-  // SetAALevel will actually take.
-  static i32 MaxAALevel(gpu::AAMode mode);
+  gpu::ReflectionQuality ReflectionQuality() const {
+    return static_cast<gpu::ReflectionQuality>(reflectionQuality_);
+  }
+  bool SetReflectionQuality(i32 v);
 
   // The preset the five quality settings currently match, or Custom.
   gpu::QualityPreset QualityPreset() const;
@@ -177,37 +215,38 @@ private:
   void AdoptNTSCFilter();
   void AdoptDOFStrength();
   void AdoptShadowDistance();
-  void AdoptReflectionUpscale();
   void AdoptVsync();
-  void AdoptDiagVerbosity();
   void AdoptAspectRatio();
   void AdoptFOVOffset();
   void AdoptShadowDimension();
   void AdoptPSOPrecache();
   void AdoptGeometryGPUUpload();
   void AdoptDRED();
-  void AdoptSurfacePoolBudgetPercent();
+  void AdoptSceneColorR11G11B10();
   void AdoptSuperSampling();
   void AdoptMSAA();
+  void AdoptPostQuality();
+  void AdoptReflectionQuality();
 
-  bool SetAAPair(i32 superSampling, i32 msaa);
-
-  i32 anisotropy_ = 16;
-  i32 superSampling_ = 1;
-  i32 msaa_ = 4;
+  // Seeded from the same bundle the cvar defaults come from, so a reader that
+  // runs before Init, the installer wizard among them, sees the default preset
+  // rather than a second set of values.
+  i32 anisotropy_ = kDefaultSettings.anisotropy;
+  i32 superSampling_ = kDefaultSettings.superSampling;
+  i32 msaa_ = kDefaultSettings.msaa;
+  i32 postQuality_ = static_cast<i32>(kDefaultSettings.postQuality);
+  i32 reflectionQuality_ = static_cast<i32>(kDefaultSettings.reflectionQuality);
   bool ntscFilter_ = false;
   f64 dofStrength_ = 1.0;
-  i32 shadowDimension_ = 4096;
-  f64 shadowDistance_ = 2.0;
-  f64 reflectionUpscale_ = 2.0;
+  i32 shadowDimension_ = kDefaultSettings.shadowDimension;
+  f64 shadowDistance_ = kDefaultSettings.shadowDistance;
   i32 aspectRatio_ = static_cast<i32>(AspectMode::Auto);
   i32 fovOffset_ = 0;
   bool vsync_ = true;
   bool psoPrecache_ = true;
   bool geometryGPUUpload_ = true;
   bool dred_ = true;
-  i32 surfacePoolBudgetPercent_ = 0;
-  i32 diagVerbosity_ = 2;
+  bool sceneColorR11G11B10_ = false;
 };
 
 } // namespace bd::gpu

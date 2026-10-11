@@ -16,19 +16,20 @@
 
 #include <rex/types.h>
 
-#include "engine/battle.h"
-#include "engine/character.h"
-#include "engine/field.h"
+#include "engine/battle_camera_task.h"
+#include "engine/ene_task.h"
+#include "engine/ply_task.h"
+#include "engine/script.h"
 
 namespace bd::engine {
 
 // Publish and subscribe over engine state changes. Three rules bind every user.
 //
-// Guest thread only. Every publisher is a guest hook, so every subscriber runs
-// on the guest thread and hands off its own slow work. The bus does not
+// Engine thread only. Every publisher is an engine hook, so every subscriber runs
+// on the engine thread and hands off its own slow work. The bus does not
 // marshal.
 //
-// Handles are callback-scoped. An Enemy, Battle or PlayableCharacter is valid
+// Handles are callback-scoped. A PlyTask, EneTask or BattleCameraTask is valid
 // for the duration of the call and no longer, so delivery is synchronous
 // rather than queued. Extract the scalars you need.
 //
@@ -39,38 +40,31 @@ namespace bd::engine {
 
 struct BattleStarted {
   static constexpr const char *kName = "BattleStarted";
-  engine::Battle battle;
-  // Nothing worth tracing: this publishes from bdBattleDataLoad, before any
-  // BattleManagerTask has been captured, so CombinedNum and every other
-  // manager-backed accessor answers its no-manager fallback.
+  engine::BattleCameraTask battle;
   std::array<u32, 2> Trace() const { return {0, 0}; }
 };
 
 struct BattleEnded {
   static constexpr const char *kName = "BattleEnded";
-  engine::Battle battle;
-  // Nothing worth tracing: the manager root is already gone by this publish,
-  // and Battle's Wins/Escapes counters are misnamed. They count encounters
-  // entered with player advantage and with enemy advantage, which the battle
-  // scene reads back to pick a per-side intro, not battle outcomes.
+  engine::BattleCameraTask battle;
   std::array<u32, 2> Trace() const { return {0, 0}; }
 };
 
 struct EnemySpawned {
   static constexpr const char *kName = "EnemySpawned";
-  explicit EnemySpawned(u32 nodeEA) : enemy(nodeEA) {}
-  engine::Enemy enemy;
+  explicit EnemySpawned(u32 taskAddress) : enemy(taskAddress) {}
+  engine::EneTask enemy;
   std::array<u32, 2> Trace() const {
-    return {enemy.TypeId(), enemy.Address()};
+    return {enemy.Chara().TypeId(), enemy.Address()};
   }
 };
 
 struct EnemyKilled {
   static constexpr const char *kName = "EnemyKilled";
-  explicit EnemyKilled(u32 nodeEA) : enemy(nodeEA) {}
-  engine::Enemy enemy;
+  explicit EnemyKilled(u32 taskAddress) : enemy(taskAddress) {}
+  engine::EneTask enemy;
   std::array<u32, 2> Trace() const {
-    return {enemy.TypeId(), enemy.Address()};
+    return {enemy.Chara().TypeId(), enemy.Address()};
   }
 };
 
@@ -93,10 +87,9 @@ struct SaveLoaded {
 
 struct StageLoaded {
   static constexpr const char *kName = "StageLoaded";
-  engine::Field field;
-  engine::Stage stage;
+  engine::Script script;
   std::array<u32, 2> Trace() const {
-    return {stage.CombinedNum(), stage.Category()};
+    return {script.CombinedNum(), script.Category()};
   }
 };
 
@@ -108,25 +101,25 @@ struct StageLoaded {
 // field shutdown such as a return to title destroys Scripts without this pop.
 struct StageUnloading {
   static constexpr const char *kName = "StageUnloading";
-  engine::Stage stage;
-  std::array<u32, 2> Trace() const { return {stage.CombinedNum(), 0}; }
+  engine::Script script;
+  std::array<u32, 2> Trace() const { return {script.CombinedNum(), 0}; }
 };
 
 struct PlayerSpawned {
   static constexpr const char *kName = "PlayerSpawned";
-  explicit PlayerSpawned(u32 nodeEA) : player(nodeEA) {}
-  engine::PlayableCharacter player;
+  explicit PlayerSpawned(u32 taskAddress) : player(taskAddress) {}
+  engine::PlyTask player;
   std::array<u32, 2> Trace() const {
-    return {player.SlotId(), player.Address()};
+    return {player.Chara().SlotId(), player.Address()};
   }
 };
 
 struct PlayerDied {
   static constexpr const char *kName = "PlayerDied";
-  explicit PlayerDied(u32 nodeEA) : player(nodeEA) {}
-  engine::PlayableCharacter player;
+  explicit PlayerDied(u32 taskAddress) : player(taskAddress) {}
+  engine::PlyTask player;
   std::array<u32, 2> Trace() const {
-    return {player.SlotId(), player.Address()};
+    return {player.Chara().SlotId(), player.Address()};
   }
 };
 
@@ -142,7 +135,7 @@ struct NothingCollected {
 // ---- Inventory ----
 
 // GoldChanged publishes only from the script gold opcode, and ItemGained only
-// from the script item opcode. engine/inventory.cpp names the routes that
+// from the script item opcode. engine/item_save_data.cpp names the routes that
 // reach the same save data without publishing.
 struct GoldChanged {
   static constexpr const char *kName = "GoldChanged";
@@ -162,19 +155,19 @@ struct ItemGained {
 
 struct PartyMemberAdded {
   static constexpr const char *kName = "PartyMemberAdded";
-  explicit PartyMemberAdded(u32 nodeEA) : member(nodeEA) {}
-  engine::PlayableCharacter member;
+  explicit PartyMemberAdded(u32 taskAddress) : member(taskAddress) {}
+  engine::PlyTask member;
   std::array<u32, 2> Trace() const {
-    return {member.SlotId(), member.Address()};
+    return {member.Chara().SlotId(), member.Address()};
   }
 };
 
 struct PartyLeaderChanged {
   static constexpr const char *kName = "PartyLeaderChanged";
-  explicit PartyLeaderChanged(u32 nodeEA) : leader(nodeEA) {}
-  engine::PlayableCharacter leader;
+  explicit PartyLeaderChanged(u32 taskAddress) : leader(taskAddress) {}
+  engine::PlyTask leader;
   std::array<u32, 2> Trace() const {
-    return {leader.SlotId(), leader.Address()};
+    return {leader.Chara().SlotId(), leader.Address()};
   }
 };
 

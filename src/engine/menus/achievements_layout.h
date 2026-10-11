@@ -123,8 +123,8 @@ public:
   // menu's list and the camp screen's use this template, so they share the
   // spelling of every variable it declares. 'fade' scales the alphas so a list
   // can arrive behind a transition rather than pop in whole.
-  static void PopulateNames(D2AnimeMenu &menu);
-  static void RefreshVisuals(D2AnimeMenu &menu, float fade = 1.0f);
+  static void PopulateNames(const AnimeMenu &menu);
+  static void RefreshVisuals(AnimeMenu menu, f32 fade = 1.0f);
 
 protected:
   void declareVars(CsvBuilder &b) override;
@@ -239,7 +239,7 @@ public:
 // twin of the five stock S_dia_top_*.csv. The engine reaches those through
 // CampDiary__OpenSubScreen, called from the top screen's Exit, which parks the
 // destination state at task+0x70 and runs state 0x13 until the transition
-// task's loadState reports 5. Our state (0x14) is past every switch the guest
+// task's loadState reports 5. Our state (0x14) is past every switch the engine
 // dispatches, so AchievementsMenu drives the same wait itself.
 //
 // L_dia.csv, the screen Exit hides on the way out, owns the left item

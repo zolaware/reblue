@@ -47,11 +47,14 @@ public:
 
   u8 Modifiers() const;
 
+  bool WindowFocused() const;
+
   // WindowInputListener
   void OnKeyDown(rex::ui::KeyEvent &e) override;
   void OnKeyUp(rex::ui::KeyEvent &e) override;
 
   // WindowListener
+  void OnGotFocus(rex::ui::UISetupEvent &e) override;
   void OnLostFocus(rex::ui::UISetupEvent &e) override;
   void OnClosing(rex::ui::UIEvent &e) override;
 
@@ -60,6 +63,7 @@ private:
   void Set(rex::ui::VirtualKey vk, bool down);
 
   std::array<std::atomic<u64>, 4> keys_{};
+  std::atomic<bool> focused_{true};
   rex::ui::Window *window_ = nullptr;
 };
 

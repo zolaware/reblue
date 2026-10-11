@@ -7,7 +7,6 @@
  * @license     BSD 3-Clause - see LICENSE
  */
 #include <cmath>
-#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -15,12 +14,12 @@
 #include <rex/types.h>
 
 #include "core/memory_helpers.h"
-#include "engine/field.h"
+#include "engine/game.h"
 #include "engine/gimmicks.h"
 #include "engine/hud_fade.h"
 #include "engine/menus/map_markers.h"
+#include "engine/mini_map_task.h"
 #include "engine/settings.h"
-#include "engine/state_layout.h"
 #include "gpu/gpu.h"
 
 REX_EXTERN(__imp__MiniMapTask__DrawWidget);
@@ -32,11 +31,9 @@ namespace {
 // The compass widget, as MiniMapTask__DrawWidget lays it out: a 256-wide
 // masked crop centered at 1120,588 with the player pinned to its center. A
 // marker's screen offset is its world delta over MapScale, times TexSize over
-// DispSize, times the 128 half-width, turned by texRot, as the widget turns the
-// crop. Its own destination marker adds OffSetRot on top, which the world-axis
-// raster under the crop does not carry. That marker hides past 70 widget
-// pixels, fading over the last tenth, and ours keep its numbers so nothing
-// pops at a different rim.
+// DispSize, times the 128 half-width. Its own destination marker hides past 70
+// widget pixels, fading over the last tenth, and ours keep its numbers so
+// nothing pops at a different rim.
 constexpr float kCompassX = 1120.0f;
 constexpr float kCompassY = 588.0f;
 constexpr float kCompassHalf = 128.0f;
@@ -65,7 +62,7 @@ public:
     return m;
   }
 
-  void Draw(u32 miniMap);
+  void Draw(const MiniMapTask &miniMap);
 
 private:
   std::string stem_;
@@ -73,27 +70,26 @@ private:
   int refresh_ = 0;
 };
 
-void MiniMapMarkers::Draw(u32 miniMap) {
+void MiniMapMarkers::Draw(const MiniMapTask &miniMap) {
   if (!Settings::Get().MapGimmickMarkers())
     return;
   // The widget under these already faded through its own hooks.
   const float fade = HudFade::Get().Alpha();
   if (fade <= 0.0f)
     return;
-  const u32 fsc = mem::load<u32>(addr::kFieldSceneCtl);
-  if (mem::try_field<u32>(fsc, offsetof(FieldSceneCtl_t, mapId)) >=
-      kCompassMapIdCap)
+  const ScriptManTask root = Game::Get().ScriptManTask();
+  if (root.MapId() >= kCompassMapIdCap)
     return;
-  const u32 db = mem::try_field<u32>(miniMap, offsetof(MiniMapTask_t, floor));
-  if (!FloorReady(db))
+  const MiniMapDB db = miniMap.Floor();
+  if (!db.Ready())
     return;
-  const Field field;
-  if (!field.HasPlayer())
+  const Player leader = Game::Get().FieldPlayerEntity().Leader().Chara();
+  if (!leader)
     return;
 
   // Chests open and points get taken while the compass is up, so the cache
   // follows the stage and refreshes on a short cadence rather than once.
-  const std::string stem = field.Stage().Name();
+  const std::string stem = root.Script().Name();
   if (stem != stem_ || --refresh_ <= 0) {
     stem_ = stem;
     refresh_ = kMarkerRefreshFrames;
@@ -102,24 +98,20 @@ void MiniMapMarkers::Draw(u32 miniMap) {
   if (markers_.empty())
     return;
 
-  const auto *m = mem::try_at<const MiniMapDB_t>(db);
-  if (float(m->dispW) <= 0.0f || float(m->dispH) <= 0.0f)
+  if (db.DispW() <= 0.0f || db.DispH() <= 0.0f)
     return;
-  const Vec3 player = field.Position();
+  const Vec3 player = leader.Position();
 
-  const float rot = float(m->texRot) * kDegToRad;
+  const float rot = (db.TexRot() + db.OffsetRot()) * kDegToRad;
   const float cosA = std::cos(rot);
   const float sinA = std::sin(rot);
-  const float spanX =
-      float(m->texW) / float(m->dispW) * kCompassHalf / float(m->scaleX);
-  const float spanY =
-      float(m->texH) / float(m->dispH) * kCompassHalf / float(m->scaleZ);
+  const float spanX = db.TexW() / db.DispW() * kCompassHalf / db.ScaleX();
+  const float spanY = db.TexH() / db.DispH() * kCompassHalf / db.ScaleZ();
 
   const float compassX = kCompassX + gpu::Output::DesignOverscanX();
   const float compassY = kCompassY + gpu::Output::DesignOverscanY();
 
-  PrimSelectTexture(kChromeMarker,
-                    miniMap + offsetof(MiniMapTask_t, chromeTex));
+  PrimSelectTexture(kChromeMarker, miniMap.ChromeTexAddress());
   const u32 shapeTex = mem::load<u32>(PrimState() + kPrim_Texture);
   QuadWriter quads{shapeTex, kCompassMarkerZ, kCompassMarkerZFloor};
 
@@ -146,9 +138,9 @@ void MiniMapMarkers::Draw(u32 miniMap) {
 
   if (!onArrow)
     return;
-  const float heading = (float(m->texRot) + float(m->plyRot)) * kDegToRad +
-                        field.Rotation()[1] - kHalfPi;
-  PrimSelectTexture(kChromeArrow, miniMap + offsetof(MiniMapTask_t, chromeTex));
+  const float heading = (db.TexRot() + db.PlyRot()) * kDegToRad +
+                        leader.Rotation()[1] - kHalfPi;
+  PrimSelectTexture(kChromeArrow, miniMap.ChromeTexAddress());
   const u32 arrow = (u32(f32(kCompassArrowColor >> 24) * fade) << 24) |
                     (kCompassArrowColor & 0x00FFFFFFu);
   PrimDrawRectRotated(compassX, compassY, kCompassArrowZ, kMarkerSize,
@@ -160,7 +152,7 @@ void MiniMapMarkers::Draw(u32 miniMap) {
 } // namespace bd::engine
 
 REX_HOOK_RAW(MiniMapTask__DrawWidget) {
-  const u32 miniMap = ctx.r3.u32;
+  const bd::engine::MiniMapTask miniMap(ctx.r3.u32);
   __imp__MiniMapTask__DrawWidget(ctx, base);
   bd::engine::MiniMapMarkers::Get().Draw(miniMap);
 }

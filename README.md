@@ -1,9 +1,13 @@
-<img width="1480" height="662" alt="Untitled-1" src="https://github.com/user-attachments/assets/1779fdfd-bc3a-416d-8b6c-38874d8eae93" />
-
-
+<h1 align="center">
+  <img width="1480" height="662" alt="Untitled-1" src="https://github.com/user-attachments/assets/1779fdfd-bc3a-416d-8b6c-38874d8eae93" />
+  <a href="https://discord.gg/92MCyYDpuY">
+    <img src="https://img.shields.io/badge/Discord-Join%20Server-5865F2?logo=discord&logoColor=white" alt="Discord">
+  </a>
+</h1>
 
 > [!IMPORTANT]
-> re:Blue is an unofficial project
+> re:Blue is an unofficial project and contains NO ASSETS from the original game.
+> This project is useless unless you have a legal backup of the ISO images from the Global release (US/EU, Asia/JP support coming soon).
 
 
 # re:Blue
@@ -140,9 +144,9 @@ Grants add to what you already hold rather than replacing it, hand you one of ea
 
 ### Platforms and Languages
 
-- Windows on DX12 or Vulkan
+- Windows on DX12 (Vulkan support is available if built from source)
 - Linux AMD64 and ARM64, including the Steam Deck and other handhelds
-- macOS AMD64 and ARM64
+- macOS ARM64 (AMD64 support is available if built from source)
 - Custom menus in English, French, German, Italian, and Spanish
 
 ## FAQ

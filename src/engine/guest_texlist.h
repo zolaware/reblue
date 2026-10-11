@@ -18,7 +18,7 @@
 namespace bd::engine {
 
 // One texlist request: a directory and the basenames under it, which the
-// engine's loader joins as '%s%s.dds'. The guest block it builds lives for the
+// engine's loader joins as '%s%s.dds'. The engine block it builds lives for the
 // run, since the loader keeps reading the directory and the descriptor for as
 // long as the request exists.
 class Texlist {

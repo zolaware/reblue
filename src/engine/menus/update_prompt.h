@@ -1,6 +1,6 @@
 /**
  * @file    engine/menus/update_prompt.h
- * @brief   The update check and its offers, in front of the guest's own
+ * @brief   The update check and its offers, in front of the engine's own
  *          downloadable-content load.
  *
  * @copyright Copyright (c) 2026 Tom Clay <tomc@tctechstuff.com>
@@ -12,25 +12,23 @@
 
 #include <atomic>
 #include <chrono>
-#include <filesystem>
 #include <string>
 
 #include <rex/types.h>
 
 #include "engine/d2anime/d2anime.h"
+#include "engine/task.h"
 
 namespace bd::engine {
 
-// Guest thread only: the windows it puts the answers in are guest tasks, and
+// Engine thread only: the windows it puts the answers in are engine tasks, and
 // the engine polls them for input as it does its own screens.
 class UpdatePrompt {
 public:
   static UpdatePrompt &Get();
 
-  void Init(std::filesystem::path install_root);
-
-  // Once per title tick. True for as long as the guest must wait here.
-  bool Hold(u32 titleTask);
+  // Once per title tick. True for as long as the title must wait here.
+  bool Hold(const Task &parent);
 
   // The host's own readout and prompt stand down while this owns the answer.
   bool Active() const;
@@ -58,7 +56,6 @@ private:
   bool EnterContentOffer();
   void ShowCheckLine();
 
-  std::filesystem::path install_root_;
   std::string app_version_;
   u64 app_bytes_ = 0;
   std::chrono::steady_clock::time_point deadline_{};

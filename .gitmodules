@@ -4,9 +4,6 @@
 [submodule "thirdparty/XenosRecomp"]
 	path = thirdparty/XenosRecomp
 	url = https://github.com/zolaware/reblue-XenosRecomp.git
-[submodule "thirdparty/implot"]
-	path = thirdparty/implot
-	url = https://github.com/epezent/implot.git
 [submodule "thirdparty/picosha2"]
 	path = thirdparty/picosha2
 	url = https://github.com/okdshin/PicoSHA2.git

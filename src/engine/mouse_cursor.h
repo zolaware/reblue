@@ -10,7 +10,7 @@
 
 namespace bd::engine {
 
-// Once per guest frame. Loads the texlist the first time a cursor is wanted and
+// Once per engine frame. Loads the texlist the first time a cursor is wanted and
 // publishes whether the sprite is on screen, so the window thread can take the
 // arrow away. Drawing happens per rendered frame in bdMouseCursorDrawHook.
 void MouseCursorTick();

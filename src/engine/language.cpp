@@ -8,6 +8,14 @@
 
 #include "core/memory_helpers.h"
 #include "engine/state_layout.h"
+#include "installer/installer.h"
+#include "vfs/vfs.h"
+
+#include <rex/ppc.h>
+
+#include <algorithm>
+#include <string>
+#include <vector>
 
 namespace bd::engine {
 
@@ -31,6 +39,19 @@ constexpr const char *kNames[kLocaleCount] = {
 constexpr u8 kXLangToLocale[10] = {1, 0, 2, 3, 4, 5, 6, 7, 9, 8};
 constexpr u32 kXLangMin = 1;
 constexpr u32 kXLangMax = 10;
+
+const std::vector<std::string> &MovieVoices() {
+  static const std::vector<std::string> kMovieVoices =
+      bd::installer::BootLanguages::FromFile(
+          bd::vfs::VFS::Get().Paths().Game() / "bd_boot.ini")
+          .Movie();
+  return kMovieVoices;
+}
+
+void RemapMovieVoice(PPCRegister &r4) {
+  r4.u64 = static_cast<u32>(
+      Language().MovieVoiceType(static_cast<i32>(r4.u32)));
+}
 
 } // namespace
 
@@ -90,4 +111,23 @@ bool Language::IsAvailable(Locale l) const {
   return l.Id() < kLocaleCount && (AvailableMask() & (1u << l.Id())) != 0;
 }
 
+i32 Language::MovieVoiceType(i32 voiceType) const {
+  const auto &movies = MovieVoices();
+  const auto it = std::find(movies.begin(), movies.end(),
+                            VoiceLocale(voiceType).CodeLower());
+  if (it == movies.end())
+    return 1;
+  return static_cast<i32>(it - movies.begin()) + 1;
+}
+
 } // namespace bd::engine
+
+void bdDemoPlayMovieVoiceHook(PPCRegister &r4) {
+  bd::engine::RemapMovieVoice(r4);
+}
+
+void viewMovieVoiceHook(PPCRegister &r4) { bd::engine::RemapMovieVoice(r4); }
+
+void bdEventSceneMovieVoiceHook(PPCRegister &r4) {
+  bd::engine::RemapMovieVoice(r4);
+}

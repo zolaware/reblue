@@ -93,3 +93,15 @@ address = 0x821296A8
 name = "bdNowLoadingAnchorHook"
 registers = ["r31"]
 after_instruction = false
+
+[[midasm_hook]]
+address = 0x821F9FA4
+name = "bdFieldEncounterMenuAnchorHook"
+registers = ["f30"]
+after_instruction = true
+
+[[midasm_hook]]
+address = 0x821F9FD8
+name = "bdFieldEncounterPanelAnchorHook"
+registers = ["f1"]
+after_instruction = true

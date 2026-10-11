@@ -1,6 +1,6 @@
 /**
  * @file    engine/d2anime/anime_input.h
- * @brief       Guest pad polling for host-driven d2anime menus.
+ * @brief       Pad polling for host-driven d2anime menus.
  *
  * @copyright   Copyright (c) 2026 Tom Clay <tomc@tctechstuff.com>
  *              All rights reserved.
@@ -9,6 +9,8 @@
 #pragma once
 
 #include <rex/types.h>
+
+#include "engine/input/actions.h"
 
 namespace bd::engine {
 
@@ -49,5 +51,9 @@ bool ButtonHeld(Button btn);
 
 // Stick deflection in [-1, 1].
 float StickValue(StickAxis axis);
+
+bool CheckAction(Action action);
+bool ActionHeld(Action action);
+Button ActionButton(Action action);
 
 } // namespace bd::engine

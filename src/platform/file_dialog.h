@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <optional>
 #include <span>
+#include <vector>
 
 namespace bd::platform {
 
@@ -24,6 +25,10 @@ struct FileFilter {
 std::optional<std::filesystem::path>
 ShowOpenFileDialog(const wchar_t *title,
                    std::span<const FileFilter> filters = {});
+
+std::vector<std::filesystem::path>
+ShowOpenFilesDialog(const wchar_t *title,
+                    std::span<const FileFilter> filters = {});
 
 std::optional<std::filesystem::path> ShowOpenFolderDialog(const wchar_t *title);
 

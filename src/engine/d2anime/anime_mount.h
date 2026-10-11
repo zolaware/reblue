@@ -27,15 +27,15 @@ class AnimeLayout;
 // always reflects the live state of the layout behind it.
 class LayoutMount {
 public:
-  // Guest directory every Add() name is taken relative to, trailing separator
+  // Content directory every Add() name is taken relative to, trailing separator
   // included (e.g. "d2anime\\modmgr\\").
   explicit LayoutMount(std::string dir = {});
   ~LayoutMount();
 
   LayoutMount &Add(const char *name, AnimeLayout *layout);
   LayoutMount &Add(const char *name, std::function<std::string()> csv);
-  // Complete guest-relative key rather than a name under the mount's directory,
-  // for a blob that has to sit beside something else.
+  // Complete content-relative key rather than a name under the mount's
+  // directory, for a blob that has to sit beside something else.
   LayoutMount &AddRaw(std::string key, std::function<std::vector<u8>()> bytes);
 
   void Publish(const char *mountName);

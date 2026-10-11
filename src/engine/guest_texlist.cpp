@@ -16,7 +16,7 @@
 
 // ReXGlue numbers GPR ordinals over integer parameters only, so every register
 // a float argument reserves has to be spelled out as a placeholder for the ones
-// behind it to sit where the guest reads them.
+// behind it to sit where the engine reads them.
 REX_IMPORT(__imp__VisualTexture__RequestTexlist, TexlistRequest,
            u32(u32, u32, u32));
 REX_IMPORT(__imp__VisualTexture__PollLoadState, TexlistPoll, u32(u32));
@@ -66,13 +66,13 @@ constexpr u32 kLoadHandleVtable = 0x8206A9B0; // LH_Texlist
 // table at +8 has been published.
 constexpr u32 kTexlistReady = 2;
 
-// Reached through guest pointers rather than a struct, since the table and its
+// Reached through engine pointers rather than a struct, since the table and its
 // entries are the engine's own copies rather than the ones handed to it.
 constexpr u32 kVisualTexture_Table = 0x08;
 constexpr u32 kTable_Entries = 0x04;
 constexpr u32 kEntry_Texture = 0x18;
 
-// One HostHeap block holds the lot: the guest keeps the directory string and
+// One HostHeap block holds the lot: the engine keeps the directory string and
 // descriptor for as long as the request is alive, so nothing here is scratch.
 constexpr u32 kOffHolder = 0x00;
 constexpr u32 kOffDesc = 0x20;

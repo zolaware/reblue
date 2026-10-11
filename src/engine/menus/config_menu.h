@@ -11,10 +11,12 @@
 
 #include "core/settings_model.h"
 #include "engine/d2anime/d2anime.h"
+#include "engine/input/actions.h"
 
 #include <array>
 #include <initializer_list>
 #include <string>
+#include <vector>
 
 #include <rex/ppc/func.h>
 #include <rex/types.h>
@@ -35,11 +37,15 @@ public:
     SECTION,             // section sidebar active
     MODLIST,             // mod list active, detail panel visible
     DLCLIST,             // DLC list active, detail panel visible
+    LANGLIST,
+    LANGADD,
+    LANGPICK,
+    LANGJOB,
+    LANGNOTICE,
     ACHVLIST,            // achievement list active (read-only)
     SETTINGS,            // a settings page list active, sidebar stays visible
-    KEYBINDS,            // keyboard-binds screen (reached from the Input page)
-    PADLAYOUT,           // controller diagram (reached from the Controls page)
-    KEYBIND_CAPTURE,     // waiting for a host key press to rebind a row
+    KEYBINDS,
+    KEYBIND_CAPTURE,
     REORDER,             // reorder mode (mod list only)
     CONFIRM_DELETE,      // delete confirmation popup active
     CONFIRM_REBOOT,      // restart-to-apply confirmation popup active
@@ -50,7 +56,7 @@ public:
   // 'parentUpdate' is the host hook's original, which Update runs at the point
   // the engine drives its AnimeMenu updates. It differs per surface, so the
   // menu takes it rather than naming one host's symbol.
-  void Create(u32 parentTask, Surface surface, PPCFunc *parentUpdate);
+  void Create(Task parent, Surface surface, PPCFunc *parentUpdate);
   void Destroy();
   // Close for a host that keeps the task between opens: persists what Destroy
   // persists and rewinds the state machine, while the task and its discovered
@@ -68,7 +74,7 @@ public:
   bool IsOnScreen() const { return active_ && task_ && task_.IsVisible(); }
   bool WantsRestart() const { return wants_restart_; }
 
-  u32 TaskAddr() const { return task_.guest_address(); }
+  u32 TaskAddr() const { return task_.Address(); }
 
 private:
   // Footer prompts for a state, as i18n catalog keys. A null key hides its
@@ -84,14 +90,13 @@ private:
 
   void Transition(State next);
   void EnforceActiveFlags();
-  void ActivateOnly(D2AnimeMenu *target);
+  void ActivateOnly(AnimeMenu *target);
   // Shows exactly the named lists and hides every other one.
-  void ShowOnly(std::initializer_list<D2AnimeMenu *> visible);
+  void ShowOnly(std::initializer_list<AnimeMenu *> visible);
   // Shows the lists the current state calls for.
   void ApplyVisibility();
   void SetHeaders(const std::string &sections, const std::string &mods,
                   const std::string &details);
-  // The keybind screen's section headers and hint line, which the common
   // transition block clears alongside the row description.
   void SetKeybindChrome(const char *hintKey);
   void SetFooter(const FooterLabels &f);
@@ -102,7 +107,7 @@ private:
   State ContentState() const;
   // The list that state shows, which the sidebar puts up beside itself so the
   // highlighted section can be read before it is entered.
-  D2AnimeMenu *ContentMenu();
+  AnimeMenu *ContentMenu();
   // Points the preview at a sidebar row, on every cursor move.
   void SyncPreview(int cursor);
   // Hands focus to whichever of the sidebar and the list beside it the pointer
@@ -112,6 +117,11 @@ private:
   void HandleSection();
   void HandleModlist();
   void HandleDLCList();
+  void HandleLangList();
+  void HandleLangAdd();
+  void HandleLangPick();
+  void HandleLangJob();
+  void HandleLangNotice();
   void HandleAchvlist();
   void HandleSettings();
   // Sets the row's value from where the pointer sits along it: the button it
@@ -121,7 +131,7 @@ private:
   // Repeat step for a held direction on a bar row, or 0.
   int HeldStep(int cursor);
   void HandleKeybinds();
-  void HandlePadLayout();
+  bool SkipBindSpacer();
   void HandleKeybindCapture();
   void HandleReorder();
   void HandleConfirmDelete();
@@ -130,30 +140,28 @@ private:
 
   void UpdateDetailPanel(int cursor);
   void UpdateDLCDetail(int cursor);
+  void UpdateLanguageDetail(int index);
+  void ShowLanguageNotice(const std::string &text);
   void HideDetailPanel();
   void HideDLCDetail();
   void UpdateFooter();
   void SetRowDesc(const std::string &text);
   void UpdateAchvRowDesc(int cursor);
+  void UpdateSettingsRowDesc(int slot);
   void PopulateNames();
   void RefreshModVisuals();
   void RefreshDLCVisuals();
   void RefreshAchvVisuals();
   void RefreshSettingsVisuals();
   void RefreshKeybindVisuals();
-  void RefreshPadLayout();
-  void HidePadLayout();
   bool DiscoverMenus();
   bool MenusReady();
   void ResetMenus();
-  D2AnimeMenu &CurrentSettingsList();
+  AnimeMenu &CurrentSettingsList();
 
-  // Every list widget this menu owns: the section sidebar, the mod, DLC,
-  // achievement and keybind lists, plus one list per settings page. All point
-  // at members, so the array is rebuilt per call rather than cached.
-  static constexpr size_t kFixedMenus = 5;
+  static constexpr size_t kFixedMenus = 6;
   static constexpr size_t kMenuCount = kSettingsSectionCount + kFixedMenus;
-  std::array<D2AnimeMenu *, kMenuCount> Menus();
+  std::array<AnimeMenu *, kMenuCount> Menus();
 
   State state_ = State::INIT;
   Surface surface_ = Surface::Title;
@@ -170,24 +178,23 @@ private:
   D2AnimeTask task_;
   // Last glyph generation pushed into the footer cap vars (see kFooterGlyphs).
   u32 glyph_gen_ = 0;
-  D2AnimeMenu section_menu_;
-  D2AnimeMenu modlist_menu_;
-  D2AnimeMenu dlclist_menu_;
-  D2AnimeMenu achvlist_menu_;
-  D2AnimeMenu settings_menus_[kSettingsSectionCount];
-  D2AnimeMenu keybind_menu_;
+  AnimeMenu section_menu_;
+  AnimeMenu modlist_menu_;
+  AnimeMenu dlclist_menu_;
+  AnimeMenu langlist_menu_;
+  AnimeMenu achvlist_menu_;
+  AnimeMenu bind_menu_;
+  AnimeMenu settings_menus_[kSettingsSectionCount];
 
   SettingsPage settings_page_ = SettingsPage::Gameplay;
-  SettingAction pad_action_ = SettingAction::PadLayout;
-  int capture_index_ = -1;
-  bool capture_alt_ = false;
+  int capture_slot_ = -1;
+  int capture_chip_ = -1;
+  int last_bind_slot_ = 0;
+  Action conflict_action_ = Action::Confirm;
+  bool conflict_shown_ = false;
   // Edge detector for the keybind screen's hover-Delete, a host key with no
-  // guest button to edge-gate it.
+  // engine button to edge-gate it.
   bool del_held_ = false;
-  // Last keybind grid slot the cursor held outside the spacer band. It tells
-  // the spacer nudge which way the cursor was traveling.
-  int last_keybind_slot_ = 0;
-  // The same, for the section titles between a settings page's rows.
   int last_settings_slot_ = 0;
   // Held-direction auto-repeat on bar rows, counted in menu frames: a short
   // delay so a tap still moves one step, then a step every other frame.
@@ -206,8 +213,15 @@ private:
   D2AnimeCursor cursor_;
   int reorder_origin_ = -1;
   int delete_index_ = -1;
-  bool delete_is_dlc_ = false;
+  enum class DeleteKind { Mod, DLC, Language };
+  static const char *DeleteKindName(DeleteKind kind);
+  DeleteKind delete_kind_ = DeleteKind::Mod;
+  std::string lang_prompt_;
+  std::string lang_notice_;
+  int lang_pick_ = 0;
+  std::vector<bool> lang_accept_;
   SysMesConfirm confirm_popup_;
+  SysMesNotice notice_popup_;
 };
 
 } // namespace bd::engine

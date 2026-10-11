@@ -18,7 +18,7 @@ class HudFade {
 public:
   static HudFade &Get();
 
-  // Once per guest logic step.
+  // Once per engine logic step.
   void Poll();
 
   // What each field HUD element multiplies its own authored alpha by. At 1 no

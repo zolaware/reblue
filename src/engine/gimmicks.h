@@ -1,8 +1,8 @@
 /**
  * @file    engine/gimmicks.h
- * @brief   How many of a map's gimmicks are still untouched: the search points
- *          the game calls Gmk::ReactGim, plus treasure chests and elemental
- *          barriers. Per map, or across the whole game.
+ * @brief   How many of a map's gimmicks are still untouched: search points,
+ *          scripted loot, treasure chests and elemental barriers, read off the
+ *          stage the engine has loaded.
  *
  * @copyright Copyright (c) 2026 Tom Clay <tomc@tctechstuff.com>
  *            All rights reserved.
@@ -11,8 +11,6 @@
  */
 #pragma once
 
-#include <cstddef>
-#include <memory>
 #include <optional>
 #include <string_view>
 #include <vector>
@@ -20,6 +18,8 @@
 #include <rex/types.h>
 
 namespace bd::engine {
+
+class Script;
 
 // The first eleven are Gmk::ReactGim's kind, in the order of the engine's own
 // name table, and are what the search point CSVs spell NONE, MESS and so on.
@@ -63,32 +63,32 @@ struct Marker {
   // False when a search point carries no flag: it respawns on every map load,
   // so collected is meaningless and it can never be counted down.
   bool trackable = false;
+  u16 flag = 0;
+  u8 opensAt = 0;
+  u32 value = 0;
   f32 x = 0.0f;
   f32 y = 0.0f;
   f32 z = 0.0f;
 };
 
-// Reads the baked table of what the game ships against the live flag array.
-// Every query takes a map stem as bdStageNameBuild spells it ("dg05_01",
-// "bi03d02"), or kEverywhere. A stem with no row tallies zero, including the
-// one an off-field Stage().Name() gives.
+// Rows built from the stage the engine has loaded, read against the live flag
+// array. Every query takes a map stem as bdStageNameBuild spells it
+// ("dg05_01", "bi03d02"). A stem no held stage carries tallies zero, including
+// the one an off-field Stage().Name() gives.
 //
 // Points whose flag is -1 respawn on every map load and count in neither total
 // nor remaining, so a floor made only of those reads as 0 of 0.
-//
-// The overworld is one script covering everything, so its chests file under
-// "wd_world" rather than any wd_aNN. They still count in kEverywhere.
 class Gimmicks {
 public:
-  static constexpr std::string_view kEverywhere = "*";
-
   static Gimmicks &Get();
 
   Gimmicks(const Gimmicks &) = delete;
   Gimmicks &operator=(const Gimmicks &) = delete;
 
-  // True once the baked table parsed and the guest's flag array resolves.
-  // Every tally is zero until then.
+  void Init();
+
+  // True once the engine's flag array resolves. Every tally is zero until
+  // then.
   bool IsReady() const;
 
   bool Has(std::string_view stem) const;
@@ -99,20 +99,20 @@ public:
   Tally Barriers(std::string_view stem,
                  std::optional<BarrierColor> color = {}) const;
 
-  // Everything placed on one map, taken or not. The nine chests no script
-  // places are absent, since nothing records where they would stand.
+  // Everything placed on one map, taken or not.
   std::vector<Marker> Markers(std::string_view stem) const;
 
 private:
   Gimmicks();
   ~Gimmicks();
 
-  struct Table;
-  static std::unique_ptr<Table> ParseTable();
-  static std::unique_ptr<Table> Parse(const u8 *data, size_t size,
-                                      std::string_view origin);
+  struct Stage;
 
-  std::unique_ptr<Table> table_;
+  void Build(const Script &script);
+  void Drop(const Script &script);
+  const Stage *Find(std::string_view stem) const;
+
+  std::vector<Stage> stages_;
 };
 
 } // namespace bd::engine

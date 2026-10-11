@@ -29,12 +29,12 @@ constexpr u32 kRecordId = 0x14;
 // is assumed to match, which is unverified.
 constexpr u32 kRecordName = 0x08;
 
-// A record count read while the guest is still filling the table can be
+// A record count read while the engine is still filling the table can be
 // garbage. The shipped tables are on the order of a thousand rows.
 constexpr u32 kTableScanCap = 8192;
 
 // The pointer comes out of a table we do not own, so a bad entry must yield an
-// empty name rather than a walk off the end of guest memory.
+// empty name rather than a walk off the end of engine memory.
 constexpr u32 kMaxNameChars = 128;
 
 u32 FindRecord(u32 rootVA, u32 countVA, u32 stride, u32 id) {

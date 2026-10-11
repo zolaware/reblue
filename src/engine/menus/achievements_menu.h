@@ -35,11 +35,11 @@ public:
   // frame sits empty for as long as the CSV and its eleven child anime take to
   // come back. Taking them one at a time keeps that cost off the frame the
   // Encyclopedia itself opens on.
-  void Preload(u32 parentTask);
+  void Preload(const Task &parent);
 
-  // parentTask is the host's guest task address, currently the camp
-  // Encyclopedia main task. Nothing else about the host is assumed.
-  void Create(u32 parentTask);
+  // parent is the host task, currently the camp Encyclopedia main task.
+  // Nothing else about the host is assumed.
+  void Create(const Task &parent);
 
   // Hides both screens and goes idle without unloading them. They belong to the
   // Items task, which outlives every Encyclopedia visit, so killing them here
@@ -48,7 +48,7 @@ public:
   void Close();
 
   // Host task already died and took this one with it: reset without reading or
-  // writing guest memory that the engine has freed.
+  // writing engine memory that has since been freed.
   void Abandon();
 
   // Must run before the engine drives the task tree. See the note on the
@@ -57,7 +57,7 @@ public:
 
   bool IsActive() const { return active_; }
   bool IsClosing() const { return state_ == State::CLOSING; }
-  u32 TaskAddr() const { return task_.guest_address(); }
+  u32 TaskAddr() const { return task_.Address(); }
 
 private:
   void Transition(State next);
@@ -81,7 +81,7 @@ private:
 
   D2AnimeTask intro_;
   D2AnimeTask task_;
-  D2AnimeMenu list_menu_;
+  AnimeMenu list_menu_;
 };
 
 // Serves the generated CSVs from the stock d2anime\camp\dia\ directory, so

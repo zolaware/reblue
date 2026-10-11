@@ -101,26 +101,26 @@ void AchievementRowTemplate::buildValue(CsvBuilder &b) {
                    .alphaExpr = alphaVars[i]});
 }
 
-void AchievementRowTemplate::PopulateNames(D2AnimeMenu &menu) {
+void AchievementRowTemplate::PopulateNames(const AnimeMenu &menu) {
   const auto &rows = GetAchievementList();
-  menu.ForEachSlot([&](int, int i, u32 vb) {
+  menu.ForEachSlot([&](int, int i, AnimeData vb) {
     if (i < 0 || i >= static_cast<int>(rows.size())) {
-      VarBagSetText(vb, "Name", std::string());
-      VarBagSetText(vb, "Score", std::string());
+      vb.SetText("Name", std::string());
+      vb.SetText("Score", std::string());
       return;
     }
-    VarBagSetText(vb, "Name", rows[i].label);
-    VarBagSetText(vb, "Score", std::format("{}G", rows[i].gamerscore));
+    vb.SetText("Name", rows[i].label);
+    vb.SetText("Score", std::format("{}G", rows[i].gamerscore));
   });
 }
 
-void AchievementRowTemplate::RefreshVisuals(D2AnimeMenu &menu, float fade) {
+void AchievementRowTemplate::RefreshVisuals(AnimeMenu menu, f32 fade) {
   SyncAchievementIconAtlas();
   const auto &rows = GetAchievementList();
   const u32 enColor = menu.EnableColor();
   const u32 disColor = menu.DisableColor();
 
-  menu.ForEachRow(rows.size(), [&](int slot, int i, u32 vb) {
+  menu.ForEachRow(rows.size(), [&](int slot, int i, AnimeData vb) {
     const bool unlocked = rows[i].unlocked;
 
     // Only the alpha channel carries the fade. The tint has to stay the
@@ -132,17 +132,17 @@ void AchievementRowTemplate::RefreshVisuals(D2AnimeMenu &menu, float fade) {
     menu.SetToggleRow(slot, vb, unlocked,
                       (color & 0x00FFFFFFu) | (alpha << 24));
 
-    VarBagSetFloat(vb, "RowAlpha", kRowAlpha * fade);
-    VarBagSetFloat(vb, "IconAlpha", kIconAlpha * fade);
-    VarBagSetFloat(vb, "IconDimAlpha", kIconDimAlpha * fade);
-    VarBagSetFloat(vb, "LineAlpha", kLineAlpha * fade);
+    vb.SetFloat("RowAlpha", kRowAlpha * fade);
+    vb.SetFloat("IconAlpha", kIconAlpha * fade);
+    vb.SetFloat("IconDimAlpha", kIconDimAlpha * fade);
+    vb.SetFloat("LineAlpha", kLineAlpha * fade);
 
     // An achievement with no icon takes a transparent cell.
     const AchievementIconUv uv = AchievementIconUVFor(rows[i].id);
-    VarBagSetFloat(vb, "IconU0", uv.u0);
-    VarBagSetFloat(vb, "IconV0", uv.v0);
-    VarBagSetFloat(vb, "IconU1", uv.u1);
-    VarBagSetFloat(vb, "IconV1", uv.v1);
+    vb.SetFloat("IconU0", uv.u0);
+    vb.SetFloat("IconV0", uv.v0);
+    vb.SetFloat("IconU1", uv.u1);
+    vb.SetFloat("IconV1", uv.v1);
   });
 }
 

@@ -9,7 +9,8 @@
  *            See LICENSE file in the project root for full license text.
  */
 #include "core/memory_helpers.h"
-#include "engine/d2anime/anime_vars.h"
+#include "engine/d2anime/d2anime_task.h"
+#include "engine/loader.h"
 #include "gpu/gpu.h"
 
 #include <cstddef>
@@ -126,10 +127,6 @@ void CropAxis(const OutlineAxis &a, float limit, double &pos, double &uv) {
 constexpr double kNowLoadingX = 80.0;
 constexpr double kNowLoadingY = 580.0;
 
-// Loader -> its now-loading D2AnimeTask -> that task's variable bag.
-constexpr u32 kLoader_NowLoadingAnime = 0x88;
-constexpr u32 kD2AnimeTask_VarBag = 0x74;
-
 } // namespace
 
 // The field compass in the canvas' bottom-right corner: needle and target arm
@@ -207,10 +204,19 @@ void bdNowLoadingAnchorHook(PPCRegister &r31) {
   const float over_y = bd::gpu::Output::DesignOverscanY();
   if (over_x == 0.0f && over_y == 0.0f)
     return;
-  const u32 anime = bd::mem::load<u32>(r31.u32 + kLoader_NowLoadingAnime);
-  if (!anime)
+  bd::engine::AnimeData bag =
+      bd::engine::Loader(r31.u32).NowLoadingAnime().AnimeData();
+  if (!bag)
     return;
-  const u32 bag = anime + kD2AnimeTask_VarBag;
-  bd::engine::VarBagSetFloat(bag, "pos.x", kNowLoadingX - over_x);
-  bd::engine::VarBagSetFloat(bag, "pos.y", kNowLoadingY + over_y);
+  bag.SetFloat("pos.x", kNowLoadingX - over_x);
+  bag.SetFloat("pos.y", kNowLoadingY + over_y);
+}
+
+void bdFieldEncounterMenuAnchorHook(PPCRegister &f30) {
+  f30.f64 += bd::gpu::Output::DesignOverscanX();
+}
+
+void bdFieldEncounterPanelAnchorHook(PPCRegister &f1) {
+  constexpr double mid = bd::gpu::kDesignCanvasWidth * 0.5;
+  f1.f64 = mid + (f1.f64 - mid) * bd::gpu::Output::DesignScaleX();
 }

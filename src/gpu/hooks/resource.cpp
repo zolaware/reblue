@@ -24,9 +24,11 @@
 #include "gpu/device.h"
 #include "gpu/format.h"
 #include "gpu/host_resource_heap.h"
+#include "gpu/hooks/tweaks.h"
 #include "gpu/native_texture_mirror.h"
+#include "gpu/output.h"
 #include "gpu/physical_buffers.h"
-#include "gpu/surface_pool.h"
+#include "gpu/surface_registry.h"
 #include "gpu/texture_upload.h"
 
 namespace {
@@ -44,21 +46,30 @@ struct LoadTextureResource {
 static_assert(offsetof(LoadTextureResource, textureVa) == 0xBC);
 static_assert(offsetof(LoadTextureResource, xphysicalData) == 0xC4);
 
+constexpr double kTargetAlignment = 8.0;
+
+bool IsFullFrameScene(u32 width, u32 height) {
+  u32 fit_w = 0;
+  u32 fit_h = 0;
+  if (!bd::gpu::Output::RenderSize(fit_w, fit_h))
+    return true;
+  const double scale = bd::gpu::SceneRenderScale();
+  return width + kTargetAlignment >= fit_w * scale &&
+         height + kTargetAlignment >= fit_h * scale;
+}
+
 bd::gpu::GuestTexture *D3DDevice_CreateSurface_hook(u32 width, u32 height,
                                                     u32 format,
                                                     u32 multi_sample,
                                                     u32 params_va) {
-  // Honor BD's MSAA request (only its scene color + depth pass
-  // multi_sample!=0).
   const plume::RenderSampleCounts msaa_count =
-      (multi_sample != 0 && bd::gpu::Video::CvarMSAASampleCount() !=
-                                plume::RenderSampleCount::COUNT_1)
+      (multi_sample != 0 && IsFullFrameScene(width, height) &&
+       bd::gpu::Video::CvarMSAASampleCount() !=
+           plume::RenderSampleCount::COUNT_1)
           ? bd::gpu::Video::CvarMSAASampleCount()
           : plume::RenderSampleCount::COUNT_1;
 
-  // Pooled reuse of the same-dim scratch surfaces the engine recreates every
-  // frame, fresh committed alloc on miss. Reuse is fence-gated, so GPU-safe.
-  return bd::gpu::SurfacePool::Acquire(width, height, format,
+  return bd::gpu::SurfaceRegistry::Get(width, height, format,
                                        static_cast<u32>(msaa_count));
 }
 
@@ -118,16 +129,10 @@ bd::gpu::GuestTexture *D3DDevice_CreateTexture_hook(u32 width, u32 height,
   } else {
     desc.flags = plume::RenderTextureFlag::NONE;
   }
-  // Force committed only for RT/DS: shared heap placement leaves UNDEFINED
-  // contents D3D12 GBV fills neon-green (visible if sampled before drawn into).
-  // Sampled-only textures are populated before use, and forcing them committed
-  // gave per-texture dedicated heaps -> TDR during level load (thousands of
-  // small textures). Bitwise test (not equality): a depth cube now carries
-  // CUBE|DEPTH_TARGET and needs the same protection as a plain DEPTH_TARGET.
-  const bool is_rt_or_ds =
-      (desc.flags & (plume::RenderTextureFlag::RENDER_TARGET |
-                     plume::RenderTextureFlag::DEPTH_TARGET)) != 0;
-  desc.committed = is_rt_or_ds;
+  // Render and depth targets are placed rather than committed. A committed
+  // texture takes a D3D12 heap of its own, and that driver allocation is what
+  // the frame costs every time a surface is recreated at a new size.
+  desc.committed = false;
 
   // Set before the SRV block: BindTextureSRV reads viewDimension to pick the
   // SRV dimension. A cube must be TEXTURE_CUBE here or it builds a degenerate

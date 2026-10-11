@@ -1,6 +1,6 @@
 /**
  * @file    engine/guest_prim.h
- * @brief   The guest's 2D primitive entry points, under one name each.
+ * @brief   The engine's 2D primitive entry points, under one name each.
  *
  * @copyright   Copyright (c) 2026 Tom Clay <tomc@tctechstuff.com>
  *              All rights reserved.
@@ -13,7 +13,7 @@
 
 // ReXGlue numbers GPR ordinals over integer parameters only, so every register
 // a float argument reserves has to be spelled out as a placeholder for the
-// ones behind it to sit where the guest reads them.
+// ones behind it to sit where the engine reads them.
 //
 // REX_IMPORT declares a static callable, so every translation unit that
 // includes this gets its own and nothing is shared across the link.

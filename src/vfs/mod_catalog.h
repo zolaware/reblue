@@ -14,9 +14,9 @@
 #include <string_view>
 #include <vector>
 
-namespace bd::vfs {
+#include "vfs/file_system.h"
 
-class FileSystem;
+namespace bd::vfs {
 
 struct ModPackage {
   std::string folder; // directory under <install>/mods, and the order-file key
@@ -26,6 +26,7 @@ struct ModPackage {
   std::string description;
   std::string created;
   std::filesystem::path image; // empty when the mod ships no preview
+  DbRows db; // [db] of the mod toml and of every entities/*/entity.toml
   bool enabled = false;
 };
 
@@ -46,6 +47,7 @@ public:
   const ModPackage &At(size_t i) const;
 
   bool IsEnabled(size_t i) const;
+  bool IsEnabled(std::string_view folder) const;
   void SetEnabled(size_t i, bool on);
 
   // Enable a freshly installed mod: add it to the loadout if absent, persist

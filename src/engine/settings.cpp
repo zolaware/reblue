@@ -9,6 +9,7 @@
 #include <rex/cvar.h>
 
 #include "core/settings.h" // kCvarGroup
+#include "engine/config.h"
 #include "engine/glyph_set.h"
 
 REXCVAR_DECLARE(i32, bd_fps_limit);
@@ -17,10 +18,12 @@ REXCVAR_DECLARE(bool, bd_disable_tutorials);
 REXCVAR_DECLARE(bool, bd_map_gimmick_markers);
 REXCVAR_DECLARE(i32, bd_hud_mode);
 REXCVAR_DECLARE(f64, bd_hud_fade_delay);
-REXCVAR_DECLARE(bool, bd_mouse_menu);
+REXCVAR_DECLARE(bool, bd_mouse_input);
 REXCVAR_DECLARE(bool, bd_mouse_cursor_sfx);
 REXCVAR_DECLARE(i32, bd_mouse_cursor_opacity);
 REXCVAR_DECLARE(i32, bd_glyph_set);
+REXCVAR_DECLARE(bool, bd_vibration);
+REXCVAR_DECLARE(f64, bd_camera_speed);
 
 REXCVAR_DEFINE_INT32(bd_fps_limit, 0, kCvarGroup,
                      "Frame-rate cap: 0 = unlimited, above 30 the fixed 30Hz "
@@ -46,9 +49,9 @@ REXCVAR_DEFINE_DOUBLE(bd_hud_fade_delay, 5.0, kCvarGroup,
                       "Seconds of no button before the idle field HUD starts "
                       "fading.");
 
-REXCVAR_DEFINE_BOOL(bd_mouse_menu, true, kCvarGroup,
-                    "Hovering a menu row moves the game's own cursor onto "
-                    "it.");
+REXCVAR_DEFINE_BOOL(bd_mouse_input, true, kCvarGroup,
+                    "Mouse input: raw mouse look in the field with the "
+                    "pointer locked, and the drawn cursor in menus.");
 
 REXCVAR_DEFINE_BOOL(bd_mouse_cursor_sfx, true, kCvarGroup,
                     "Play the cursor-move sound effect on a mouse-driven "
@@ -65,6 +68,14 @@ REXCVAR_DEFINE_INT32(bd_glyph_pad, -1, kCvarGroup,
                      "Controller the prompt glyphs draw: -1 = follow the "
                      "connected pad, 0 = Xbox 360, 1 = Xbox, 2 = PlayStation, "
                      "3 = Switch, 4 = Steam Deck.");
+
+REXCVAR_DEFINE_BOOL(bd_vibration, true, kCvarGroup,
+                    "Pad rumble. Off stops the motors without touching any "
+                    "other pad input.");
+
+REXCVAR_DEFINE_DOUBLE(bd_camera_speed, 1.2, kCvarGroup,
+                      "Field camera stick speed, scaling both axes. 1.2 is "
+                      "the value the disc ships.");
 
 namespace bd::engine {
 namespace {
@@ -102,7 +113,9 @@ void Settings::AdoptHudFadeDelay() {
   hudFadeDelay_ = std::max(0.0, REXCVAR_GET(bd_hud_fade_delay));
 }
 
-void Settings::AdoptMouseMenu() { mouseMenu_ = REXCVAR_GET(bd_mouse_menu); }
+void Settings::AdoptMouseInput() {
+  mouseInput_ = REXCVAR_GET(bd_mouse_input);
+}
 
 void Settings::AdoptMouseCursorSFX() {
   mouseCursorSFX_ = REXCVAR_GET(bd_mouse_cursor_sfx);
@@ -116,6 +129,18 @@ void Settings::AdoptGlyphSetMode() {
 void Settings::AdoptPadGlyphSet() {
   padGlyphSet_ =
       std::clamp(REXCVAR_GET(bd_glyph_pad), kPadSetFirst, kPadSetLast);
+}
+
+void Settings::AdoptVibration() { vibration_ = REXCVAR_GET(bd_vibration); }
+
+void Settings::AdoptCameraSpeed() {
+  cameraSpeed_ = std::clamp(REXCVAR_GET(bd_camera_speed), kCameraSpeedMin,
+                            kCameraSpeedMax);
+  ApplyCameraSpeed();
+}
+
+void Settings::ApplyCameraSpeed() const {
+  Config::Get().SetCamRollSpd(static_cast<f32>(cameraSpeed_));
 }
 
 void Settings::AdoptMouseCursorOpacity() {
@@ -160,6 +185,18 @@ bool Settings::SetMouseCursorOpacity(i32 v) {
   return rex::cvar::SetFlagByName("bd_mouse_cursor_opacity", FormatCvar(v));
 }
 
+bool Settings::SetMouseInput(bool v) {
+  return rex::cvar::SetFlagByName("bd_mouse_input", FormatCvar(v));
+}
+
+bool Settings::SetVibration(bool v) {
+  return rex::cvar::SetFlagByName("bd_vibration", FormatCvar(v));
+}
+
+bool Settings::SetCameraSpeed(f64 v) {
+  return rex::cvar::SetFlagByName("bd_camera_speed", FormatCvar(v));
+}
+
 void Settings::AdoptCvars() {
   AdoptFPSLimit();
   AdoptSaveAnywhere();
@@ -167,11 +204,13 @@ void Settings::AdoptCvars() {
   AdoptMapGimmickMarkers();
   AdoptHudMode();
   AdoptHudFadeDelay();
-  AdoptMouseMenu();
+  AdoptMouseInput();
   AdoptMouseCursorSFX();
   AdoptMouseCursorOpacity();
   AdoptGlyphSetMode();
   AdoptPadGlyphSet();
+  AdoptVibration();
+  AdoptCameraSpeed();
 }
 
 void Settings::Init() {
@@ -189,11 +228,13 @@ void Settings::Init() {
   reg("bd_map_gimmick_markers", &Settings::AdoptMapGimmickMarkers);
   reg("bd_hud_mode", &Settings::AdoptHudMode);
   reg("bd_hud_fade_delay", &Settings::AdoptHudFadeDelay);
-  reg("bd_mouse_menu", &Settings::AdoptMouseMenu);
+  reg("bd_mouse_input", &Settings::AdoptMouseInput);
   reg("bd_mouse_cursor_sfx", &Settings::AdoptMouseCursorSFX);
   reg("bd_mouse_cursor_opacity", &Settings::AdoptMouseCursorOpacity);
   reg("bd_glyph_set", &Settings::AdoptGlyphSetMode);
   reg("bd_glyph_pad", &Settings::AdoptPadGlyphSet);
+  reg("bd_vibration", &Settings::AdoptVibration);
+  reg("bd_camera_speed", &Settings::AdoptCameraSpeed);
 }
 
 } // namespace bd::engine

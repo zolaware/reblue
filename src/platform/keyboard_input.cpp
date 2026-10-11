@@ -6,8 +6,8 @@
 
 #include <rex/ui/window.h>
 
-#include "core/global_config.h"
 #include "core/settings.h"
+#include "engine/engine.h"
 
 namespace bd::platform {
 namespace {
@@ -22,6 +22,7 @@ void KeyboardInput::Attach(rex::ui::Window *window) {
   if (!window || window_)
     return;
   window_ = window;
+  focused_.store(window_->HasFocus(), std::memory_order_relaxed);
   window_->AddInputListener(this, kZOrder);
   window_->AddListener(this);
 }
@@ -32,6 +33,7 @@ void KeyboardInput::Detach() {
   window_->RemoveInputListener(this);
   window_->RemoveListener(this);
   window_ = nullptr;
+  focused_.store(true, std::memory_order_relaxed);
   for (auto &word : keys_)
     word.store(0, std::memory_order_relaxed);
 }
@@ -53,6 +55,10 @@ bool KeyboardInput::IsDown(rex::ui::VirtualKey vk) const {
     return false;
   return (keys_[idx >> 6].load(std::memory_order_relaxed) &
           (1ull << (idx & 63))) != 0;
+}
+
+bool KeyboardInput::WindowFocused() const {
+  return focused_.load(std::memory_order_relaxed);
 }
 
 bool KeyboardInput::AnyDown() const {
@@ -78,8 +84,8 @@ u8 KeyboardInput::Modifiers() const {
 bool KeyboardInput::ShouldSwallow() const {
   if (!bd::Settings::Get().Devmode())
     return false;
-  const auto *hidden = GetMindowsHiddenFlag();
-  return hidden && *hidden == 0u;
+  const auto &game = bd::engine::Game::Get();
+  return game.IsReady() && !game.MindowsHidden();
 }
 
 void KeyboardInput::OnKeyDown(rex::ui::KeyEvent &e) {
@@ -94,7 +100,12 @@ void KeyboardInput::OnKeyUp(rex::ui::KeyEvent &e) {
   // eating one key-up latches that key down until the window is defocused.
 }
 
+void KeyboardInput::OnGotFocus(rex::ui::UISetupEvent &) {
+  focused_.store(true, std::memory_order_relaxed);
+}
+
 void KeyboardInput::OnLostFocus(rex::ui::UISetupEvent &) {
+  focused_.store(false, std::memory_order_relaxed);
   for (auto &word : keys_)
     word.store(0, std::memory_order_relaxed);
 }

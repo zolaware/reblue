@@ -47,7 +47,7 @@ constexpr float kFadeFrames = 6.0f;
 
 void RegisterAchievementsVFS() {
   // Exactly once per process: FileSystem::Add bumps the overlay revision, and
-  // the next guest directory enumeration then rebuilds the whole index (120k
+  // the next engine directory enumeration then rebuilds the whole index (120k
   // keys across the shipped packs), costing a second at the Encyclopedia open.
   // Nothing is lost by registering once, since the providers below run at read
   // time, so each CSV is regenerated from its live layout object every time.
@@ -88,7 +88,7 @@ void RegisterAchievementsVFS() {
   registered = true;
 }
 
-void AchievementsMenu::Preload(u32 parentTask) {
+void AchievementsMenu::Preload(const Task &parent) {
   if (task_)
     return;
 
@@ -106,20 +106,19 @@ void AchievementsMenu::Preload(u32 parentTask) {
 
     RegisterAchievementsVFS();
 
-    intro_ =
-        D2AnimeTask::Load(parentTask, "d2anime\\camp\\dia\\s_dia_top_ach.csv",
-                          D2AnimeTask::Reveal::Held);
+    intro_ = D2AnimeTask::Load(parent, "d2anime\\camp\\dia\\s_dia_top_ach.csv",
+                               D2AnimeTask::Reveal::Held);
     if (!intro_) {
       BD_WARN("[achv] transition load failed, the screen will pop in");
     } else {
-      intro.SyncVars(intro_.guest_address());
+      intro.SyncVars(intro_.AnimeData());
       // The list screen waits for the next call: eleven child anime arrived
       // on this frame already.
       return;
     }
   }
 
-  task_ = D2AnimeTask::Load(parentTask, "d2anime\\camp\\dia\\l_dia_ach.csv",
+  task_ = D2AnimeTask::Load(parent, "d2anime\\camp\\dia\\l_dia_ach.csv",
                             D2AnimeTask::Reveal::Held);
   if (!task_) {
     BD_ERROR("[achv] LoadAsync failed");
@@ -128,7 +127,7 @@ void AchievementsMenu::Preload(u32 parentTask) {
     return;
   }
   // A fresh screen needs its menu found and its entries built again.
-  list_menu_ = D2AnimeMenu();
+  list_menu_ = AnimeMenu();
 
   // Decoded here rather than on the frame the list first draws: the row
   // template names the atlas, so 49 PNG decodes plus a 512x1024 tiling pass
@@ -136,10 +135,10 @@ void AchievementsMenu::Preload(u32 parentTask) {
   GetAchievementIconAtlas();
 
   BD_DEBUG("[achv] preloaded: list 0x{:08X}, transition 0x{:08X}",
-           task_.guest_address(), intro_.guest_address());
+           task_.Address(), intro_.Address());
 }
 
-void AchievementsMenu::Create(u32 parentTask) {
+void AchievementsMenu::Create(const Task &parent) {
   state_ = State::INTRO;
   active_ = false;
   cursor_.Reset();
@@ -148,8 +147,8 @@ void AchievementsMenu::Create(u32 parentTask) {
 
   // Twice: Preload takes one screen per call, and opening before the frame it
   // would have reached the list on must not leave us without one.
-  Preload(parentTask);
-  Preload(parentTask);
+  Preload(parent);
+  Preload(parent);
   if (!task_)
     return;
 
@@ -161,7 +160,7 @@ void AchievementsMenu::Create(u32 parentTask) {
     intro_.SetVisibleAndPlay(true);
 
   active_ = true;
-  BD_DEBUG("[achv] opened, child task at 0x{:08X}", task_.guest_address());
+  BD_DEBUG("[achv] opened, child task at 0x{:08X}", task_.Address());
 }
 
 void AchievementsMenu::Close() {
@@ -171,7 +170,7 @@ void AchievementsMenu::Close() {
   intro_.SetVisibleAndPlay(false);
   task_.SetVisibleAndPlay(false);
   if (list_menu_)
-    list_menu_.SetVisible(false);
+    list_menu_.SetVisibleAndPlay(false);
 
   state_ = State::INTRO;
   active_ = false;
@@ -187,7 +186,7 @@ void AchievementsMenu::Close() {
 void AchievementsMenu::Abandon() {
   intro_ = D2AnimeTask();
   task_ = D2AnimeTask();
-  list_menu_ = D2AnimeMenu();
+  list_menu_ = AnimeMenu();
   state_ = State::INTRO;
   active_ = false;
   cursor_.Reset();
@@ -197,7 +196,7 @@ void AchievementsMenu::Abandon() {
   BD_DEBUG("[achv] abandoned with the host task");
 }
 
-// The guest's own transition state waits on the finished flag, which AnimeData
+// The engine's own transition state waits on the finished flag, which AnimeData
 // raises only for an anime with a length, and ours parses as endless. The
 // anime frame counter tracks the animation instead, and it counts drawn
 // frames, so it holds at any refresh rate.
@@ -212,16 +211,16 @@ bool AchievementsMenu::IntroFinished() {
   return ++intro_frames_ >= kIntroFrameBudget;
 }
 
-// The same screen played backwards, which is how the guest leaves every stock
+// The same screen played backwards, which is how the engine leaves every stock
 // record screen: Exit seeks the transition to its last frame and flips the rate
 // negative (0x822FA3A8 and friends). Frame 1 is the top screen's own picture,
-// so handing back to the guest there matches exactly what Enter(1) draws.
+// so handing back to the engine there matches exactly what Enter(1) draws.
 void AchievementsMenu::StartOutro() {
   state_ = State::OUTRO;
   intro_frames_ = 0;
   fade_ = 0.0f;
 
-  list_menu_.SetVisible(false);
+  list_menu_.SetVisibleAndPlay(false);
   task_.SetVisibleAndPlay(false);
 
   if (!intro_) {
@@ -258,7 +257,7 @@ bool AchievementsMenu::DiscoverMenu() {
   if (!task_ || !task_.IsReady())
     return false;
 
-  list_menu_ = task_.FindMenuByName("AchvList");
+  list_menu_ = task_.FindMenu("AchvList");
   if (!list_menu_)
     return false;
 
@@ -271,7 +270,7 @@ bool AchievementsMenu::DiscoverMenu() {
   for (size_t i = 0; i < rows.size(); ++i)
     list_menu_.AddEntryData(static_cast<int>(i), rows[i].unlocked);
 
-  BD_DEBUG("[achv] discovered list at 0x{:08X}", list_menu_.guest_address());
+  BD_DEBUG("[achv] discovered list at 0x{:08X}", list_menu_.Address());
   return true;
 }
 
@@ -293,7 +292,7 @@ void AchievementsMenu::Transition(State next) {
     // Shown here for the first time: Create hides it so it can parse behind
     // the transition, and this restarts its anime clock at frame 1.
     task_.SetVisibleAndPlay(true);
-    list_menu_.SetVisible(true);
+    list_menu_.SetVisibleAndPlay(true);
     list_menu_.SetActive(true);
     list_menu_.AttachCursor();
     BD_DEBUG("[achv] state -> FADE_IN");
@@ -327,7 +326,7 @@ void AchievementsMenu::UpdateRowDesc(int cursor) {
 // both fire on the press, as the Spell Record's cancel branch does in one
 // instruction pair (0x822F7858).
 void AchievementsMenu::HandleList() {
-  if (!CheckButton(Button::B))
+  if (!CheckAction(Action::Cancel))
     return;
   sfx::Play(sfx::kCancel);
   StartOutro();
@@ -342,7 +341,7 @@ void AchievementsMenu::Update() {
     // Re-applied every frame for the same reason the list's template vars are:
     // engine async init clears them.
     if (intro_)
-      AchievementsTransitionLayout::Get().SyncVars(intro_.guest_address());
+      AchievementsTransitionLayout::Get().SyncVars(intro_.AnimeData());
     // Found while the strip is still walking, so the handover costs no frame of
     // its own. The screen has been parsed since Preload.
     DiscoverMenu();
@@ -365,7 +364,7 @@ void AchievementsMenu::Update() {
 
   if (state_ == State::OUTRO) {
     if (intro_)
-      AchievementsTransitionLayout::Get().SyncVars(intro_.guest_address());
+      AchievementsTransitionLayout::Get().SyncVars(intro_.AnimeData());
     if (!OutroFinished())
       return;
     BD_DEBUG("[achv] outro ran {} frames (anime frame {})", intro_frames_,
@@ -399,7 +398,7 @@ void AchievementsMenu::Update() {
 
   cursor_.Poll(list_menu_, [&](int c) { UpdateRowDesc(c); });
 
-  AchievementsLayout::Get().SyncVars(task_.guest_address());
+  AchievementsLayout::Get().SyncVars(task_.AnimeData());
 
   if (state_ == State::LIST)
     HandleList();

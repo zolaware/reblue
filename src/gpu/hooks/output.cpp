@@ -23,7 +23,9 @@
 #include "engine/engine.h"
 #include "gpu/d3d.h"
 #include "gpu/device.h"
+#include "gpu/host_resource_heap.h"
 #include "gpu/settings.h"
+#include "gpu/hooks/tweaks.h"
 
 // screenW/H on VisualRender is BD's master dim: the scene RT base, the
 // post/bloom pyramid, the composite and the 2D basis all derive from it. The
@@ -41,18 +43,18 @@ using bd::gpu::Output;
 
 namespace {
 
-// BD's master W/H, both f32 on the VisualRender 'this'.
-constexpr u32 kVisualRenderScreenWOff = 0x1A38;
-constexpr u32 kVisualRenderScreenHOff = 0x1A3C;
-
 // The close-up view's own W/H, both f32 on its 'this'.
 constexpr u32 kCloseUpViewWidthOff = 0x1D0;
+constexpr u32 kViewTextureWOff = 0x38;
+constexpr u32 kViewTextureHOff = 0x3C;
+
+constexpr u32 kViewRateOff = 0x348;
+constexpr f32 kViewFitSlack = 8.0f;
 
 // SAFE/RATE under the Mindows RENDER>DEBUG tree, the f32 scale of the guide box
 // the renderer draws when SAFE/DISP is on. Stock 0.9 is the CRT overscan margin,
 // which hides nothing on a display that shows the whole frame.
-constexpr u32 kVisualRenderSafeRateOff = 0x1B58;
-constexpr float kSafeAreaRate = 0.99f;
+constexpr f32 kSafeAreaRate = 0.99f;
 
 // Guest globals the output res hooks rewrite.
 constexpr u32 kDeviceBackBufferWEA = 0x82DDA670;
@@ -61,12 +63,42 @@ constexpr u32 kDisplayFloatDimsEA = 0x82DDA5E8; // {width, height} f32 pair
 constexpr u32 kViewportWidthEA = 0x82DE8918;
 constexpr u32 kViewportHeightEA = 0x82DE891C;
 
+constexpr u32 kVisualRenderScreens[] = {0x1A28, 0x1B14, 0x1B1C};
+
+constexpr u32 kCompositeScreenEA = 0x82DC98D0;
+
+constexpr u32 kScreenFormat = 0x28280106;
+constexpr u32 kCompositeFormat = 0x182801B6;
+
+constexpr u32 kRenderTargetNextOff = 0x08;
+constexpr u32 kRenderTargetOwnerOff = 0x0C;
+constexpr u32 kRenderTargetTextureOff = 0x04;
+
 // An authored sequence sizes its screen-covering effect quads to just span the
 // fov the game frames itself at, so a wider frame leaves them short of the
 // edges. Battle carries the summon and corporeal sequences, which run off the
 // battle action steps rather than an .evt scene.
 bool AuthoredFraming() {
-  return bd::engine::EventScenePlaying() || bd::engine::Battle().IsActive();
+  return bd::engine::IssEvent::LiveCount() > 0 ||
+         static_cast<bool>(bd::engine::Game::Get().BattleCameraTask());
+}
+
+void WriteGuestOutputDims(u32 w, u32 h) {
+  bd::mem::store<u32>(kDeviceBackBufferWEA, w);
+  bd::mem::store<u32>(kDeviceBackBufferHEA, h);
+  bd::mem::store<float>(kDisplayFloatDimsEA, static_cast<float>(w));
+  bd::mem::store<float>(kDisplayFloatDimsEA + 4, static_cast<float>(h));
+}
+
+bool ScaleDesignDims(f64 &w, f64 &h) {
+  if (w > kDesignCanvasWidth || h > kDesignCanvasHeight)
+    return false;
+  const f64 s = Output::RenderDensity();
+  if (s <= 1.0)
+    return false;
+  w *= s;
+  h *= s;
+  return true;
 }
 
 } // namespace
@@ -75,12 +107,11 @@ bool AuthoredFraming() {
 // created after this point.
 void bdOutputResScreenDimsHook(PPCRegister &r31) {
   u32 w, h;
-  if (!Output::LatchedFit(w, h))
+  if (!Output::RenderSize(w, h))
     return;
-  bd::mem::store<float>(r31.u32 + kVisualRenderScreenWOff,
-                        static_cast<float>(w));
-  bd::mem::store<float>(r31.u32 + kVisualRenderScreenHOff,
-                        static_cast<float>(h));
+  bd::engine::VisualRender render(r31.u32);
+  render.SetScreenW(static_cast<f32>(w));
+  render.SetScreenH(static_cast<f32>(h));
 }
 
 // The bdInitGpuMemory tail, after the device dims and the float pair are
@@ -88,22 +119,16 @@ void bdOutputResScreenDimsHook(PPCRegister &r31) {
 // the resolve source rect together.
 void bdOutputResDeviceDimsHook() {
   u32 w, h;
-  if (!Output::LatchedFit(w, h))
+  if (!Output::RenderSize(w, h))
     return;
-  bd::mem::store<u32>(kDeviceBackBufferWEA, w);
-  bd::mem::store<u32>(kDeviceBackBufferHEA, h);
-  bd::mem::store<float>(kDisplayFloatDimsEA, static_cast<float>(w));
-  bd::mem::store<float>(kDisplayFloatDimsEA + 4, static_cast<float>(h));
+  WriteGuestOutputDims(w, h);
   BD_INFO("[output-res] BD render dims -> {}x{} (swapchain {}x{})", w, h,
           bd::gpu::Video::OutputWidth(), bd::gpu::Video::OutputHeight());
 }
 
-// Jumping past bdRenderStep's force-to-1280 block keeps the output dims and
-// never raises its D3DDevice_Reset trigger. True exactly when
-// Output::LatchedFit set the dims, so the two can never disagree.
 bool bdOutputResRenderStepNeutralizeHook() {
   u32 w, h;
-  return Output::LatchedFit(w, h);
+  return Output::RenderSize(w, h);
 }
 
 // r3/r4 are the hardcoded 1280x720 the ctor creates its composite/history
@@ -111,10 +136,71 @@ bool bdOutputResRenderStepNeutralizeHook() {
 // output dims keeps that resolve 1:1 against the source rect.
 void bdOutputResCompositeTexScaleHook(PPCRegister &r3, PPCRegister &r4) {
   u32 w, h;
-  if (!Output::LatchedFit(w, h))
+  if (!Output::RenderSize(w, h))
     return;
   r3.u32 = w;
   r4.u32 = h;
+}
+
+REX_IMPORT(__imp__bdCreateDynamicTexture, CreateDynamicTexture,
+           u32(u32, u32, u32, u32, u32));
+REX_IMPORT(__imp__bdCameraViewInit, CameraViewInit, void(u32, u32));
+
+namespace {
+
+void ResizeStaleRenderTargets(rex::CallFrame &frame, u8 *base, u32 node, u32 w,
+                              u32 h) {
+  if (!w || !h)
+    return;
+  for (u32 guard = 0; node && guard < 256; ++guard) {
+    const u32 owner = bd::mem::load<u32>(node + kRenderTargetOwnerOff);
+    if (owner) {
+      const auto *texture =
+          bd::gpu::HostResourceHeap::FromGuest<bd::gpu::GuestTexture>(
+              bd::mem::load<u32>(owner + kRenderTargetTextureOff));
+      if (texture && (texture->width != w || texture->height != h))
+        CreateDynamicTexture(frame, base, owner, w, h, 1, kScreenFormat);
+    }
+    node = bd::mem::load<u32>(node + kRenderTargetNextOff);
+  }
+}
+
+void RebuildForOutputSize(rex::CallFrame &frame, u8 *base, u32 w, u32 h) {
+  const u32 render = bd::engine::VisualRender::Get().Address();
+  if (!render)
+    return;
+
+  WriteGuestOutputDims(w, h);
+  for (const u32 screen : kVisualRenderScreens)
+    CreateDynamicTexture(frame, base, render + screen, w, h, 1, kScreenFormat);
+  CreateDynamicTexture(frame, base, kCompositeScreenEA, w, h, 1,
+                       kCompositeFormat);
+
+  CameraViewInit(frame, base, render, 0);
+  BD_INFO("[output-res] engine surfaces rebuilt at {}x{}", w, h);
+}
+
+} // namespace
+
+REX_EXTERN(__imp__bdCreateRenderTargetTextures);
+REX_HOOK_RAW(bdCreateRenderTargetTextures) {
+  u32 w = 0;
+  u32 h = 0;
+  if (Output::RenderSize(w, h)) {
+    const u32 head = ctx.r3.u32;
+    const u32 want_w = (static_cast<u32>(ctx.f1.f64) + 7) & ~7u;
+    const u32 want_h = (static_cast<u32>(ctx.f2.f64) + 7) & ~7u;
+
+    rex::CallFrame frame(ctx);
+    static u32 applied = Output::Generation();
+    const u32 generation = Output::Generation();
+    if (generation != applied) {
+      applied = generation;
+      RebuildForOutputSize(frame, base, w, h);
+    }
+    ResizeStaleRenderTargets(frame, base, head, want_w, want_h);
+  }
+  __imp__bdCreateRenderTargetTextures(ctx, base);
 }
 
 // The projection aspect is a camera field seeded with a literal 16:9, never
@@ -146,27 +232,39 @@ void bdProjectionAspectHook(PPCRegister &fov_half, PPCRegister &aspect) {
     fov_half.f64 = std::atan(std::tan(fov_half.f64) * tan_scale);
 }
 
-// Every camera sub-view (FreeDfsTask close-ups, the talk portrait, the camp
-// viewer) reaches bdCameraViewSetScreenSize with design canvas render dims in
-// f1/f2, so its view texture and scene surfaces upscale at output res. The
-// display dims ride f3/f4 untouched, so placement and the tasks' aspect math
-// stay authored. Dims above the canvas are already output-space and pass
-// through, which also keeps a re-fed scaled size from compounding. Uniform,
-// height-based since bd_aspect_ratio widens only the width.
-// Divided by the supersampling factor, since Visual__UnitNormal__vf03 sizes
-// the scene surfaces from this view texture and multiplies by it again.
-void bdOutputResViewScaleHook(PPCRegister &f1, PPCRegister &f2) {
-  u32 w, h;
-  if (!Output::LatchedFit(w, h))
+void bdOutputResViewScaleHook(PPCRegister &w, PPCRegister &h) {
+  ScaleDesignDims(w.f64, h.f64);
+}
+
+void bdSubViewRenderScaleHook(PPCRegister &r31) {
+  u32 fit_w = 0;
+  u32 fit_h = 0;
+  if (!Output::RenderSize(fit_w, fit_h))
     return;
-  if (f1.f64 > kDesignCanvasWidth || f2.f64 > kDesignCanvasHeight)
+  const f64 full = std::min<f64>(kDesignCanvasWidth * Output::RenderDensity(),
+                                 fit_w);
+  const f32 width = bd::mem::load<float>(r31.u32 + kCloseUpViewWidthOff);
+  if (width + kViewFitSlack >= full)
     return;
-  const double ss = std::max(bd::gpu::Video::BootSupersampling(), 1);
-  const double s = h / static_cast<double>(kDesignCanvasHeight) / ss;
-  if (s > 1.0) {
-    f1.f64 *= s;
-    f2.f64 *= s;
-  }
+  bd::mem::store<float>(r31.u32 + kViewRateOff, 1.0f);
+}
+
+void bdFreeDfsViewTextureSizeHook(PPCRegister &r11) {
+  f64 w = bd::mem::load<float>(r11.u32 + kViewTextureWOff);
+  f64 h = bd::mem::load<float>(r11.u32 + kViewTextureHOff);
+  if (!ScaleDesignDims(w, h))
+    return;
+  bd::mem::store<float>(r11.u32 + kViewTextureWOff, static_cast<float>(w));
+  bd::mem::store<float>(r11.u32 + kViewTextureHOff, static_cast<float>(h));
+}
+
+void bdIssEventDimHook(PPCRegister &r10, PPCRegister &r11) {
+  f64 w = r11.u32;
+  f64 h = r10.u32;
+  if (!ScaleDesignDims(w, h))
+    return;
+  r11.u32 = static_cast<u32>(w);
+  r10.u32 = static_cast<u32>(h);
 }
 
 // This site takes its aspect from the view's own width over height, so the
@@ -177,7 +275,8 @@ void bdOutputResViewScaleHook(PPCRegister &f1, PPCRegister &f2) {
 // be the distortion rather than the cure.
 void bdViewProjectionAspectHook(PPCRegister &r31, PPCRegister &fov_half,
                                 PPCRegister &aspect) {
-  if (bd::mem::load<float>(r31.u32 + kCloseUpViewWidthOff) < kDesignCanvasWidth)
+  if (bd::mem::load<float>(r31.u32 + kCloseUpViewWidthOff) <
+      kDesignCanvasWidth * bd::gpu::SceneRenderScale())
     return;
   bdProjectionAspectHook(fov_half, aspect);
 }
@@ -194,12 +293,13 @@ REX_HOOK_RAW(VisualRender__ctor) {
   __imp__VisualRender__ctor(ctx, base);
   if (!self)
     return;
-  bd::mem::store<float>(self + kVisualRenderSafeRateOff, kSafeAreaRate);
+  bd::engine::VisualRender render(self);
+  render.SetSafeRate(kSafeAreaRate);
   u32 w, h;
-  if (!Output::LatchedFit(w, h))
+  if (!Output::RenderSize(w, h))
     return;
-  bd::mem::store<float>(self + kVisualRenderScreenWOff, kDesignCanvasWidth);
-  bd::mem::store<float>(self + kVisualRenderScreenHOff, kDesignCanvasHeight);
+  render.SetScreenW(kDesignCanvasWidth);
+  render.SetScreenH(kDesignCanvasHeight);
 }
 
 // The patch sites cover every read that wants the output dims, so the struct
@@ -208,7 +308,7 @@ REX_HOOK_RAW(VisualRender__ctor) {
 namespace {
 void OutputResPatchDim(PPCRegister &fr, bool height) {
   u32 w, h;
-  if (!Output::LatchedFit(w, h))
+  if (!Output::RenderSize(w, h))
     return;
   fr.f64 = static_cast<double>(height ? h : w);
 }
@@ -231,12 +331,12 @@ void bdOutputResScreenHf12Hook(PPCRegister &f12) {
 // design canvas coordinates. Pin the dim loads back and leave the struct alone.
 void bdWorldToScreenDesignWf3Hook(PPCRegister &f3) {
   u32 w, h;
-  if (Output::LatchedFit(w, h))
+  if (Output::RenderSize(w, h))
     f3.f64 = kDesignCanvasWidth;
 }
 void bdWorldToScreenDesignHf4Hook(PPCRegister &f4) {
   u32 w, h;
-  if (Output::LatchedFit(w, h))
+  if (Output::RenderSize(w, h))
     f4.f64 = kDesignCanvasHeight;
 }
 
@@ -266,7 +366,13 @@ namespace {
 // Authored extents this far apart still count as the same edge.
 constexpr float kEdgeTolerance = 8.0f;
 
+bool MaxMatches(float max_x, float max_y, double w, double h) {
+  return std::fabs(max_x - static_cast<float>(w)) <= kEdgeTolerance &&
+         std::fabs(max_y - static_cast<float>(h)) <= kEdgeTolerance;
+}
+
 void RenormalizeSizedQuads(u32 node, u32 out_w, u32 out_h) {
+  const double density = Output::RenderDensity();
   for (int guard = 0; node && guard < 4096; ++guard) {
     const auto *n = bd::mem::at<const Bd2DCommandNode>(node);
     if (!n) {
@@ -292,8 +398,9 @@ void RenormalizeSizedQuads(u32 node, u32 out_w, u32 out_h) {
       const bool spans_surface =
           std::fabs(min_x) <= kEdgeTolerance &&
           std::fabs(min_y) <= kEdgeTolerance &&
-          std::fabs(max_x - static_cast<float>(out_w)) <= kEdgeTolerance &&
-          std::fabs(max_y - static_cast<float>(out_h)) <= kEdgeTolerance;
+          (MaxMatches(max_x, max_y, out_w, out_h) ||
+           MaxMatches(max_x, max_y, kDesignCanvasWidth * density,
+                      kDesignCanvasHeight * density));
       if (spans_surface) {
         // Onto the canvas the pinned basis expects, flush to its edges, so
         // the drain's per-draw fit reads it as a backdrop.
@@ -323,7 +430,7 @@ REX_HOOK_RAW(bdRenderSubmitList) {
   u32 w, h;
   auto *vw = bd::mem::at<be_f32>(kViewportWidthEA);
   auto *vh = bd::mem::at<be_f32>(kViewportHeightEA);
-  const bool pin = Output::LatchedFit(w, h) && vw && vh;
+  const bool pin = Output::RenderSize(w, h) && vw && vh;
 
   float saved_w = 0.0f, saved_h = 0.0f;
   if (pin) {

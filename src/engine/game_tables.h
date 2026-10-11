@@ -29,7 +29,7 @@ class GameTables {
 public:
   static GameTables &Get();
 
-  // A guest wide string at an absolute address, for records that carry a name
+  // An engine wide string at an absolute address, for records that carry a name
   // pointer of their own. Empty when the pointer does not resolve.
   static std::string Name(u32 stringVA);
 
@@ -37,7 +37,7 @@ public:
   std::string PhenomeName(u32 id) const;
   std::string ItemName(u32 id) const;
 
-  // Guest address of the record, or zero.
+  // Engine address of the record, or zero.
   u32 PhenomeRecord(u32 id) const;
   u32 ItemRecord(u32 id) const;
 

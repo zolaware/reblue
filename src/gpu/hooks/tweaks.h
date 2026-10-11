@@ -18,13 +18,13 @@ namespace bd::gpu {
 // bdPlaneReflectUpdateTexture. Only the fields that hook reads are named.
 struct PlaneReflectInfo {
   be_u32 pad_00[3];
-  be_u32 texture; // +0x0C  resolve destination
+  be_u32 texture;
   be_u32 pad_10[37];
-  be_f32 scale;  // +0xA4  quality multiplier over the 320-wide base
-  be_u32 width;  // +0xA8  clamped to [128, 1280]
-  be_u32 height; // +0xAC  9/16 of width
+  be_f32 scale;
+  be_u32 width;
+  be_u32 height;
   be_u32 pad_B0[25];
-  be_f32 lastScale; // +0x114 scale the current texture was built for
+  be_f32 lastScale;
 };
 static_assert(offsetof(PlaneReflectInfo, texture) == 0x0C);
 static_assert(offsetof(PlaneReflectInfo, scale) == 0xA4);
@@ -32,9 +32,17 @@ static_assert(offsetof(PlaneReflectInfo, width) == 0xA8);
 static_assert(offsetof(PlaneReflectInfo, height) == 0xAC);
 static_assert(offsetof(PlaneReflectInfo, lastScale) == 0x114);
 
+struct ShadowMapInfo {
+  be_u32 pad_00[3];
+  be_u32 texture;
+};
+static_assert(offsetof(ShadowMapInfo, texture) == 0x0C);
+
 // Sun shadow coverage multiplier in force right now. The light frustum hook and
 // the PCF kernel compensation must read the same value or the kernel shrink
 // stops matching the coverage box.
 f64 ShadowCoverageScale();
+
+f32 SceneRenderScale();
 
 } // namespace bd::gpu

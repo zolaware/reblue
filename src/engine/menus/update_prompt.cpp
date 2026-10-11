@@ -65,10 +65,6 @@ UpdatePrompt &UpdatePrompt::Get() {
   return s;
 }
 
-void UpdatePrompt::Init(std::filesystem::path install_root) {
-  install_root_ = std::move(install_root);
-}
-
 bool UpdatePrompt::Active() const {
   const Phase phase = phase_.load();
   return phase != Phase::kIdle && phase != Phase::kDone;
@@ -89,13 +85,13 @@ bool UpdatePrompt::Release() {
 void UpdatePrompt::ShowCheckLine() {
   const bool app = Updates::Get().State() == Updates::Stage::kChecking;
   notice_.Show(
-      host_.guest_address(),
+      host_,
       i18n::Text(app ? "update.status.checking" : "update.status.content"));
 }
 
 bool UpdatePrompt::EnterOffers() {
   auto &updates = Updates::Get();
-  if (Updates::CanApply() && updates.HasNewer()) {
+  if (updates.CanApply() && updates.HasNewer()) {
     if (const auto newer = updates.Newer()) {
       app_version_ = newer->version;
       app_bytes_ = 0;
@@ -105,7 +101,7 @@ bool UpdatePrompt::EnterOffers() {
 
       BD_INFO("[update] offering v{} at the title", app_version_);
       notice_.Kill();
-      if (confirm_.Create(host_.guest_address(),
+      if (confirm_.Create(host_,
                           i18n::Fmt("update.prompt.app", app_version_,
                                     i18n::Bytes(app_bytes_))
                               .c_str(),
@@ -122,13 +118,13 @@ bool UpdatePrompt::EnterOffers() {
 bool UpdatePrompt::EnterContentOffer() {
   auto &sync = Sync::Get();
   if (sync.State() != Sync::Stage::kPending) {
-    BD_INFO("[update] nothing left to offer, letting the guest through");
+    BD_INFO("[update] nothing left to offer, letting the engine through");
     return Release();
   }
 
   BD_INFO("[update] offering {} content pack(s)", sync.PendingCount());
   notice_.Kill();
-  if (!confirm_.Create(host_.guest_address(),
+  if (!confirm_.Create(host_,
                        i18n::Fmt("update.prompt.content", sync.PendingCount(),
                                  i18n::Bytes(sync.PendingBytes()))
                            .c_str(),
@@ -141,7 +137,7 @@ bool UpdatePrompt::EnterContentOffer() {
   return true;
 }
 
-bool UpdatePrompt::Hold(u32 titleTask) {
+bool UpdatePrompt::Hold(const Task &parent) {
   auto &updates = Updates::Get();
   auto &sync = Sync::Get();
   const auto now = std::chrono::steady_clock::now();
@@ -152,7 +148,7 @@ bool UpdatePrompt::Hold(u32 titleTask) {
     bd::i18n::SyncLocale();
     updates.BeginCheck();
     if (updates.State() == Updates::Stage::kIdle) {
-      BD_INFO("[update] no check to run at the title, letting the guest "
+      BD_INFO("[update] no check to run at the title, letting the engine "
               "through (bd_update_check={}, endpoint '{}')",
               bd::Settings::Get().UpdateCheck(),
               bd::Settings::Get().UpdateUrl());
@@ -164,8 +160,7 @@ bool UpdatePrompt::Hold(u32 titleTask) {
     // object has nothing to keep.
     LayoutMount(kCsvDir).Add(kCsvName, &s_layout).Publish(kMount);
     const std::string csv = std::string(kCsvDir) + kCsvName;
-    host_ =
-        D2AnimeTask::Load(titleTask, csv.c_str(), D2AnimeTask::Reveal::Held);
+    host_ = D2AnimeTask::Load(parent, csv.c_str(), D2AnimeTask::Reveal::Held);
     if (!host_) {
       BD_WARN("[update] the prompt's own screen would not load, skipping it");
       return Release();
@@ -212,7 +207,7 @@ bool UpdatePrompt::Hold(u32 titleTask) {
       return EnterContentOffer();
     }
     confirm_.Kill();
-    updates.BeginApply(install_root_);
+    updates.BeginApply();
     phase_.store(Phase::kAppWorking);
     return true;
 
@@ -221,12 +216,12 @@ bool UpdatePrompt::Hold(u32 titleTask) {
       const u64 total = updates.ApplyBytesTotal();
       const u64 done = updates.ApplyBytesDone();
       const u64 percent = total == 0 ? 0 : done * 100 / total;
-      notice_.Show(host_.guest_address(), i18n::Fmt("update.prompt.downloading",
-                                                    app_version_, percent));
+      notice_.Show(host_, i18n::Fmt("update.prompt.downloading", app_version_,
+                                    percent));
       return true;
     }
     if (updates.Applied() == Updates::ApplyResult::kStaged) {
-      notice_.Show(host_.guest_address(), i18n::Text("update.prompt.staged"));
+      notice_.Show(host_, i18n::Text("update.prompt.staged"));
       phase_.store(Phase::kAppStaged);
       // The swap runs at startup, so the restart is what applies it.
       bd::platform::RequestWarmReboot();
@@ -234,14 +229,15 @@ bool UpdatePrompt::Hold(u32 titleTask) {
     }
     const auto lines = bd::WrapTwoLines(i18n::Text(ErrorKey(updates.Applied())),
                                         kNoticeLineChars);
-    notice_.Show(host_.guest_address(), lines[0], lines[1]);
+    notice_.Show(host_, lines[0], lines[1]);
     deadline_ = now + kErrorHold;
     phase_.store(Phase::kAppFailed);
     return true;
   }
 
   case Phase::kAppFailed:
-    if (now < deadline_ && !CheckButton(Button::A) && !CheckButton(Button::B))
+    if (now < deadline_ && !CheckAction(Action::Confirm) &&
+        !CheckAction(Action::Cancel))
       return true;
     notice_.Kill();
     return EnterContentOffer();
@@ -267,9 +263,8 @@ bool UpdatePrompt::Hold(u32 titleTask) {
       return Release();
     const size_t total = sync.Total();
     const size_t done = sync.Done();
-    notice_.Show(host_.guest_address(),
-                 i18n::Fmt("update.status.downloading", sync.Current(),
-                           done < total ? done + 1 : total, total));
+    notice_.Show(host_, i18n::Fmt("update.status.downloading", sync.Current(),
+                                  done < total ? done + 1 : total, total));
     return true;
   }
 

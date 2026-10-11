@@ -22,6 +22,7 @@
 #include "core/hooks.h"
 #include "core/logging.h"
 #include "core/memory_helpers.h"
+#include "engine/engine.h"
 #include "gpu/d3d.h"
 #include "gpu/device.h"
 #include "gpu/host_resource_heap.h"
@@ -37,7 +38,7 @@ namespace {
 u32 D3DDevice_Clear_hook(u32 /*device*/, u32 /*count*/, u32 /*rects*/,
                          u32 flags, u32 color, f64 z, u32 /*z_gpr_slot*/,
                          u32 stencil, u32 /*edram_clear*/) {
-  bd::gpu::Video::RequestClear(flags, color, float(z), stencil);
+  bd::gpu::Video::Clear(flags, color, float(z), stencil);
   return 0;
 }
 
@@ -65,7 +66,10 @@ u32 D3DDevice_Swap_hook(u32 /*device*/, u32 front_buffer_va,
   auto *front_buffer =
       bd::gpu::HostResourceHeap::FromGuest<bd::gpu::GuestTexture>(
           front_buffer_va);
-  bd::gpu::Video::Present(front_buffer);
+  if (bd::engine::SparseFrame())
+    bd::gpu::Video::SkipPresent();
+  else
+    bd::gpu::Video::Present(front_buffer);
   return 0;
 }
 

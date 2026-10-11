@@ -16,17 +16,15 @@
 
 #include <rex/types.h>
 
-#include "engine/chara_types.h"
+#include "engine/chara.h"
 
 namespace bd::engine {
 
-class PlayableCharacter;
-
 // One derived stat, split into the sources Player_CalcBattleParams sums. final
-// is what the guest actually stored, so a mismatch against the sum shows rather
-// than hides.
+// is what the engine actually stored, so a mismatch against the sum shows
+// rather than hides.
 //
-// Two class candidates, because the guest has two paths. It seeds a scratch
+// Two class candidates, because the engine has two paths. It seeds a scratch
 // block from the latched class, raises it field by field to the maximum over
 // every unlocked class, then in the config[89] branch calls
 // Chara_CopyStatBlock, which refreshes that block from the latched class and
@@ -44,9 +42,9 @@ struct StatContribution {
   std::optional<CharaClass> winner;
 };
 
-// One occupied entry of CharaStatBlock_t::slots, resolved through the class
-// table to the effect it contributes. The name comes off the class table record
-// itself, since a skill is not in the accessory table.
+// One occupied skill slot of the active class record, resolved through the
+// class table to the effect it contributes. The name comes off the class table
+// record itself, since a skill is not in the accessory table.
 struct EquippedSkill {
   u32 slotIndex;
   std::optional<CharaClass> sourceClass;
@@ -56,20 +54,20 @@ struct EquippedSkill {
   u32 value;
 };
 
-// One worn accessory, from CharaStatBlock_t::equipment. These are the ids
-// bdPhenomeTableFindById takes, so the name is a table lookup here.
+// One worn accessory. These are the ids bdPhenomeTableFindById takes, so the
+// name is a table lookup here.
 struct EquippedItem {
   u32 slotIndex;
   u32 itemId;
   std::string name; // empty when the table lookup misses
 };
 
-// Computed on construction rather than re-read per accessor, unlike the
-// Character handles: the walk touches hundreds of fields and a torn read across
-// them would produce a breakdown that never existed. Rebuild it per frame.
+// Computed on construction: the walk touches hundreds of fields and a torn
+// read across them would produce a breakdown that never existed. Rebuild it
+// per frame.
 class StatBreakdown {
 public:
-  static StatBreakdown For(const PlayableCharacter &c);
+  static StatBreakdown For(const Player &c);
 
   explicit operator bool() const { return valid_; }
 
@@ -81,8 +79,8 @@ public:
   // tables, are live.
   bool UsesNewTables() const { return newTables_; }
 
-  // Chara+0x1B3C, the word gating the class recompute. Clear, and the guest
-  // clamps or drops the class contribution entirely.
+  // The word gating the class recompute. Clear, and the engine clamps or drops
+  // the class contribution entirely.
   bool ClassBonusActive() const { return classGate_; }
 
   u32 SlotCount() const { return slotCount_; }

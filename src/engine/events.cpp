@@ -16,7 +16,7 @@ namespace {
 
 EventTrace g_ring[EventLog::kCapacity];
 
-// Publishing happens only on the guest thread, so a plain counter is enough
+// Publishing happens only on the engine thread, so a plain counter is enough
 // for the write side. The release/acquire pair with the console thread loads
 // below is what makes a published entry whole rather than torn. An entry can
 // still be overwritten by wraparound mid-read, which is accepted here since

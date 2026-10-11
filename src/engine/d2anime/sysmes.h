@@ -8,8 +8,9 @@
  */
 #pragma once
 
-#include "core/task_layout.h"
 #include "engine/d2anime/anime_layout.h"
+#include "engine/d2anime/sel_mes_win_task.h"
+#include "engine/task.h"
 
 #include <string>
 #include <string_view>
@@ -54,9 +55,9 @@ struct SysMesVars {
 // handles input.
 class SysMesConfirm {
 public:
-  // Spawn a yes/no popup as a child of parentTask. Up to 3 UTF-8 question
-  // lines. a1/a2 are answer labels, null for the catalog's own yes/no.
-  bool Create(u32 parentTask, const char *q1, const char *q2 = "",
+  // Spawn a yes/no popup as a child of parent. Up to 3 UTF-8 question lines.
+  // a1/a2 are answer labels, null for the catalog's own yes/no.
+  bool Create(const Task &parent, const char *q1, const char *q2 = "",
               const char *q3 = "", const char *a1 = nullptr,
               const char *a2 = nullptr, int defaultSel = 1);
 
@@ -64,17 +65,18 @@ public:
   bool Poll() const;
 
   bool Confirmed() const;
+  bool Canceled() const;
   int SelectedAnswer() const;
 
   void Kill();
 
-  // Forget the handle without touching guest memory: when the popup's parent
+  // Forget the handle without touching engine memory: when the popup's parent
   // task dies, the engine frees the child too, and a later Kill() would write
-  // DEAD flags into freed (possibly reused) guest heap.
+  // DEAD flags into a freed, possibly reused, engine heap block.
   void Drop() { task_.Reset(); }
 
 private:
-  bd::TaskRef task_;
+  SelMesWinTask task_;
 };
 
 // The engine's NormMesWinTask: the same window with no answers and no input,
@@ -83,8 +85,8 @@ class SysMesNotice {
 public:
   // The engine copies the strings in at create, so changed text is a new
   // window. Text it already shows costs nothing.
-  bool Show(u32 parentTask, std::string_view line1, std::string_view line2 = {},
-            std::string_view line3 = {});
+  bool Show(const Task &parent, std::string_view line1,
+            std::string_view line2 = {}, std::string_view line3 = {});
 
   void Kill();
 
@@ -92,7 +94,7 @@ public:
   void Drop();
 
 private:
-  bd::TaskRef task_;
+  Task task_;
   std::string shown1_, shown2_, shown3_;
 };
 

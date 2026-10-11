@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # Builds a self-contained, signed reblue.app and zips it with ditto.
+# Wraps the same bundle in a drag-to-Applications disk image.
 #
 # In: PRESET, OUT_FILE, MAX_MACOS, SIGN_IDENTITY ('-' for ad-hoc)
 set -euo pipefail
 
 BUILD_DIR="out/build/${PRESET}"
+DMG_FILE="${DMG_FILE:-${OUT_FILE%.zip}.dmg}"
 VERSION=$(sed -nE 's/^project\(reblue VERSION ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' CMakeLists.txt | head -n1)
 
 if [ ! -x "${BUILD_DIR}/reblue" ]; then
@@ -251,4 +253,17 @@ codesign --verify --deep --strict --verbose=2 "${APP_BUNDLE}"
 
 mkdir -p dist
 ditto -c -k --sequesterRsrc --keepParent "${APP_BUNDLE}" "dist/${OUT_FILE}"
+
+DMG_STAGING="${STAGING}/dmg"
+mkdir -p "${DMG_STAGING}"
+mv "${APP_BUNDLE}" "${DMG_STAGING}/reblue.app"
+ln -s /Applications "${DMG_STAGING}/Applications"
+hdiutil create -quiet -ov -volname "reblue ${VERSION}" -srcfolder "${DMG_STAGING}" \
+  -fs HFS+ -format UDZO -imagekey zlib-level=9 "dist/${DMG_FILE}"
+
+if [ "${SIGN_IDENTITY}" != - ]; then
+  codesign --force --sign "${SIGN_IDENTITY}" --timestamp "dist/${DMG_FILE}"
+fi
+
 echo "Packaged dist/${OUT_FILE} ($(du -sh "dist/${OUT_FILE}" | awk '{print $1}'); minimum macOS ${package_min_macos})"
+echo "Packaged dist/${DMG_FILE} ($(du -sh "dist/${DMG_FILE}" | awk '{print $1}'))"

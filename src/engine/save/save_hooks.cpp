@@ -56,7 +56,7 @@ constexpr u32 kContentTaskMaxSlots = 30;
 // locally, defer any other root to the original (no other roots reach this in
 // BD).
 //
-// Raw, on the inherited context: a typed REX_IMPORT re-roots the guest stack
+// Raw, on the inherited context: a typed REX_IMPORT re-roots the engine stack
 // at ThreadState's r1 and overwrites the frames live underneath it.
 REX_EXTERN(__imp__rex_XContentCreateWrapper);
 REX_HOOK_RAW(rex_XContentCreateWrapper) {
@@ -127,7 +127,7 @@ REX_HOOK_RAW(rex_XContentCreateWrapper) {
 // XCONTENT_DATA per slot dir (szFileName = the dir name the game created the
 // slot with). Display name stays empty, since BD reads the in-game slot name
 // from savegame.dat (SaveDataTask::ParseSlotData), not XCONTENT_DATA. task is
-// the ContentTask 'this' (guest VA).
+// the ContentTask 'this' (engine VA).
 u32 ContentTask__OnDeviceSelected_hook(u32 task) {
   if (!task)
     return 0;

@@ -38,3 +38,44 @@ address = 0x820CA368
 name = "bdTitleNoSaveBackHook6"
 registers = ["r11", "r31"]
 after_instruction = false
+
+# The title polls confirm and cancel by number instead of through the table
+# bdGetCurrentMapPath selects, so the Type B swap stopped at the title screen.
+# Placed on the mr that follows each li r5, so r5 still names which of the two
+# the call site is asking about. Three state blocks: voice/language select,
+# disc settings, and the row list.
+[[midasm_hook]]
+address = 0x820CA11C
+name = "bdTitleActionButtonHook"
+registers = ["r5"]
+after_instruction = false
+
+[[midasm_hook]]
+address = 0x820CA130
+name = "bdTitleActionButtonHook"
+registers = ["r5"]
+after_instruction = false
+
+[[midasm_hook]]
+address = 0x820CA324
+name = "bdTitleActionButtonHook"
+registers = ["r5"]
+after_instruction = false
+
+[[midasm_hook]]
+address = 0x820CA338
+name = "bdTitleActionButtonHook"
+registers = ["r5"]
+after_instruction = false
+
+[[midasm_hook]]
+address = 0x820CA5FC
+name = "bdTitleActionButtonHook"
+registers = ["r5"]
+after_instruction = false
+
+[[midasm_hook]]
+address = 0x820CA610
+name = "bdTitleActionButtonHook"
+registers = ["r5"]
+after_instruction = false

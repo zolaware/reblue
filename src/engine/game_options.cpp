@@ -13,6 +13,8 @@
 #include "core/logging.h"
 #include "core/memory_helpers.h"
 #include "core/settings.h" // kCvarGroup
+#include "engine/config.h"
+#include "engine/visual_render.h"
 #include "platform/platform.h"
 
 REX_EXTERN(__imp__bdSaveBlockRestoreConfig);
@@ -109,8 +111,6 @@ inline constexpr u32 kSoundBusDefault = 0x82774488;
 inline constexpr u32 kSoundBusMusic = 0x8277448C;
 inline constexpr u32 kSoundBusVoice = 0x82774490;
 inline constexpr u32 kSeMixLevel = 0x827744DC;
-inline constexpr u32 kVisualRender = 0x82DC9848;
-inline constexpr u32 kGlobalConfig = 0x82DEC270;
 } // namespace addr
 
 namespace {
@@ -144,7 +144,7 @@ static_assert(offsetof(SaveConfigBlock_t, brightness) == 0x30);
 constexpr u32 kConfigBlockOffset = 44876;
 constexpr u32 kCtlNormalTypeOffset = 45484;
 constexpr u32 kCtlMechattTypeOffset = 45488;
-constexpr u32 kVoiceTypeOffset = 40792;
+constexpr i32 kCtlTypeA = 0;
 constexpr u32 kAudioHintsOffset = 40800;
 
 // Two blocks live in the content task. The restore reads the second only when
@@ -152,13 +152,6 @@ constexpr u32 kAudioHintsOffset = 40800;
 constexpr u32 kWriteBlockOffset = 55208;
 constexpr u32 kReadBlockOffset = 9528;
 constexpr u32 kBlockSelector = 100896;
-
-// Into g_pVisualRender, and into the global config for the camera.
-constexpr u32 kRenderBrightness = 0x1B2C;
-constexpr u32 kRenderBrightnessChannels = 3;
-constexpr u32 kRenderScreenPosX = 0x1B44;
-constexpr u32 kRenderScreenPosY = 0x1B48;
-constexpr u32 kConfigCamera = 0x150;
 
 // A level runs -1 to 1 and reaches the mixer as (level + 1) scaled per bus.
 constexpr f64 kSeBusScale = 0.75;
@@ -182,7 +175,7 @@ bool StoreFloat(u32 va, f64 value) {
 }
 
 // Set while a setter writes its own cvar, so the change callback does not push
-// the value back into the guest before the setter has compared against it.
+// the value back into the engine before the setter has compared against it.
 bool s_selfWrite = false;
 
 template <typename T> bool WriteCvar(const char *name, T v) {
@@ -218,26 +211,22 @@ void ApplyMixer() {
 
 // These copies are what gets read back, never the globals.
 void ApplyMirrors() {
-  bd::mem::try_store<i32>(addr::kGlobalConfig + kConfigCamera,
-                          REXCVAR_GET(bd_opt_camera));
+  Config::Get().SetCamRollInv(static_cast<u32>(REXCVAR_GET(bd_opt_camera)));
 
-  const u32 render = bd::mem::try_load<u32>(addr::kVisualRender);
+  VisualRender render = VisualRender::Get();
   if (!render)
     return;
 
   const auto brightness = static_cast<f32>(REXCVAR_GET(bd_opt_brightness));
-  for (u32 i = 0; i < kRenderBrightnessChannels; ++i)
-    bd::mem::try_store<f32>(render + kRenderBrightness + i * sizeof(f32),
-                            brightness);
-  bd::mem::try_store<f32>(
-      render + kRenderScreenPosX,
+  for (u32 i = 0; i < VisualRender::kBrightnessChannels; ++i)
+    render.SetBrightness(i, brightness);
+  render.SetScreenPosX(
       static_cast<f32>(REXCVAR_GET(bd_opt_screen_pos_x) * kScreenPosXScale));
-  bd::mem::try_store<f32>(
-      render + kRenderScreenPosY,
+  render.SetScreenPosY(
       static_cast<f32>(REXCVAR_GET(bd_opt_screen_pos_y) * kScreenPosYScale));
 }
 
-// Pushes the global set into the guest globals. A no-op before the address
+// Pushes the global set into the engine globals. A no-op before the address
 // space exists.
 void AdoptCvars() {
   StoreInt(addr::kMsgSpeed, REXCVAR_GET(bd_opt_msg_speed));
@@ -250,8 +239,8 @@ void AdoptCvars() {
   StoreInt(addr::kSkipEvents, REXCVAR_GET(bd_opt_skip_events));
   StoreInt(addr::kCamera, REXCVAR_GET(bd_opt_camera));
   StoreInt(addr::kTargetFirst, REXCVAR_GET(bd_opt_target_first));
-  StoreInt(addr::kCtlNormalType, REXCVAR_GET(bd_opt_ctl_normal_type));
-  StoreInt(addr::kCtlMechattType, REXCVAR_GET(bd_opt_ctl_mechatt_type));
+  StoreInt(addr::kCtlNormalType, kCtlTypeA);
+  StoreInt(addr::kCtlMechattType, kCtlTypeA);
 
   const f64 se = REXCVAR_GET(bd_opt_se_volume);
   StoreFloat(addr::kMusicVolume, REXCVAR_GET(bd_opt_music_volume));
@@ -263,15 +252,11 @@ void AdoptCvars() {
 }
 
 constexpr const char *kOptionCvars[] = {
-    "bd_opt_msg_speed",        "bd_opt_msg_size",
-    "bd_opt_voice_type",       "bd_opt_ruby",
-    "bd_opt_subtitles",        "bd_opt_audio_hints",
-    "bd_opt_battle_hints",     "bd_opt_skip_events",
-    "bd_opt_camera",           "bd_opt_target_first",
-    "bd_opt_ctl_normal_type",  "bd_opt_ctl_mechatt_type",
-    "bd_opt_music_volume",     "bd_opt_se_volume",
-    "bd_opt_brightness",       "bd_opt_screen_pos_x",
-    "bd_opt_screen_pos_y"};
+    "bd_opt_msg_speed",    "bd_opt_msg_size",     "bd_opt_voice_type",
+    "bd_opt_ruby",         "bd_opt_subtitles",    "bd_opt_audio_hints",
+    "bd_opt_battle_hints", "bd_opt_skip_events",  "bd_opt_camera",
+    "bd_opt_target_first", "bd_opt_music_volume", "bd_opt_se_volume",
+    "bd_opt_brightness",   "bd_opt_screen_pos_x", "bd_opt_screen_pos_y"};
 
 } // namespace
 
@@ -282,9 +267,9 @@ GameOptions &GameOptions::Get() {
   return s;
 }
 
-// Lays the global set over the block the guest is about to read, so whatever the
+// Lays the global set over the block the engine is about to read, so whatever the
 // save file carried is replaced before bdSaveBlockRestoreConfig consults it.
-// Every mirror the restore performs stays the guest's.
+// Every mirror the restore performs stays the engine's.
 void GameOptions::WriteBlock() {
   const u32 base = ReadBlockBase();
   if (!base)
@@ -311,12 +296,8 @@ void GameOptions::WriteBlock() {
   cfg->screenPosX = static_cast<f32>(REXCVAR_GET(bd_opt_screen_pos_x));
   cfg->screenPosY = static_cast<f32>(REXCVAR_GET(bd_opt_screen_pos_y));
 
-  bd::mem::try_store<i32>(base + kCtlNormalTypeOffset,
-                          REXCVAR_GET(bd_opt_ctl_normal_type));
-  bd::mem::try_store<i32>(base + kCtlMechattTypeOffset,
-                          REXCVAR_GET(bd_opt_ctl_mechatt_type));
-  bd::mem::try_store<i32>(base + kVoiceTypeOffset,
-                          REXCVAR_GET(bd_opt_voice_type));
+  bd::mem::try_store<i32>(base + kCtlNormalTypeOffset, kCtlTypeA);
+  bd::mem::try_store<i32>(base + kCtlMechattTypeOffset, kCtlTypeA);
   bd::mem::try_store<i32>(base + kAudioHintsOffset,
                           REXCVAR_GET(bd_opt_audio_hints));
 }
@@ -328,9 +309,9 @@ void GameOptions::AdoptVoiceType() {
 }
 
 void GameOptions::Init() {
-  // The guest has not booted yet, so this pushes nothing. It is the change
+  // The engine has not booted yet, so this pushes nothing. It is the change
   // callback that matters here: a console or config file write reaches the
-  // guest globals the same way a menu edit does.
+  // engine globals the same way a menu edit does.
   for (const char *name : kOptionCvars)
     rex::cvar::RegisterChangeCallback(
         name, [](std::string_view, std::string_view) {
@@ -367,6 +348,9 @@ bool GameOptions::SetMsgSize(i32 v) {
 i32 GameOptions::VoiceType() const { return LoadInt(addr::kVoiceType); }
 bool GameOptions::SetVoiceType(i32 v) {
   dirty_ |= WriteCvar("bd_opt_voice_type", v);
+  return StoreInt(addr::kVoiceType, v);
+}
+bool GameOptions::SetEngineVoiceType(i32 v) {
   return StoreInt(addr::kVoiceType, v);
 }
 
@@ -412,20 +396,6 @@ i32 GameOptions::TargetFirst() const { return LoadInt(addr::kTargetFirst); }
 bool GameOptions::SetTargetFirst(i32 v) {
   dirty_ |= WriteCvar("bd_opt_target_first", v);
   return StoreInt(addr::kTargetFirst, v);
-}
-
-i32 GameOptions::CtlNormalType() const { return LoadInt(addr::kCtlNormalType); }
-bool GameOptions::SetCtlNormalType(i32 v) {
-  dirty_ |= WriteCvar("bd_opt_ctl_normal_type", v);
-  return StoreInt(addr::kCtlNormalType, v);
-}
-
-i32 GameOptions::CtlMechattType() const {
-  return LoadInt(addr::kCtlMechattType);
-}
-bool GameOptions::SetCtlMechattType(i32 v) {
-  dirty_ |= WriteCvar("bd_opt_ctl_mechatt_type", v);
-  return StoreInt(addr::kCtlMechattType, v);
 }
 
 f64 GameOptions::MusicVolume() const { return LoadFloat(addr::kMusicVolume); }

@@ -4,10 +4,8 @@
  */
 #include "engine/d2anime/anime_hittest.h"
 
-
 #include <rex/types.h>
 
-#include "core/memory_helpers.h"
 #include "gpu/gpu.h"
 #include "platform/platform.h"
 
@@ -31,22 +29,22 @@ constexpr f32 kScrollbarWidth = 10.0f;
 
 } // namespace
 
-bool MenuCellAt(const AnimeMenu_t &menu, f32 x, f32 y, MenuCell &out) {
-  const int rows = int(u32(menu.gridDimX));
-  const int cols = int(u32(menu.gridDimY));
+bool MenuCellAt(const AnimeMenu &menu, f32 x, f32 y, MenuCell &out) {
+  const int rows = int(menu.GridRows());
+  const int cols = int(menu.GridCols());
   if (rows <= 0 || cols <= 0)
     return false;
 
-  // posX/posY, not originX/originY. AnimeMenu_CalcChildTemplatePos places each
+  // PosX/PosY, not OriginX/OriginY. AnimeMenu_CalcChildTemplatePos places each
   // drawn template at stride*index plus pos, while CalcItemPosition reports the
   // cursor anchor, which sits a fixed offset away. The boxes on screen are the
   // ones a pointer has to hit.
-  const f32 boxX = menu.posX;
-  const f32 boxY = menu.posY;
-  const f32 itemW = menu.itemW;
-  const f32 itemH = menu.itemH;
-  const f32 rowStride = Stride(menu.extentH, itemH, rows);
-  const f32 colStride = Stride(menu.extentW, itemW, cols);
+  const f32 boxX = menu.PosX();
+  const f32 boxY = menu.PosY();
+  const f32 itemW = menu.ItemW();
+  const f32 itemH = menu.ItemH();
+  const f32 rowStride = Stride(menu.ExtentH(), itemH, rows);
+  const f32 colStride = Stride(menu.ExtentW(), itemW, cols);
 
   const f32 localX = x - boxX;
   const f32 localY = y - boxY;
@@ -66,12 +64,12 @@ bool MenuCellAt(const AnimeMenu_t &menu, f32 x, f32 y, MenuCell &out) {
 
   // Orientation picks the index order the cursor walks in, so it has to pick
   // the order the hit test reads back in too.
-  const u32 orientation = menu.orientation;
-  const u32 scrollOffset = menu.scrollOffset;
+  const u32 orientation = menu.Orientation();
+  const u32 scrollOffset = menu.ScrollOffset();
   const int slot = orientation == 0 ? row * cols + col : col * rows + row;
   const int index =
       int(scrollOffset) * (orientation == 0 ? cols : rows) + slot;
-  if (index < 0 || index >= int(menu.entryData.size()))
+  if (index < 0 || index >= menu.EntryCount())
     return false;
 
   out.row = row;
@@ -80,7 +78,7 @@ bool MenuCellAt(const AnimeMenu_t &menu, f32 x, f32 y, MenuCell &out) {
   return true;
 }
 
-bool MenuCellPointerX(const AnimeMenu_t &menu, int &index, f32 &localX) {
+bool MenuCellPointerX(const AnimeMenu &menu, int &index, f32 &localX) {
   f32 x = 0.0f;
   f32 y = 0.0f;
   if (!CursorInMenuSpace(x, y))
@@ -90,70 +88,69 @@ bool MenuCellPointerX(const AnimeMenu_t &menu, int &index, f32 &localX) {
   if (!MenuCellAt(menu, x, y, cell))
     return false;
 
-  const f32 itemW = menu.itemW;
+  const f32 itemW = menu.ItemW();
   if (itemW <= 0.0f)
     return false;
 
-  const int cols = int(u32(menu.gridDimY));
-  const f32 colStride = Stride(menu.extentW, itemW, cols);
+  const int cols = int(menu.GridCols());
+  const f32 colStride = Stride(menu.ExtentW(), itemW, cols);
   index = cell.index;
-  localX = x - f32(menu.posX) - f32(cell.col) * colStride;
+  localX = x - menu.PosX() - f32(cell.col) * colStride;
   return true;
 }
 
-bool MenuRowPointerX(const AnimeMenu_t &menu, int index, f32 &localX) {
+bool MenuRowPointerX(const AnimeMenu &menu, int index, f32 &localX) {
   f32 x = 0.0f;
   f32 y = 0.0f;
   if (!CursorInMenuSpace(x, y))
     return false;
 
-  const f32 itemW = menu.itemW;
-  const int cols = int(u32(menu.gridDimY));
-  const int rows = int(u32(menu.gridDimX));
+  const f32 itemW = menu.ItemW();
+  const int cols = int(menu.GridCols());
+  const int rows = int(menu.GridRows());
   if (itemW <= 0.0f || cols <= 0 || rows <= 0 || index < 0)
     return false;
 
   // The index is absolute and the grid is a window onto the list, so the
   // column is the scrolled slot's, the same way MenuCellAt reads one back.
-  const bool rowMajor = u32(menu.orientation) == 0;
-  const int slot =
-      index - int(u32(menu.scrollOffset)) * (rowMajor ? cols : rows);
+  const bool rowMajor = menu.Orientation() == 0;
+  const int slot = index - int(menu.ScrollOffset()) * (rowMajor ? cols : rows);
   if (slot < 0)
     return false;
   const int col = rowMajor ? slot % cols : slot / rows;
   if (col >= cols)
     return false;
-  const f32 colStride = Stride(menu.extentW, itemW, cols);
-  localX = x - f32(menu.posX) - f32(col) * colStride;
+  const f32 colStride = Stride(menu.ExtentW(), itemW, cols);
+  localX = x - menu.PosX() - f32(col) * colStride;
   return true;
 }
 
-bool MenuScrollbarAt(const AnimeMenu_t &menu, int pages, MenuScrollbar &out) {
-  const int rows = int(u32(menu.gridDimX));
-  const int cols = int(u32(menu.gridDimY));
+bool MenuScrollbarAt(const AnimeMenu &menu, int pages, MenuScrollbar &out) {
+  const int rows = int(menu.GridRows());
+  const int cols = int(menu.GridCols());
   if (rows <= 0 || cols <= 0 || pages <= 1)
     return false;
 
   // The draw's own gate: a list that fits its window has no bar to grab.
-  if (int(menu.entryData.size()) <= rows * cols)
+  if (menu.EntryCount() <= rows * cols)
     return false;
 
   // Orientation picks which way the window scrolls, and the bar lies along
   // that axis on the far side of the list.
-  const bool vertical = u32(menu.orientation) == 0;
+  const bool vertical = menu.Orientation() == 0;
   const int visible = vertical ? rows : cols;
   out.vertical = vertical;
   if (vertical) {
-    out.x = f32(menu.posX) + f32(menu.extentW) + kScrollbarGap;
-    out.y = menu.posY;
+    out.x = menu.PosX() + menu.ExtentW() + kScrollbarGap;
+    out.y = menu.PosY();
     out.w = kScrollbarWidth;
-    out.h = menu.extentH;
+    out.h = menu.ExtentH();
     out.trackStart = out.y;
     out.trackLen = out.h;
   } else {
-    out.x = menu.posX;
-    out.y = f32(menu.posY) + f32(menu.extentH) + kScrollbarGap;
-    out.w = menu.extentW;
+    out.x = menu.PosX();
+    out.y = menu.PosY() + menu.ExtentH() + kScrollbarGap;
+    out.w = menu.ExtentW();
     out.h = kScrollbarWidth;
     out.trackStart = out.x;
     out.trackLen = out.w;
@@ -162,25 +159,24 @@ bool MenuScrollbarAt(const AnimeMenu_t &menu, int pages, MenuScrollbar &out) {
   out.thumbLen = out.trackLen / (f32(pages) / f32(visible) + 1.0f);
   if (out.thumbLen < kScrollbarWidth)
     out.thumbLen = kScrollbarWidth;
-  out.thumbStart = out.trackStart + f32(u32(menu.scrollOffset)) /
-                                        f32(pages - 1) *
+  out.thumbStart = out.trackStart + f32(menu.ScrollOffset()) / f32(pages - 1) *
                                         (out.trackLen - out.thumbLen);
   return true;
 }
 
-int CursorRowEdgeDirection(const AnimeMenu_t &menu) {
+int CursorRowEdgeDirection(const AnimeMenu &menu) {
   f32 x = 0.0f;
   f32 y = 0.0f;
   if (!CursorInMenuSpace(x, y))
     return 0;
 
-  const f32 left = menu.posX;
-  const f32 top = menu.posY;
-  if (x < left || x > left + f32(menu.extentW))
+  const f32 left = menu.PosX();
+  const f32 top = menu.PosY();
+  if (x < left || x > left + menu.ExtentW())
     return 0;
   if (y < top)
     return -1;
-  if (y > top + f32(menu.extentH))
+  if (y > top + menu.ExtentH())
     return 1;
   return 0;
 }
@@ -228,6 +224,5 @@ bool CursorInMenuSpace(f32 &x, f32 &y) {
   y = kCenterY + (y - kCenterY) / scaleY;
   return true;
 }
-
 
 } // namespace bd::engine

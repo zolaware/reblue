@@ -20,8 +20,6 @@
 #include "core/logging.h"
 #include "gpu/constant_buffers.h"
 #include "gpu/format.h"
-#include "gpu/frame_stats.h"
-#include "gpu/gpu_timing.h"
 #include "gpu/texture_upload.h"
 
 namespace bd::gpu {
@@ -128,8 +126,6 @@ GuestTexture *BuildBCMirrorCore(const BCMirrorDesc &d,
   plume::RenderTextureBarrier pre(t->texture,
                                   plume::RenderTextureLayout::COPY_DEST);
   s.command_list->barriers(plume::RenderBarrierStage::COPY, &pre, 1);
-  NoteBarrierCall(1, BarrierSite::TexUpload);
-  MarkInter(s.command_list);
   t->layout = plume::RenderTextureLayout::COPY_DEST;
 
   for (u32 i = 0; i < upload_count; ++i) {
@@ -145,8 +141,6 @@ GuestTexture *BuildBCMirrorCore(const BCMirrorDesc &d,
   plume::RenderTextureBarrier post(t->texture,
                                    plume::RenderTextureLayout::SHADER_READ);
   s.command_list->barriers(plume::RenderBarrierStage::GRAPHICS, &post, 1);
-  NoteBarrierCall(1, BarrierSite::TexUpload);
-  MarkInter(s.command_list);
   t->layout = plume::RenderTextureLayout::SHADER_READ;
   return t;
 }
@@ -327,8 +321,6 @@ void UploadTextureFromMapped(GuestTexture *tex) {
   plume::RenderTextureBarrier pre(tex->texture,
                                   plume::RenderTextureLayout::COPY_DEST);
   s.command_list->barriers(plume::RenderBarrierStage::COPY, &pre, 1);
-  NoteBarrierCall(1, BarrierSite::TexUpload);
-  MarkInter(s.command_list);
   tex->layout = plume::RenderTextureLayout::COPY_DEST;
 
   // rowWidth is in texels: pitch (bytes) / per-texel size.
@@ -341,8 +333,6 @@ void UploadTextureFromMapped(GuestTexture *tex) {
   plume::RenderTextureBarrier post(tex->texture,
                                    plume::RenderTextureLayout::SHADER_READ);
   s.command_list->barriers(plume::RenderBarrierStage::GRAPHICS, &post, 1);
-  NoteBarrierCall(1, BarrierSite::TexUpload);
-  MarkInter(s.command_list);
   tex->layout = plume::RenderTextureLayout::SHADER_READ;
 }
 

@@ -338,6 +338,14 @@ static_assert(offsetof(D3DDevice, rbBlendControl3) == 0x28E0);
 // which routes D3DSurface_GetDesc through D3DTexture_GetLevelDesc.
 constexpr u32 kCommonFlagTextureBackedSurface = 0x40000000u;
 
+constexpr u32 kClearTarget = 0x1u;
+constexpr u32 kClearZBuffer = 0x10u;
+constexpr u32 kClearStencil = 0x20u;
+constexpr u32 kClearAll = kClearTarget | kClearZBuffer | kClearStencil;
+
+constexpr u32 kResolveDepthStencil = 0x4u;
+constexpr u32 kResolveExponentBiasShift = 26;
+
 inline void InitResourceHeader(D3DResource &r, D3DResourceType type) {
   r.Common = u32(type);
   r.ReferenceCount = 1u;

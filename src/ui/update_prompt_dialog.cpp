@@ -103,7 +103,7 @@ void UpdatePromptDialog::OnDraw(ImGuiIO &) {
   ImGui::Spacing();
   if (ImGui::Button(T("update.accept"), ImVec2(140, 0))) {
     accepted_ = true;
-    updates.BeginApply(ctx_.install_root);
+    updates.BeginApply();
   }
   ImGui::SameLine();
   if (ImGui::Button(T("update.decline"), ImVec2(140, 0)))

@@ -36,10 +36,10 @@ inline constexpr const char* kSlideConfigTex =
 
 // Sidebar row pitch. AnimeMenu_CalcItemPosition derives the stride from this
 // height and the row count, so it has to track kSectionCount or every row
-// re-spaces. 44 on an 8px gap ends eight rows at 548, clear of the
+// re-spaces. 40 on a 6px gap ends nine rows at 548, clear of the
 // row description line at 568.
-inline constexpr int kSectionRowH = 44;
-inline constexpr int kSectionRowGap = 8;
+inline constexpr int kSectionRowH = 40;
+inline constexpr int kSectionRowGap = 6;
 
 // Sidebar button template (l_modmgr_section.csv). The cell fills the sidebar
 // row exactly: a shorter window leaves the engine cursor frame hanging past the
@@ -67,6 +67,14 @@ protected:
 
 private:
   int checkX_;
+};
+
+class LanguageItemTemplate : public RowTemplate {
+public:
+  LanguageItemTemplate() : RowTemplate(110, 121, 470, 45) {
+    name.set("Language");
+    wndType.set("BTN01_OF");
+  }
 };
 
 // DLC detail panel template (l_modmgr_dlcdetail.csv).
@@ -190,59 +198,46 @@ private:
   static constexpr int kTrackW = 306;
 };
 
-// The keybind grid is sectioned: nine rows interleave the Actions column with
-// the Movement & Camera column, then two empty rows carry the Controller
-// Compatibility panel's own header, and the compat binds fill the tail. The
-// bind a grid slot carries is kKeybindSlotBind, with -1 for a cell that
-// carries no bind: the Movement column ends a row before the Actions column,
-// the spacer band sits mid-grid, and the compat block's left column runs out
-// a row before the D-pad column beside it.
-// 15 rows of 32 from here end at 612, inside the rule that closes the content
-// band at 617, which is the band the game's own config screens draw into.
-inline constexpr int kKeybindGridY = 132;
-inline constexpr int kKeybindRowH = 32;
-inline constexpr int kKeybindTopRows = 9;
-inline constexpr int kKeybindGridX = 76;
-inline constexpr int kKeybindCellW = 552;
-inline constexpr int kKeybindColStride = 576;
-// Where a row's box stops: after its one key, or after both of them. A box run
-// out to the cell width reads as a rule across the screen rather than a row.
-inline constexpr int kKeybindRowSoloW = 412;
-inline constexpr int kKeybindRowPairW = 544;
+inline constexpr int kKeybindGridY = 104;
+inline constexpr int kKeybindRowH = 25;
+inline constexpr int kKeybindMaxRows = 20;
+inline constexpr int kKeybindGridX = 40;
+inline constexpr int kKeybindCellW = 590;
+inline constexpr int kKeybindColStride = 610;
 
-inline constexpr int kKeybindSlotBind[] = {
-    0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  10, 11, 12, 13, 14,
-    15, 16, -1,                                     // top band, 9 rows
-    -1, -1, -1, -1,                                 // spacer band, 2 rows
-    17, 18, 19, 20, 21, 22, -1, 23};                // compat band, 4 rows
-inline constexpr int kKeybindSlotCount =
-    static_cast<int>(std::size(kKeybindSlotBind));
+struct KeybindSlotVars {
+  const char *comment;
+  const char *wndVar, *wndDefault, *textVar, *colorVar;
+  const char *capVar, *uvVar, *pairVar, *modUvVar;
+};
 
-inline constexpr int KeybindSlotToIndex(int slot) {
-  return slot >= 0 && slot < kKeybindSlotCount ? kKeybindSlotBind[slot] : -1;
-}
-inline constexpr bool KeybindSlotIsSpacer(int slot) {
-  return KeybindSlotToIndex(slot) < 0;
-}
-inline constexpr int KeybindIndexToSlot(int index) {
-  for (int slot = 0; slot < kKeybindSlotCount; ++slot)
-    if (kKeybindSlotBind[slot] == index)
-      return slot;
-  return -1;
-}
+inline constexpr KeybindSlotVars kKeybindSlotVars[] = {
+    {"key button", "KeyWnd", "BTN01_OF", "Key", "KeyCol", "KeyCap", "KeyUv",
+     "KeyPair", "KeyModUv"},
+    {"second key button", "KeyWnd2", "NOWINDOW", "Key2", "KeyCol2", "KeyCap2",
+     "KeyUv2", "KeyPair2", "KeyModUv2"},
+    {"third key button", "KeyWnd3", "NOWINDOW", "Key3", "KeyCol3", "KeyCap3",
+     "KeyUv3", "KeyPair3", "KeyModUv3"},
+};
 
-// Keybind row template (l_modmgr_keybind.csv): a bind label plus two key
-// buttons, laid out by the engine in a 2-column table (KeybindList). Slot one
-// is the primary key, slot two the alternate. The active slot lights up
-// (BTN01_ON + yellow) while capturing a new bind.
+inline constexpr const char *kKeybindPadCapVar = "PadCap";
+inline constexpr const char *kKeybindPadUvVar = "PadUv";
+
 class KeybindItemTemplate : public RowTemplate {
 public:
-  // 32px pitch: 15 rows have to end above the footer rule at 617, and the
-  // boxes only have to hold caps and short fallback names.
   KeybindItemTemplate() : RowTemplate(80, 0, kKeybindCellW, kKeybindRowH) {}
 
-  // Which key box a row-local x hits: 0 primary, 1 alternate, -1 outside
-  // both. Hit testing reads the same constants the boxes are drawn from.
+  static constexpr int kChipCount = kBindChipCount;
+
+  static constexpr int ChipX(int index) {
+    return kChipX0 + index * (kChipW + kChipGap) +
+           (index >= kBindPadChip ? kPadGap : 0);
+  }
+
+  static constexpr int RowWidth() {
+    return ChipX(kChipCount - 1) + kChipW + kRowPad;
+  }
+
   static int ChipAt(f32 x);
 
 protected:
@@ -250,53 +245,16 @@ protected:
   AnimeWindow rowWindow() const override;
   AnimeMessage rowLabel() const override;
   void buildValue(CsvBuilder &b) override;
+
+private:
+  static constexpr int kChipX0 = 290;
+  static constexpr int kChipW = 90;
+  static constexpr int kChipGap = 6;
+  static constexpr int kPadGap = 10;
+  static constexpr int kRowPad = 6;
 };
 
-inline constexpr const char *kPadGeneralTex =
-    ":d2anime\\camp\\cfg\\res\\key_config_01";
-inline constexpr const char *kPadMechatTex =
-    ":d2anime\\camp\\cfg\\res\\key_config_M_01";
-inline constexpr const char *kPadMechatAltTex =
-    ":d2anime\\camp\\cfg\\res\\key_config_M_02";
-inline constexpr const char *kPadArrowTex = ":d2anime\\res\\cur_01";
-
-inline constexpr int kPadArrowY = 100;
-inline constexpr int kPadArrowSize = 32;
-inline constexpr int kPadArrowLeftX = 68;
-inline constexpr int kPadArrowRightX = 1180;
-
-// Rebuilt from the disc's own control type pages, d2anime\camp\cfg\L_key_*:
-// a label box on the end of every leader line of the pad art. A type change
-// moves which action a box names, never where a box sits.
-class PadLayoutTemplate : public AnimeLayout {
-public:
-  static constexpr int kGeneralSlots = 11;
-  static constexpr int kMechatSlots = 5;
-  static constexpr int kInvertSlot = kMechatSlots;
-  static constexpr int kSlots = kGeneralSlots;
-  static constexpr int kTypeCount = 4;
-
-  FloatV start{"start", -1.0};
-  FloatV alpha{"alpha", 255.0};
-  FloatV generalVis{"GeneralVis", -1.0};
-  FloatV mechatVis{"MechatVis", -1.0};
-  FloatV aimShortVis{"AimShortVis", -1.0};
-  FloatV aimTallVis{"AimTallVis", -1.0};
-  // One row per diagram rather than one row whose path a var swaps: writing a
-  // bound string var re-runs the load through AnimeVar_PropagateStringToElements,
-  // which rebuilds the path without the engine's ':' disc-root escape and leaves
-  // the element pointing at a texture list that never resolved.
-  FloatV artGeneralVis{"ArtGeneralVis", -1.0};
-  FloatV artMechatVis{"ArtMechatVis", -1.0};
-  FloatV artMechatAltVis{"ArtMechatAltVis", -1.0};
-  StringV typeName{"TypeName", ""};
-  StringV label[kSlots]{{"Lbl0", ""}, {"Lbl1", ""}, {"Lbl2", ""},
-                        {"Lbl3", ""}, {"Lbl4", ""}, {"Lbl5", ""},
-                        {"Lbl6", ""}, {"Lbl7", ""}, {"Lbl8", ""},
-                        {"Lbl9", ""}, {"Lbl10", ""}};
-
-  void build(CsvBuilder &b) override;
-};
+static_assert(KeybindItemTemplate::RowWidth() <= kKeybindCellW);
 
 // Main three-panel config menu (l_modmgr.csv).
 class ConfigLayout : public AnimeLayout {
@@ -310,7 +268,6 @@ public:
                      .csvFile = ":d2anime\\camp\\cfg\\L_cfg_icon.csv",
                      .loop = 1};
   AnimePanel detail{"detail", "l_modmgr_detail.csv"};
-  AnimePanel pad{"pad", "l_modmgr_pad.csv"};
   AnimePanel dlcDetail{"dlcdetail", "l_modmgr_dlcdetail.csv"};
 
   FloatV start{"start", 1.0};
@@ -354,31 +311,25 @@ public:
   StringV rowDesc1{"RowDesc1", ""};
   StringV rowDescC{"RowDescC", ""};
 
-  // Keybind screen chrome: the two column headers, and the spacer band's
-  // compat header plus the rebind hint beside it. The grid runs past the
-  // row description line, so the hint lives in the band instead.
-  StringV hdrActions{"HdrActions", ""};
-  StringV hdrMovement{"HdrMovement", ""};
-  StringV hdrCompat{"HdrCompat", ""};
   StringV kbHint{"KbHint", ""};
-  // Gates the three section panels and their rules. Text clears itself by
-  // going empty, a box has to be told not to draw.
   FloatV kbChromeVis{"KbChromeVis", -1.0};
 
-  // Sections shown in the sidebar, in cursor order: the five settings pages
-  // (SettingsPage 0..4), then Mods, Official DLC and Achievements.
+  // Sections shown in the sidebar, in cursor order: the settings pages
+  // (SettingsPage 0..kSettingsSectionCount-1), then Mods, Official DLC,
+  // Languages and Achievements.
   static constexpr const char *kSectionKeys[] = {
-      "settings.page.gameplay", "settings.page.display",
-      "settings.page.graphics", "settings.page.audio",
-      "settings.page.controls", "settings.page.cheats",
-      "menu.header.mods",       "menu.header.dlc",
+      "settings.page.gameplay",  "settings.page.display",
+      "settings.page.graphics",  "settings.page.audio",
+      "settings.page.controls",  "settings.page.cheats",
+      "menu.header.mods",        "menu.header.dlc",
+      "menu.header.languages",
       "menu.header.achievements"};
   // Every section the title screen offers. A surface that shows fewer takes a
   // prefix of this, so the settings pages come first.
   static constexpr int kSectionCount =
       static_cast<int>(std::size(kSectionKeys));
 
-  // Guest names of the per-page settings menus, indexed by SettingsPage.
+  // Engine names of the per-page settings menus, indexed by SettingsPage.
   static constexpr const char *kSettingsListNames[kSettingsSectionCount] = {
       "GameplayList", "DisplayList", "GraphicsList", "AudioList",
       "ControlsList", "CheatsList"};
@@ -421,6 +372,7 @@ public:
 
   AnimeMenuWidget modList = ItemList("ModList", 420, "l_modmgr_info.csv");
   AnimeMenuWidget dlcList = ItemList("DlcList", 470, "l_modmgr_dlcinfo.csv");
+  AnimeMenuWidget langList = ItemList("LangList", 470, "l_modmgr_langinfo.csv");
 
   // One list per settings page, beside the always-visible sidebar. Filled by
   // the constructor so the page names have a single spelling.
@@ -429,31 +381,7 @@ public:
   // Read-only achievement list, same full-width geometry as a settings page.
   AnimeMenuWidget achvList = PageList("AchvList", "l_modmgr_achv.csv");
 
-  // 2-column table (engine pattern, cf. camp L_sta_skill.csv 11x2) on a
-  // dedicated full-width screen reached from the Input page. The extent is one
-  // cell plus one stride: the engine spreads the extent over the cells, so
-  // those two numbers are what set the pitch and the gap between the columns.
-  AnimeMenuWidget keybindList{.name = "KeybindList",
-                              .x = kKeybindGridX,
-                              .y = kKeybindGridY,
-                              .w = kKeybindCellW + kKeybindColStride,
-                              .h = 0,
-                              .priority = 3,
-                              .startCurX = kKeybindGridX - 5,
-                              .startCurY = kKeybindGridY + 16,
-                              .curDir = "RIGHT",
-                              .itemW = kKeybindCellW,
-                              .itemH = kKeybindRowH,
-                              .itemAlpha = 128,
-                              .itemOnType = "FRAME01",
-                              // Every cell carries a box, the way the camp's
-                              // own 11x2 skill table does. Unfilled cells go
-                              // back to NOWINDOW from RefreshKeybindVisuals.
-                              .itemOffType = "BTN01_OF",
-                              .rows = 0,
-                              .cols = 2,
-                              .defaultItem = 0,
-                              .templateCSV = "l_modmgr_keybind.csv"};
+  AnimeMenuWidget bindList = BindList("BindList");
 
   // Rows visible at once. Longer lists scroll (the engine window keeps a
   // scrollbar). 10 rows of 45px from y=140 end at 610, above the footer line.
@@ -461,9 +389,10 @@ public:
 
   void SetModCount(size_t count);
   void SetDLCCount(size_t count);
+  void SetLanguageCount(size_t count);
   void SetAchievementCount(size_t count);
   void SetSettingsCounts(const size_t (&pageCounts)[kSettingsSectionCount],
-                         size_t keybinds);
+                         int bindRows);
 
   void build(CsvBuilder &b) override;
 
@@ -473,6 +402,7 @@ private:
   static constexpr AnimeMenuWidget ItemList(const char *name, int width,
                                             const char *tpl);
   static constexpr AnimeMenuWidget PageList(const char *name, const char *tpl);
+  static constexpr AnimeMenuWidget BindList(const char *name);
 
   int sectionCount_ = kSectionCount;
   bool standalone_ = true;
@@ -527,6 +457,27 @@ constexpr AnimeMenuWidget ConfigLayout::PageList(const char *name,
           .cols = 1,
           .defaultItem = 0,
           .templateCSV = tpl};
+}
+
+constexpr AnimeMenuWidget ConfigLayout::BindList(const char *name) {
+  return {.name = name,
+          .x = kKeybindGridX,
+          .y = kKeybindGridY,
+          .w = kKeybindCellW + kKeybindColStride,
+          .h = 0,
+          .priority = 3,
+          .startCurX = kKeybindGridX - 5,
+          .startCurY = kKeybindGridY + kKeybindRowH / 2,
+          .curDir = "RIGHT",
+          .itemW = kKeybindCellW,
+          .itemH = kKeybindRowH,
+          .itemAlpha = 128,
+          .itemOnType = "FRAME01",
+          .itemOffType = "BTN01_OF",
+          .rows = 0,
+          .cols = 2,
+          .defaultItem = 0,
+          .templateCSV = "l_modmgr_keybind.csv"};
 }
 
 } // namespace bd::engine

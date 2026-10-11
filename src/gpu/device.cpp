@@ -13,7 +13,6 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
-#include <cmath>
 #include <format>
 #include <memory>
 #include <mutex>
@@ -36,19 +35,19 @@
 
 #include "core/logging.h"
 #include "core/memory_helpers.h"
+#include "core/settings.h"
 #include "core/shutdown.h"
 #include "gpu/bindless_allocator.h"
 #include "gpu/constant_buffers.h"
 #include "gpu/dred.h"
 #include "gpu/format.h"
 #include "gpu/frame.h"
-#include "gpu/gpu_timing.h"
 #include "gpu/host_heap.h"
 #include "gpu/host_resource_heap.h"
 #include "gpu/output.h"
 #include "gpu/pipeline/pso_recorder.h"
 #include "gpu/settings.h"
-#include "gpu/surface_pool.h"
+#include "gpu/surface_registry.h"
 #include "platform/platform.h"
 
 namespace plume {
@@ -115,21 +114,10 @@ bool BuildPresentSemaphores(VideoState &s) {
   return true;
 }
 
-i32 Video::BootSupersampling() {
-  // AA is restart-bound: precache twins are enqueued at boot for one sample
-  // state, so a live switch would stall on render thread PSO compiles.
-  static const i32 v = Settings::Get().SuperSampling();
-  return v;
-}
-
 plume::RenderSampleCounts Video::CvarMSAASampleCount() {
-  // Mutually exclusive: an active super-sampling factor forces MSAA off.
-  if (BootSupersampling() > 1)
-    return plume::RenderSampleCount::COUNT_1;
-  static const i32 boot_msaa = Settings::Get().MSAA();
   auto &s = state();
   plume::RenderSampleCounts requested;
-  switch (boot_msaa) {
+  switch (Settings::Get().MSAA()) {
   case 2:
     requested = plume::RenderSampleCount::COUNT_2;
     break;
@@ -154,7 +142,7 @@ plume::RenderSampleCounts Video::CvarMSAASampleCount() {
 // suppressed volume.
 bool DiagShouldLog(u64 site, const GuestTexture *t, u32 *n_out) {
   *n_out = 0;
-  if (Settings::Get().DiagVerbosity() < 1)
+  if (!::bd::Settings::Get().Devmode())
     return false;
   const u64 key =
       (site << 56) |
@@ -186,9 +174,9 @@ namespace {
 // swap-sized backbuffer on a non-16:9 output matches none of BD's fit-sized
 // composite RTs.
 void GuestBackBufferDims(u32 &w, u32 &h) {
-  if (!Output::LatchedFit(w, h)) {
-    w = 1280;
-    h = 720;
+  if (!Output::RenderSize(w, h)) {
+    w = static_cast<u32>(kDesignCanvasWidth);
+    h = static_cast<u32>(kDesignCanvasHeight);
   }
 }
 
@@ -266,6 +254,31 @@ std::string DescribeBackend(plume::RenderDevice *device) {
 #endif
 }
 
+plume::RenderFormat
+PickDepthStencilFormat([[maybe_unused]] plume::RenderDevice *device) {
+#if defined(REBLUE_D3D12)
+  const auto vendor = device->getDescription().vendor;
+  if ((vendor == plume::RenderDeviceVendor::NVIDIA ||
+       vendor == plume::RenderDeviceVendor::INTEL) &&
+      (device->getSampleCountsSupported(
+           plume::RenderFormat::D24_UNORM_S8_UINT) &
+       plume::RenderSampleCount::COUNT_1)) {
+    return plume::RenderFormat::D24_UNORM_S8_UINT;
+  }
+#endif
+  return plume::RenderFormat::D32_FLOAT_S8_UINT;
+}
+
+plume::RenderFormat PickSceneColorFormat(plume::RenderDevice *device) {
+  if (Settings::Get().SceneColorR11G11B10() &&
+      (device->getSampleCountsSupported(
+           plume::RenderFormat::R11G11B10_FLOAT) &
+       plume::RenderSampleCount::COUNT_1)) {
+    return plume::RenderFormat::R11G11B10_FLOAT;
+  }
+  return plume::RenderFormat::R16G16B16A16_FLOAT;
+}
+
 } // namespace
 
 VideoState &state() {
@@ -288,6 +301,7 @@ bool Video::CreateHostDevice(rex::ui::Window *window) {
   }
 
   if (!s.device) { // pre-Runtime path: no guest memory required
+    Output::Init(window);
     plume::RenderWindow render_window{};
     if (!bd::platform::GetNativeRenderWindow(window, render_window)) {
       return false;
@@ -322,10 +336,12 @@ bool Video::CreateHostDevice(rex::ui::Window *window) {
     s.backend_info = DescribeBackend(s.device.get());
     // bd_msaa is clamped to the color/depth intersection. Everything
     // shader-resolves, so no hardware resolve capability is needed.
-    const auto color_counts = s.device->getSampleCountsSupported(
-        plume::RenderFormat::R16G16B16A16_FLOAT);
-    const auto depth_counts = s.device->getSampleCountsSupported(
-        plume::RenderFormat::D32_FLOAT_S8_UINT);
+    s.depth_stencil_format = PickDepthStencilFormat(s.device.get());
+    s.scene_color_format = PickSceneColorFormat(s.device.get());
+    const auto color_counts =
+        s.device->getSampleCountsSupported(s.scene_color_format);
+    const auto depth_counts =
+        s.device->getSampleCountsSupported(s.depth_stencil_format);
     s.supported_sample_mask = color_counts & depth_counts;
 
     s.queue =
@@ -344,10 +360,16 @@ bool Video::CreateHostDevice(rex::ui::Window *window) {
     const bool upload_caps = s.device->getCapabilities().gpuUploadHeap;
     const bool upload_on = upload_caps && Settings::Get().GeometryGPUUpload();
     std::string caps = std::format(
-        "GPU caps: {} on {} | MSAA color=0x{:X} depth=0x{:X} usable=0x{:X} | "
-        "geometry GPU_UPLOAD {}",
-        s.backend_info, s.device->getDescription().name, color_counts,
-        depth_counts, s.supported_sample_mask,
+        "GPU caps: {} on {} | scene {} {} | MSAA color=0x{:X} depth=0x{:X} "
+        "usable=0x{:X} | geometry GPU_UPLOAD {}",
+        s.backend_info, s.device->getDescription().name,
+        s.scene_color_format == plume::RenderFormat::R11G11B10_FLOAT
+            ? "R11G11B10"
+            : "RGBA16F",
+        s.depth_stencil_format == plume::RenderFormat::D24_UNORM_S8_UINT
+            ? "D24S8"
+            : "D32S8",
+        color_counts, depth_counts, s.supported_sample_mask,
         upload_on      ? "on"
         : !upload_caps ? "unsupported"
                        : "off (bd_geometry_gpu_upload)");
@@ -361,8 +383,9 @@ bool Video::CreateHostDevice(rex::ui::Window *window) {
 
     // kNumFrames + 1: a flip model swapchain needs one back buffer beyond the
     // frames in flight so acquiring N+1 never waits on scanout.
-    plume::RenderSwapChainDesc desc(
-        render_window, plume::RenderFormat::B8G8R8A8_UNORM, kNumFrames + 1);
+    plume::RenderSwapChainDesc desc(render_window,
+                                    plume::RenderFormat::B8G8R8A8_UNORM,
+                                    kNumFrames + 1, false, kNumFrames);
     s.swap_chain = s.queue->createSwapChain(desc);
 #if !defined(REBLUE_D3D12)
     // plume's VulkanSwapChain defers VkSwapchain creation to resize(), so a
@@ -455,14 +478,90 @@ bool Video::CreateHostDevice(rex::ui::Window *window) {
   return true;
 }
 
+void Video::SyncBackBufferSizeLocked() {
+  auto &s = state();
+  GuestTexture *bb = s.back_buffer_surface;
+  if (!bb)
+    return;
+  u32 w = 0;
+  u32 h = 0;
+  GuestBackBufferDims(w, h);
+  if (bb->width == w && bb->height == h)
+    return;
+
+  SubmitOpenListLocked(s);
+  for (u32 i = 0; i < kNumFrames; ++i) {
+    if (s.command_list_submitted[i]) {
+      s.queue->waitForCommandFence(s.fences[i].get());
+      s.command_list_submitted[i] = false;
+    }
+  }
+
+  if (!CreateBackBufferTexture(s, bb, w, h)) {
+    BD_ERROR("Back-buffer resize to {}x{} failed", w, h);
+    return;
+  }
+  if (bb->descriptorIndex != kInvalidDescriptorIndex) {
+    s.texture_descriptor_set->setTexture(
+        bb->descriptorIndex, bb->texture,
+        plume::RenderTextureLayout::SHADER_READ, bb->textureView.get());
+  }
+  s.viewport.width = static_cast<float>(w);
+  s.viewport.height = static_cast<float>(h);
+  s.dirtyStates.viewport = true;
+  BD_INFO("[output-res] back buffer -> {}x{}", w, h);
+}
+
+void Video::ResizeTexture(GuestTexture *tex, u32 width, u32 height) {
+  if (!tex || !tex->texture || (tex->width == width && tex->height == height))
+    return;
+  if (tex->viewDimension != plume::RenderTextureViewDimension::TEXTURE_2D)
+    return;
+  auto *device = HostDevice();
+  if (!device)
+    return;
+
+  NotifyTextureDestroyed(tex);
+  ParkTextureGPUObjects(tex);
+
+  const bool is_depth = IsDepthFormat(tex->format);
+  plume::RenderTextureDesc desc;
+  desc.dimension = plume::RenderTextureDimension::TEXTURE_2D;
+  desc.width = width;
+  desc.height = height;
+  desc.depth = 1;
+  desc.mipLevels = tex->mipLevels ? tex->mipLevels : 1;
+  desc.arraySize = 1;
+  desc.format = tex->format;
+  if (is_depth) {
+    desc.flags = plume::RenderTextureFlag::DEPTH_TARGET;
+  } else if (IsRenderTargetCapable(tex->format)) {
+    desc.flags = plume::RenderTextureFlag::RENDER_TARGET;
+  } else {
+    desc.flags = plume::RenderTextureFlag::NONE;
+  }
+  desc.multisampling.sampleCount = tex->sampleCount;
+  desc.committed = false;
+
+  tex->textureHolder = CreateHostTexture(device, desc, "resized-texture");
+  tex->texture = tex->textureHolder.get();
+  if (!tex->texture) {
+    BD_ERROR("Texture resize to {}x{} failed", width, height);
+    return;
+  }
+  tex->width = width;
+  tex->height = height;
+  tex->layout = plume::RenderTextureLayout::UNKNOWN;
+  tex->framebufferAttached = false;
+  if (!is_depth)
+    BindTextureSRV(tex);
+}
+
 void Video::BeginShutdown() {
   // No lock: a guest thread parked inside Present (its overlay hook marshals to
   // the UI thread, which is the thread running the shutdown) holds s.mutex, so
   // taking it here would deadlock stage 1 of the sequence.
   state().shutting_down.store(true, std::memory_order_release);
-  // Not in Shutdown(): that early-returns on a lost device, which is exactly
-  // the run whose pool history is worth having.
-  SurfacePool::LogSummary();
 }
 
 void Video::Shutdown(const std::function<void()> &ui_pump) {
@@ -752,6 +851,50 @@ void Video::SetOverlayDrawHook(OverlayDrawHook hook) {
 
 plume::RenderDevice *Video::HostDevice() { return state().device.get(); }
 
+plume::RenderFormat Video::DepthStencilFormat() {
+  return state().depth_stencil_format;
+}
+
+plume::RenderFormat Video::SceneColorFormat() {
+  return state().scene_color_format;
+}
+
+Video::VideoMemory Video::MemoryUsage() {
+  VideoMemory m;
+  auto *device = state().device.get();
+  if (!device)
+    return m;
+#if defined(REBLUE_D3D12)
+  auto *dev = static_cast<plume::D3D12Device *>(device);
+  IDXGIAdapter3 *adapter = nullptr;
+  if (!dev->adapter ||
+      dev->adapter->QueryInterface(IID_PPV_ARGS(&adapter)) < 0)
+    return m;
+  DXGI_QUERY_VIDEO_MEMORY_INFO info = {};
+  if (adapter->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL,
+                                    &info) >= 0) {
+    m.used = info.CurrentUsage;
+    m.budget = info.Budget;
+  }
+  adapter->Release();
+#else
+  auto *dev = static_cast<plume::VulkanDevice *>(device);
+  if (!dev->allocator)
+    return m;
+  const VkPhysicalDeviceMemoryProperties *props = nullptr;
+  vmaGetMemoryProperties(dev->allocator, &props);
+  VmaBudget budgets[VK_MAX_MEMORY_HEAPS] = {};
+  vmaGetHeapBudgets(dev->allocator, budgets);
+  for (u32 i = 0; i < props->memoryHeapCount; ++i) {
+    if (props->memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) {
+      m.used += budgets[i].usage;
+      m.budget += budgets[i].budget;
+    }
+  }
+#endif
+  return m;
+}
+
 u32 Video::OutputWidth() {
   auto &s = state();
   return s.swap_chain ? s.swap_chain->getWidth() : 0;
@@ -765,6 +908,14 @@ u32 Video::OutputHeight() {
 std::string Video::GetDeviceName() {
   auto &s = state();
   return s.device ? s.device->getDescription().name : std::string("unknown");
+}
+
+const char *Video::BackendName() {
+#if defined(REBLUE_D3D12)
+  return "D3D12";
+#else
+  return "Vulkan";
+#endif
 }
 
 const std::string &Video::GetBackendInfo() { return state().backend_info; }

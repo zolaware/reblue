@@ -1,0 +1,11 @@
+# Battle manager edges (bodies in src/engine/battle_task.cpp).
+
+# Enemy spawn, at the tail append that links a fully constructed EneTask into its
+# EnePtyTask. Every spawn path funnels through this one store, and neither the
+# helper nor EneTask__ctor is a named function, so the edge is only reachable
+# mid-asm. r3 = the new node, 0 when the allocation failed.
+[[midasm_hook]]
+address = 0x82201EE4
+name = "bdEnemySpawnLinkHook"
+registers = ["r3"]
+after_instruction = true

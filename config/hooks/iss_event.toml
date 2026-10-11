@@ -1,0 +1,17 @@
+# Event scene playback tracking (bodies in src/engine/iss_event.cpp).
+
+# bdEventSceneCreate, after the id load at 0x823F5B2C and before BD's own
+# current event store, which is gated on id % 100 == 0 and so misses every
+# _evt_NN sub scene. r30 = the new issEvent, r11 = its id, r31 = the basename.
+[[midasm_hook]]
+address = 0x823F5B30
+name = "bdEventSceneCreatedHook"
+registers = ["r30", "r11", "r31"]
+after_instruction = false
+
+# issEvent destructor, at BD's matching clear. r31 = the dying task.
+[[midasm_hook]]
+address = 0x823F5D9C
+name = "bdEventSceneDestroyedHook"
+registers = ["r31"]
+after_instruction = false

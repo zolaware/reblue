@@ -15,6 +15,7 @@
 #include "vfs/key.h"
 #include "vfs/mod_catalog.h"
 #include "vfs/mounts.h"
+#include "vfs/prefetch.h"
 #include "vfs/settings.h"
 
 namespace bd::vfs {
@@ -79,6 +80,7 @@ public:
   vfs::DLCCatalog &DLC() { return dlc_; }
   vfs::FileSystem &Files() { return files_; }
   vfs::AccessLog &Log() { return log_; }
+  vfs::Prefetch &Prefetch() { return prefetch_; }
 
   // Creates the disc root subdirectories the devtool writers target. Devmode
   // only: it writes into the game install.
@@ -95,6 +97,7 @@ private:
   vfs::DLCCatalog dlc_;
   vfs::FileSystem files_;
   vfs::AccessLog log_;
+  vfs::Prefetch prefetch_;
 };
 
 } // namespace bd::vfs

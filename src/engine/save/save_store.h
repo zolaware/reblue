@@ -1,7 +1,7 @@
 /**
  * @file        engine/save/save_store.h
  *
- * @brief       Host-backed guest "save:" store replacing the XAM content
+ * @brief       Host-backed engine "save:" store replacing the XAM content
  *              manager.
  *
  * @copyright Copyright (c) 2026 Tom Clay <tomc@tctechstuff.com>
@@ -27,7 +27,7 @@ namespace bd::engine {
 void MountSaveStore(rex::filesystem::VirtualFileSystem *vfs,
                     const std::filesystem::path &saves_root);
 
-// Re-point the guest "save:" symlink at <saves>/<slot>. No-op if not mounted.
+// Re-point the engine "save:" symlink at <saves>/<slot>. No-op if not mounted.
 void SetCurrentSaveSlot(std::string_view slot);
 
 // Create <saves>/<slot>/ if missing. False (and logs) if creation failed, so
@@ -38,7 +38,7 @@ bool CreateSaveSlotDir(std::string_view slot);
 bool SaveSlotExists(std::string_view slot);
 
 // Names of every slot dir that holds a savegame.dat (i.e. a real save). The
-// dir name is the guest XCONTENT szFileName the game created the slot with, so
+// dir name is the engine XCONTENT szFileName the game created the slot with, so
 // it round-trips straight back into enumeration. Empty if not mounted.
 std::vector<std::string> ListSaveSlots();
 

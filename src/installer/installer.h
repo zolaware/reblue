@@ -10,6 +10,7 @@
  */
 #pragma once
 
+#include "installer/boot_languages.h"
 #include "installer/install_registry.h"
 #include "installer/self_install.h"
 

@@ -1,0 +1,10 @@
+# Asset-slot Loader edges (bodies in src/engine/loader.cpp).
+
+# Loader::vf03, on the lfs of the loading icon fade (this+0x84) that feeds the
+# show/hide test two instructions down. Before it, so the branch reads what the
+# hook leaves. r31 = the Loader.
+[[midasm_hook]]
+address = 0x82129660
+name = "bdLoaderIconMovieHideHook"
+registers = ["r31"]
+after_instruction = false

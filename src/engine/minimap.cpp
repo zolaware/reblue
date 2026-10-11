@@ -14,8 +14,8 @@
 #include <rex/types.h>
 
 #include "core/memory_helpers.h"
-#include "engine/field.h"
-#include "engine/menus/map_markers.h"
+#include "engine/mini_map_task.h"
+#include "engine/script.h"
 
 namespace {
 
@@ -26,7 +26,7 @@ struct StemRedirect {
   char stem[16] = {};
 } g_redirect;
 
-constexpr u32 kGuestNameCap = 32;
+constexpr u32 kNameCap = 32;
 
 // Past the prefix a base name carries one '_' and a sub-floor probe two, so
 // the second one opens the "_NN" to keep: "MM_dg300_01_01" -> "MM_bi03a01_01".
@@ -46,7 +46,7 @@ void RewriteName(u32 va, const char *prefix) {
   // suffix points into out, which snprintf may not overlap.
   char keep[8] = {};
   std::snprintf(keep, sizeof(keep), "%s", suffix);
-  std::snprintf(out, kGuestNameCap, "%s%s%s", prefix, g_redirect.stem, keep);
+  std::snprintf(out, kNameCap, "%s%s%s", prefix, g_redirect.stem, keep);
 }
 
 } // namespace
@@ -64,13 +64,12 @@ REX_HOOK_RAW(bdMinimapLoad) {
 // MiniMapTask_LoadAreaFloors(task, category, areaHi, areaLo).
 REX_EXTERN(__imp__MiniMapTask_LoadAreaFloors);
 REX_HOOK_RAW(MiniMapTask_LoadAreaFloors) {
-  const u32 taskVA = ctx.r3.u32;
   const u32 cat = ctx.r4.u32;
   const u32 hi = ctx.r5.u32;
   const u32 lo = ctx.r6.u32;
 
   const auto area = static_cast<bd::engine::AreaCategory>(cat);
-  auto *task = bd::mem::try_at<bd::engine::MiniMapTask_t>(taskVA);
+  bd::engine::MiniMapTask task(ctx.r3.u32);
   if (!task || (area != bd::engine::AreaCategory::Bg &&
                 area != bd::engine::AreaCategory::Bi)) {
     __imp__MiniMapTask_LoadAreaFloors(ctx, base);
@@ -79,14 +78,14 @@ REX_HOOK_RAW(MiniMapTask_LoadAreaFloors) {
 
   // The body's own identity check compares against the forced category, so
   // perform it here against the true one.
-  if (task->floor && task->category == cat && task->areaHi == hi &&
-      task->areaLo == lo) {
+  if (task.Floor() && task.Category() == cat && task.AreaHi() == hi &&
+      task.AreaLo() == lo) {
     ctx.r3.u64 = 1;
     return;
   }
 
-  bd::engine::BuildStageName(g_redirect.stem, sizeof(g_redirect.stem), cat,
-                              hi * 100 + lo);
+  bd::engine::Script::BuildName(g_redirect.stem, sizeof(g_redirect.stem), cat,
+                                hi * 100 + lo);
   g_redirect.active = true;
   ctx.r4.u32 = static_cast<u32>(bd::engine::AreaCategory::Dg);
   __imp__MiniMapTask_LoadAreaFloors(ctx, base);
@@ -94,7 +93,5 @@ REX_HOOK_RAW(MiniMapTask_LoadAreaFloors) {
 
   // Restore the true category so the next dungeon carrying these numbers is
   // not taken for this stage.
-  task = bd::mem::try_at<bd::engine::MiniMapTask_t>(taskVA);
-  if (task)
-    task->category = cat;
+  task.SetCategory(cat);
 }

@@ -10,7 +10,7 @@
 
 namespace bd::engine {
 
-// Polls the marker icon sheets once per guest frame. It cannot run from the
+// Polls the marker icon sheets once per engine frame. It cannot run from the
 // world map screen's own update: closing that screen sets bit 2 of its task
 // flags, and bdSceneTreeUpdate skips a task carrying it, so the screen is
 // asleep for the whole time the player is in the field.

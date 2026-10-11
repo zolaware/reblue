@@ -37,21 +37,18 @@ enum class ResourceType : u32 {
   PixelShader = 8,
 };
 
-// Texture and Surface share host bookkeeping but have different X360 prefixes.
-// Create picks the active variant, and bytes past it are zero and never read.
 union GuestTextureX360 {
-  D3DTexture as_texture; // 52 bytes
-  D3DSurface as_surface; // 48 bytes (zero-padded to 52)
+  D3DTexture as_texture;
+  D3DSurface as_surface;
   u8 raw[52];
 };
 static_assert(sizeof(GuestTextureX360) == 52);
 
 struct GuestTexture {
-  // First 52 bytes: X360 header layout the engine reads. Never read past 52.
   GuestTextureX360 x360;
 
   ResourceType type = ResourceType::Texture;
-  u32 selfVa = 0; // our own guest VA, populated by HostResourceHeap::Alloc
+  u32 selfVa = 0;
 
   std::unique_ptr<plume::RenderTexture> textureHolder;
   plume::RenderTexture *texture = nullptr;
@@ -62,64 +59,26 @@ struct GuestTexture {
   u32 mipLevels = 1;
   plume::RenderFormat format = plume::RenderFormat::UNKNOWN;
   u32 guestFormat = 0;
-  // ~0u when not registered in the bindless texture heap. Set lazily by
-  // BindTextureSRV at draw time.
   u32 descriptorIndex = ~u32{0};
   plume::RenderTextureLayout layout = plume::RenderTextureLayout::UNKNOWN;
   plume::RenderTextureViewDimension viewDimension =
       plume::RenderTextureViewDimension::UNKNOWN;
   plume::RenderSampleCounts sampleCount = plume::RenderSampleCount::COUNT_1;
-  // Resolves may bind a texture still backed by the current RT surface until
-  // the pending surface copy executes.
   GuestTexture *sourceSurface = nullptr;
   std::unordered_set<GuestTexture *> destinationTextures;
-  // X360 resolve exponent bias scale (2^bias, D3DRESOLVE_EXPONENTBIAS,
-  // ResolveFlags bits 26-31) applied as the EDRAM->texture multiplier when this
-  // is the resolve destination. 1.0 = none. BD resolves the HDR scene at -2.
   float resolveScale = 1.0f;
-  // X360 D3DDevice_Resolve destination subresource (DestLevel/DestSliceOrFace).
-  // For a cube destination DestSliceOrFace is the face index (0-5).
-  // bdResolveDepthStencilToCubemap resolves into all six.
-  // 0/0 = whole 2D texture (common case).
   u32 resolveLevel = 0;
   u32 resolveFace = 0;
-  // True once a draw targeted this surface since CreateSurface issued it (pool
-  // reuse resets it). A drawn-into bound surface is the EDRAM occupant a
-  // Resolve reads. A fresh one still holds its predecessor's content.
-  bool surfaceDrawn = false;
-  // Set for every texture in the current DrainSlot batch before teardown, so
-  // a materialize during teardown cannot copy into a texture freed later
-  // in the same batch.
+  bool registered = false;
   bool pendingDestroy = false;
-  // A destroy-time materialize recorded a copy from this texture into the
-  // not-yet-submitted list, so its plume texture must outlive that list's
-  // fence.
   bool pendingGPURead = false;
-  // Empty-caster shadow map: clear to far in ResolveRtToTexture instead of
-  // copying an uninitialized pool slot. Reset per TrackResolveSource.
-  bool resolveClearToFar = false;
-  // The linked sourceSurface was a fallback guess (bound RT/DS never drawn),
-  // not the drawn pass content, so it may be redrawn before this texture is
-  // consumed, so the lazy resolve alias no longer holds and ResolveRtToTexture
-  // must eager-copy. Set per TrackResolveSource.
-  bool resolveSourceFallback = false;
-  // Per-(depth attachment) framebuffer cache. Keyed by depth texture pointer,
-  // where a nullptr key is a color-only pass.
+  bool reflection = false;
+  bool framebufferAttached = false;
   std::unordered_map<const plume::RenderTexture *,
                      std::unique_ptr<plume::RenderFramebuffer>>
       framebuffers;
-  // Pixel upload scratch: guest VA (not host pointer) of one mip slice at a
-  // 256-aligned row pitch. LockRect allocates + hands it to the game as the
-  // locked pointer, and Unlock copies it into the host texture. 0 = unset.
   u32 mappedMemory = 0;
-  // Volume textures only: a slice-0 2D view of the volume so a tfetch2D shader
-  // samples the base coat while a tfetch3D shell pass reads the full volume
-  // (X360: a 2D fetch on a 3D resource reads slice 0).
   std::unique_ptr<GuestTexture> companion2D;
-  // BD static reflection cubes (cube_*) ship as a 2D-dimension 6x64 horizontal
-  // atlas yet the water/glass shader cube-fetches them. This is the TextureCube
-  // sliced out of the atlas so tfetchCube resolves a real cube, not the null
-  // placeholder.
   std::unique_ptr<GuestTexture> companionCube;
 
   GuestTexture() = default;

@@ -9,8 +9,9 @@
  */
 #pragma once
 
-#include "core/task_layout.h"
+#include "engine/menus/camp_config_main_task.h"
 #include "engine/menus/config_menu.h"
+#include "engine/task.h"
 
 #include <rex/ppc/func.h>
 #include <rex/types.h>
@@ -27,7 +28,7 @@ public:
   // True when reblue drew this frame and the stock update must be skipped.
   bool Update(PPCContext &ctx, u8 *base, u32 taskAddr);
 
-  // Once per guest tick. Loads the menu when a camp opens, so the CSV and its
+  // Once per engine tick. Loads the menu when a camp opens, so the CSV and its
   // textures load while the user is still on the camp menus and the settings
   // screen swaps in the moment the stock pages reach a row state.
   void Tick();
@@ -37,8 +38,8 @@ private:
   CampSettings(const CampSettings &) = delete;
   CampSettings &operator=(const CampSettings &) = delete;
 
-  void Open(u32 taskAddr);
-  void Park(u32 taskAddr);
+  void Open(const CampConfigMainTask &config);
+  void Park(const CampConfigMainTask &config);
   void Close();
   // Takes the menu off screen and gives the band's prompt slots back, without
   // touching the stock screen. Close is that plus handing the screen back.
@@ -50,14 +51,14 @@ private:
   bool open_ = false;
   // One load per camp visit, so a new camp creates fresh over the handles the
   // old one took down with its task tree.
-  bd::TaskRef camp_;
+  Task camp_;
   // The stock screen reblue is drawing over. It can be killed from under the
   // menu without one last update, and the menu outlives it by design, so its
   // death is the only signal that the screen is no longer on.
-  bd::TaskRef config_;
+  Task config_;
   // Open runs every frame the stock screen is up, so the load failure is
   // reported once per camp task rather than once per frame.
-  bd::TaskRef warned_;
+  Task warned_;
 };
 
 } // namespace bd::engine

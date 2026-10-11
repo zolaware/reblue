@@ -8,8 +8,8 @@
 #include <rex/system/kernel_state.h>
 #include <rex/ui/virtual_key.h>
 
-#include "core/global_config.h"
 #include "core/memory_helpers.h"
+#include "engine/engine.h"
 #include "platform/keyboard_input.h"
 
 namespace bd::platform {
@@ -101,8 +101,8 @@ void PollKeyboardToGuest() {
   // whenever debugMindows is set, regardless of debugInputKey. Forward keys
   // only while the overlay is on-screen so gameplay keystrokes can't trip
   // debug toggles.
-  auto *hidden = GetMindowsHiddenFlag();
-  const bool overlay_visible = hidden && *hidden == 0u;
+  const auto &game = bd::engine::Game::Get();
+  const bool overlay_visible = game.IsReady() && !game.MindowsHidden();
 
   auto &kb = Keyboard();
   static bool prev_down[kPolledKeyCount] = {};

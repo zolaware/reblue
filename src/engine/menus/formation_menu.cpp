@@ -13,17 +13,15 @@
 #include <rex/hook.h>
 #include <rex/types.h>
 
-#include "core/memory_helpers.h"
-#include "engine/chara_types.h"
 #include "engine/d2anime/anime_hittest.h"
 #include "engine/d2anime/anime_mouse.h"
+#include "engine/game.h"
+#include "engine/menus/camp_rank_main_task.h"
 #include "engine/sfx.h"
 #include "engine/settings.h"
-#include "engine/state_layout.h"
 #include "reblue_init.h"
 
-// Camp::Rank::MainTask::vf02 is the formation screen's own input handler.
-REX_EXTERN(__imp__Camp__Rank__MainTask__vf02);
+REX_EXTERN(__imp__Camp__Rank__MainTask__Update);
 REX_IMPORT(__imp__CampRank_UpdateCursorPosName, RankUpdateCursorPosName, u32(u32));
 REX_IMPORT(__imp__CampRank_ApplySlotUVs, RankApplySlotUVs, u32(u32));
 REX_IMPORT(__imp__bdInputCheckDpadRight, RankPadRight, u32());
@@ -37,7 +35,7 @@ namespace {
 
 constexpr int kFormationCols = 5;
 constexpr int kFormationRows = 2;
-constexpr int kFormationCells = kFormationCols * kFormationRows;
+static_assert(kFormationCols * kFormationRows == kFormationCells);
 
 // Phase 1 walks a column and reads whoever is standing in it. Phase 2 carries
 // that member and picks a destination cell, which is the only phase where the
@@ -53,43 +51,6 @@ constexpr u32 kPhaseCarry = 2;
 // it splits the rows without a per-layout table of rects.
 constexpr f32 kRowDividerY = 372.0f;
 
-// AnimeVarBag_GetElementXYWHP's destination struct, five floats behind a vftable.
-struct AnimePosVar_t {
-  /* 0x00 */ be_u32 vtable;
-  /* 0x04 */ be_f32 x;
-  /* 0x08 */ be_f32 y;
-  /* 0x0C */ be_f32 w;
-  /* 0x10 */ be_f32 h;
-  /* 0x14 */ be_f32 pri;
-};
-static_assert(sizeof(AnimePosVar_t) == 0x18);
-
-// Camp::Rank::MainTask, laid out by bdCampRankConstruct (0x822E6978) and filled
-// in by its vf01 (0x822E6C68), which copies the loaded L_rnk0N.csv's ten
-// '<cell>PltPos' variables into cellPos.
-struct RankTask_t {
-  /* 0x0000 */ u8 _pad0000[0x6C];
-  /* 0x006C */ be_u32 phase;
-  /* 0x0070 */ u8 _pad0070[0xE0];
-  /* 0x0150 */ AnimePosVar_t cellPos[kFormationCells];
-  /* 0x0240 */ u8 _pad0240[0x28];
-  /* 0x0268 */ be_u32 currentMember; // PlyTask under the browse cursor
-  /* 0x026C */ be_u32 heldCol;
-  /* 0x0270 */ be_u32 heldRow;
-  /* 0x0274 */ be_u32 activeCount;
-  /* 0x0278 */ u8 _pad0278[0x08];
-  /* 0x0280 */ be_u32 cursorCol;
-  /* 0x0284 */ be_u32 resetFlag;
-};
-static_assert(offsetof(RankTask_t, phase) == 0x6C);
-static_assert(offsetof(RankTask_t, cellPos) == 0x150);
-static_assert(offsetof(RankTask_t, currentMember) == 0x268);
-static_assert(offsetof(RankTask_t, heldCol) == 0x26C);
-static_assert(offsetof(RankTask_t, heldRow) == 0x270);
-static_assert(offsetof(RankTask_t, activeCount) == 0x274);
-static_assert(offsetof(RankTask_t, cursorCol) == 0x280);
-static_assert(offsetof(RankTask_t, resetFlag) == 0x284);
-
 // The engine right-aligns the populated columns into 0 through 4, so with N
 // actives only columns 5-N upward carry anyone. Both derivations are the ones
 // CampRank_ApplySlotUVs makes from the same partyOrder.
@@ -97,30 +58,16 @@ int ColumnOf(u32 order, int count) {
   return kFormationCols - 1 - int(order % u32(count));
 }
 
-int CellIndex(int row, int col) { return row * kFormationCols + col; }
+size_t CellIndex(int row, int col) {
+  return static_cast<size_t>(row * kFormationCols + col);
+}
 
-// Whoever holds this column, in either row. Cycle-safe, because a corrupt chain
-// would otherwise spin inside a per-frame hook.
-u32 MemberAtColumn(int col, int count) {
-  const u32 fpe = mem::try_load<u32>(addr::kFieldPlayerEntity);
-  if (!fpe)
-    return 0;
-  u32 slow =
-      mem::try_field<u32>(fpe, offsetof(FieldPlayerEntity_t, activeHead));
-  u32 fast = slow;
-  while (slow) {
-    const u32 order =
-        mem::try_field<u32>(slow, kNodeChara + offsetof(Chara_t, partyOrder));
-    if (ColumnOf(order, count) == col)
-      return slow;
-    slow = mem::try_field<u32>(slow, offsetof(PlyTask_t, nextParty));
-    fast = mem::try_field<u32>(fast, offsetof(PlyTask_t, nextParty));
-    if (fast)
-      fast = mem::try_field<u32>(fast, offsetof(PlyTask_t, nextParty));
-    if (fast && fast == slow)
-      break;
-  }
-  return 0;
+// Whoever holds this column, in either row.
+PlyTask MemberAtColumn(int col, int count) {
+  for (const PlyTask &member : Game::Get().FieldPlayerEntity().Party())
+    if (ColumnOf(member.Chara().PartyOrder(), count) == col)
+      return member;
+  return PlyTask();
 }
 
 // The same four reads the handler itself makes, so the pointer surrenders on
@@ -136,12 +83,12 @@ bool PadIsSteering() {
 // unpopulated cell keeps the zero its constructor left, which is never a real
 // anchor, so the emptiness test doubles as a guard on a layout that has not
 // finished loading.
-bool ColumnUnderPointer(const RankTask_t &task, f32 x, int row, int count,
+bool ColumnUnderPointer(const CampRankMainTask &task, f32 x, int row, int count,
                         int &out) {
   int best = -1;
   f32 bestDistance = 0.0f;
   for (int col = kFormationCols - count; col < kFormationCols; ++col) {
-    const f32 anchorX = task.cellPos[CellIndex(row, col)].x;
+    const f32 anchorX = task.CellAt(CellIndex(row, col)).x;
     if (anchorX == 0.0f)
       continue;
     const f32 distance = std::fabs(x - anchorX);
@@ -156,22 +103,22 @@ bool ColumnUnderPointer(const RankTask_t &task, f32 x, int row, int count,
   return true;
 }
 
-void MoveCursor(u32 taskVA, RankTask_t &task, int row, int col) {
-  if (u32(task.phase) == kPhaseCarry) {
-    if (int(u32(task.heldCol)) == col && int(u32(task.heldRow)) == row)
+void MoveCursor(CampRankMainTask task, int row, int col) {
+  if (task.Phase() == kPhaseCarry) {
+    if (int(task.HeldCol()) == col && int(task.HeldRow()) == row)
       return;
-    task.heldCol = u32(col);
-    task.heldRow = u32(row);
-    RankApplySlotUVs(taskVA);
+    task.SetHeldCol(u32(col));
+    task.SetHeldRow(u32(row));
+    RankApplySlotUVs(task.Address());
   } else {
-    if (int(u32(task.cursorCol)) == col)
+    if (int(task.CursorCol()) == col)
       return;
-    const u32 member = MemberAtColumn(col, int(u32(task.activeCount)));
+    const PlyTask member = MemberAtColumn(col, int(task.ActiveCount()));
     if (!member)
       return;
-    task.cursorCol = u32(col);
-    task.currentMember = member;
-    RankUpdateCursorPosName(taskVA);
+    task.SetCursorCol(u32(col));
+    task.SetCurrentMember(member);
+    RankUpdateCursorPosName(task.Address());
   }
   if (Settings::Get().MouseCursorSFX())
     sfx::Play(sfx::kCursor);
@@ -180,10 +127,10 @@ void MoveCursor(u32 taskVA, RankTask_t &task, int row, int col) {
 // Runs before the handler, so a click hits the cell the pointer is over
 // rather than a frame behind it.
 void HoverFormationCells(u32 taskVA) {
-  auto *task = mem::try_at<RankTask_t>(taskVA);
+  const CampRankMainTask task(taskVA);
   if (!task)
     return;
-  const u32 phase = task->phase;
+  const u32 phase = task.Phase();
   if (phase != kPhaseBrowse && phase != kPhaseCarry)
     return;
 
@@ -200,7 +147,7 @@ void HoverFormationCells(u32 taskVA) {
   if (!MenuMouse::Get().PointerActive())
     return;
 
-  const int count = int(u32(task->activeCount));
+  const int count = int(task.ActiveCount());
   if (count <= 0 || count > kFormationCols)
     return;
 
@@ -211,18 +158,18 @@ void HoverFormationCells(u32 taskVA) {
 
   const int row = y < kRowDividerY ? 1 : 0;
   int col = 0;
-  if (!ColumnUnderPointer(*task, x, row, count, col))
+  if (!ColumnUnderPointer(task, x, row, count, col))
     return;
 
-  MoveCursor(taskVA, *task, row, col);
+  MoveCursor(task, row, col);
 }
 
 } // namespace
 
 } // namespace bd::engine
 
-REX_HOOK_RAW(Camp__Rank__MainTask__vf02) {
+REX_HOOK_RAW(Camp__Rank__MainTask__Update) {
   const u32 taskVA = ctx.r3.u32;
   bd::engine::HoverFormationCells(taskVA);
-  __imp__Camp__Rank__MainTask__vf02(ctx, base);
+  __imp__Camp__Rank__MainTask__Update(ctx, base);
 }

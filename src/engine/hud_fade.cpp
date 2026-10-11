@@ -14,11 +14,10 @@
 #include <rex/ppc.h>
 #include <rex/types.h>
 
-#include "core/memory_helpers.h"
+#include "engine/d2anime/anime_data.h"
 #include "engine/d2anime/anime_input.h"
-#include "engine/d2anime/anime_vars.h"
-#include "engine/d2anime/d2anime_types.h"
 #include "engine/settings.h"
+#include "engine/simple_status_task.h"
 
 namespace {
 
@@ -44,16 +43,9 @@ double g_lastDrawnAt = 0.0;
 
 bool g_partyCardsFaded = false;
 
-// SimpleStatusTask: mode 0 is field, 1 battle. Each of the five rows is a party
-// card holding its own d2anime variable bag.
-constexpr u32 kSimpleStatus_Mode = 0x800;
-constexpr u32 kSimpleStatus_ModeField = 0;
-constexpr u32 kSimpleStatus_Rows = 0x70;
-constexpr u32 kSimpleStatus_Anime = 0x7FC;
-constexpr u32 kPartyRowStride = 0x160;
-constexpr u32 kPartyRow_VarBag = 0x144;
+// SimpleStatusTask mode 0 is field, 1 battle.
+constexpr u32 kModeField = 0;
 constexpr int kPartyRowCount = 5;
-constexpr u32 kAnime_Visible = offsetof(bd::engine::D2AnimeTask_t, visible);
 
 double NowSeconds() {
   static const Clock::time_point kEpoch = Clock::now();
@@ -147,15 +139,9 @@ void bdMiniMapLayerFadeHook(PPCRegister &r31) { ScaleHudColor(r31); }
 // A CSV transition drives the same 'alpha', so the write repeats every frame to
 // run last. 'SpAlpha' and 'SpColor' are the battle-only tension bar.
 void bdPartyCardFadeHook(PPCRegister &r29) {
-  const u32 task = r29.u32;
+  const bd::engine::SimpleStatusTask task(r29.u32);
 
-  // A town has neither a compass nor a minimap, so the cards are all that can
-  // report the HUD on screen. The visible flag rather than this hook running,
-  // since vf02 keeps updating through a hide.
-  const u32 anime = bd::mem::load<u32>(task + kSimpleStatus_Anime);
-  const bool shown =
-      anime && bd::mem::load<u32>(anime + kAnime_Visible) != 0 &&
-      bd::mem::load<u32>(task + kSimpleStatus_Mode) == kSimpleStatus_ModeField;
+  const bool shown = task.Anime().IsVisible() && task.Mode() == kModeField;
   if (shown)
     g_hudDrawn = true;
 
@@ -167,9 +153,8 @@ void bdPartyCardFadeHook(PPCRegister &r29) {
 
   const double alpha = (fade ? a : 1.0f) * 255.0;
   for (int row = 0; row < kPartyRowCount; ++row) {
-    const u32 bag = bd::mem::load<u32>(
-        task + kSimpleStatus_Rows + row * kPartyRowStride + kPartyRow_VarBag);
+    bd::engine::AnimeData bag = task.RowVarBag(static_cast<size_t>(row));
     if (bag)
-      bd::engine::VarBagSetFloat(bag, "alpha", alpha);
+      bag.SetFloat("alpha", alpha);
   }
 }

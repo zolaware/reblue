@@ -12,7 +12,7 @@
 
 #include <rex/types.h>
 
-#include "engine/chara_types.h"
+#include "engine/chara.h"
 #include "core/logging.h"
 #include "engine/item_categories.h"
 
@@ -162,9 +162,10 @@ private:
 
   bool AnyPin() const;
 
-  // What one roster member held when the battle opened.
+  // What one roster member held when the battle opened. charaEA is the
+  // character body itself, which is what the guest's exp award writes into.
   struct MemberSnapshot {
-    u32 nodeEA = 0;
+    u32 charaEA = 0;
     u32 exp = 0;
     u32 sp[kCharaClassCount] = {};
   };

@@ -1,5 +1,4 @@
-# Stages the shipping file list into one zip. Both runtimes come out of the
-# same build dir, so reblue.exe (D3D12) and reblue_vk.exe ship together.
+# Stages the shipping file list into one zip.
 #
 # Symbols go into a second zip. They exist so a crash log symbolizes, and
 # nobody needs them to play.

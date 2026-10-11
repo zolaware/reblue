@@ -15,10 +15,8 @@
 #include <plume_render_interface.h>
 
 #include "core/logging.h"
-#include "gpu/frame_stats.h"
-#include "gpu/gpu_timing.h"
+#include "gpu/hooks/tweaks.h"
 #include "gpu/occlusion.h"
-#include "gpu/settings.h"
 
 namespace bd::gpu {
 
@@ -86,41 +84,27 @@ void Occlusion::Begin() {
     if (void *mapped = s.occlusion_readback[slot]->map()) {
       const u32 count = *static_cast<const u32 *>(mapped);
       s.occlusion_readback[slot]->unmap();
-      // The count is one atomic per depth-passing fragment of the 128x128 sun
-      // test quad, so fully visible == 16384 at one sample per pixel. Under AA
-      // that basis inflates: MSAA runs the counter per sample and SSAA
-      // rasterizes the quad into ss^2 more pixels (the two paths are mutually
-      // exclusive, CvarMSAASampleCount). Left unnormalized the raw count
-      // exceeds 16384, clamps to fully visible, and the guest's count/16384
-      // flare ratio pins the sun lens flare wide open so it renders through
-      // occluding geometry (glowing star on the bg01 stairs). Renormalize to
-      // the single-sample basis the guest divisor assumes.
-      u32 oversample = 1u;
-      if (const i32 ss = Video::BootSupersampling(); ss > 1) {
-        oversample = static_cast<u32>(ss) * static_cast<u32>(ss);
-      } else {
-        switch (Video::CvarMSAASampleCount()) {
-        case plume::RenderSampleCount::COUNT_2:
-          oversample = 2u;
-          break;
-        case plume::RenderSampleCount::COUNT_4:
-          oversample = 4u;
-          break;
-        case plume::RenderSampleCount::COUNT_8:
-          oversample = 8u;
-          break;
-        default:
-          oversample = 1u;
-          break;
-        }
+      const f32 ss = SceneRenderScale();
+      u32 oversample = static_cast<u32>(ss * ss + 0.5f);
+      switch (Video::CvarMSAASampleCount()) {
+      case plume::RenderSampleCount::COUNT_2:
+        oversample *= 2u;
+        break;
+      case plume::RenderSampleCount::COUNT_4:
+        oversample *= 4u;
+        break;
+      case plume::RenderSampleCount::COUNT_8:
+        oversample *= 8u;
+        break;
+      default:
+        break;
       }
       const u32 normalized = oversample > 1u ? count / oversample : count;
       s.occlusion_last_count = normalized > 16384u ? 16384u : normalized;
-      const i32 diag = Settings::Get().DiagVerbosity();
-      if (diag >= 1 && normalized > 16384u)
-        BD_WARN("[occlusion] normalized count {} (raw {} / {}x) > 16384 (slot "
-                "{}), clamped",
-                normalized, count, oversample, slot);
+      if (normalized > 16384u)
+        BD_DEV_WARN("[occlusion] normalized count {} (raw {} / {}x) > 16384 (slot "
+               "{}), clamped",
+               normalized, count, oversample, slot);
     } else {
       BD_ERROR("occlusion readback map() null (slot {}), keeping count {}",
                slot, s.occlusion_last_count);
@@ -132,8 +116,6 @@ void Occlusion::Begin() {
       plume::RenderBarrierStage::COPY,
       plume::RenderBufferBarrier(s.occlusion_counter[slot].get(),
                                  plume::RenderBufferAccess::WRITE));
-  NoteBarrierCall(1, BarrierSite::Occlusion);
-  MarkResolve(s.command_list);
   s.command_list->copyBufferRegion(s.occlusion_counter[slot]->at(0),
                                    s.occlusion_zero->at(0), 4);
   s.command_list->barriers(
@@ -141,8 +123,6 @@ void Occlusion::Begin() {
       plume::RenderBufferBarrier(s.occlusion_counter[slot].get(),
                                  plume::RenderBufferAccess::READ |
                                      plume::RenderBufferAccess::WRITE));
-  NoteBarrierCall(1, BarrierSite::Occlusion);
-  MarkResolve(s.command_list);
 
   s.occlusion_counting = true;
   Video::SetDirtyValue(s.dirtyStates.pipelineState, s.pipelineState.occlusionCounting,
@@ -166,8 +146,6 @@ void Occlusion::End() {
       plume::RenderBarrierStage::COPY,
       plume::RenderBufferBarrier(s.occlusion_counter[slot].get(),
                                  plume::RenderBufferAccess::READ));
-  NoteBarrierCall(1, BarrierSite::Occlusion);
-  MarkResolve(s.command_list);
   s.command_list->copyBufferRegion(s.occlusion_readback[slot]->at(0),
                                    s.occlusion_counter[slot]->at(0), 4);
   s.occlusion_result_pending[slot] = true;

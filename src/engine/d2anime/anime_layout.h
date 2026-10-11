@@ -9,6 +9,8 @@
  */
 #pragma once
 
+#include "engine/d2anime/anime_data.h"
+
 #include <string>
 #include <variant>
 #include <vector>
@@ -427,8 +429,7 @@ public:
 
   std::string ToCSV();
 
-  // Write all registered vars to the task's VarBag.
-  void SyncVars(u32 taskAddr);
+  void SyncVars(AnimeData varBag);
 
   template <class V> void RegisterVar(V &v) { vars_.push_back(&v); }
 
@@ -490,7 +491,7 @@ protected:
   AnimePos pos_;
 };
 
-// A row a list marks on or off. D2AnimeMenu::SetToggleRow writes Color, ChkOn
+// A row a list marks on or off. AnimeMenu::SetToggleRow writes Color, ChkOn
 // and ChkOff by name every frame, and AnimeMenu_Init reads EnableColor and
 // DisableColor off the template once, so a list that declared its own set could
 // drift from the host's spelling with nothing to catch it.

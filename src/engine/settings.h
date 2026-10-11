@@ -47,8 +47,8 @@ public:
   bool MapGimmickMarkers() const { return mapGimmickMarkers_; }
   bool SetMapGimmickMarkers(bool v);
 
-  // Hovering a menu row moves the game's own cursor onto it.
-  bool MouseMenu() const { return mouseMenu_; }
+  bool MouseInput() const { return mouseInput_; }
+  bool SetMouseInput(bool v);
 
   // The cursor move sound effect on a mouse-driven row change.
   bool MouseCursorSFX() const { return mouseCursorSFX_; }
@@ -79,6 +79,16 @@ public:
   f64 HudFadeDelay() const { return hudFadeDelay_; }
   bool SetHudFadeDelay(f64 v);
 
+  bool Vibration() const { return vibration_; }
+  bool SetVibration(bool v);
+
+  f64 CameraSpeed() const { return cameraSpeed_; }
+  bool SetCameraSpeed(f64 v);
+  void ApplyCameraSpeed() const;
+  static constexpr f64 kCameraSpeedMin = 0.5;
+  static constexpr f64 kCameraSpeedMax = 5.0;
+  static constexpr f64 kCameraSpeedDefault = 1.2;
+
 private:
   Settings() = default;
   Settings(const Settings &) = delete;
@@ -90,11 +100,13 @@ private:
   void AdoptMapGimmickMarkers();
   void AdoptHudMode();
   void AdoptHudFadeDelay();
-  void AdoptMouseMenu();
+  void AdoptMouseInput();
   void AdoptMouseCursorSFX();
   void AdoptMouseCursorOpacity();
   void AdoptGlyphSetMode();
   void AdoptPadGlyphSet();
+  void AdoptVibration();
+  void AdoptCameraSpeed();
 
   i32 fpsLimit_ = 0;
   i32 glyphSetMode_ = 0;
@@ -104,9 +116,11 @@ private:
   bool mapGimmickMarkers_ = false;
   engine::HudMode hudMode_ = engine::HudMode::Always;
   f64 hudFadeDelay_ = 5.0;
-  bool mouseMenu_ = true;
+  bool mouseInput_ = true;
   bool mouseCursorSFX_ = true;
   i32 mouseCursorOpacity_ = 80;
+  bool vibration_ = true;
+  f64 cameraSpeed_ = kCameraSpeedDefault;
 };
 
 } // namespace bd::engine

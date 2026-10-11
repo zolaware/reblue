@@ -67,59 +67,61 @@ REXCVAR_DEFINE_COMMAND_ARGS(
     [](std::string_view) {
       const auto &g = Game::Get();
       if (!g.IsReady()) {
-        BD_WARN("[game] guest memory unavailable");
+        BD_WARN("[game] engine memory unavailable");
         return;
       }
-      // FieldState() is kNoFieldState off-field. Printing the raw u32 there
+      // SceneState() is kSceneStateNone off-field. Printing the raw u32 there
       // reads as 4294967295, so name the absence instead.
-      const std::string fieldState =
-          g.FieldControllerLive() ? std::to_string(g.FieldState()) : "none";
+      const auto scene = g.ScriptManTask();
+      const std::string sceneState =
+          scene ? std::to_string(scene.SceneState()) : "none";
       BD_INFO("[game] mode={} fieldActive={} fieldState={} inBattle={} "
               "loading={} mindows={}",
               bd::engine::ToString(g.Mode()), g.FieldGameplayActive(),
-              fieldState, g.Battle().IsActive(), g.IsLoading(),
-              g.MindowsPanelActive());
-      const auto stage = g.Stage();
+              sceneState, static_cast<bool>(g.BattleCameraTask()),
+              g.IsLoading(), g.MindowsPanelActive());
+      const auto script = g.ScriptManTask().Script();
       BD_INFO(
           "[game] stage cat={} combined={} (area {} sub {}) module=0x{:08X}",
-          stage.Category(), stage.CombinedNum(), stage.Area(), stage.Sub(),
-          g.CurrentModuleAddress());
+          script.Category(), script.CombinedNum(), script.Area(), script.Sub(),
+          g.SequenceControl().CurrentModuleAddress());
       BD_INFO("[game] eventScene={} sofdecMovie={}",
-              bd::engine::EventScenePlaying(),
-              bd::engine::SofdecMoviePlaying());
+              bd::engine::IssEvent::LiveCount() > 0,
+              bd::engine::SofdecPlayer::Playing());
     },
     "GameState", "Dump engine-state predicates + current stage");
 
 REXCVAR_DEFINE_COMMAND_ARGS(
     game_stage,
     [](std::string_view) {
-      const auto stage = Game::Get().Stage();
-      if (!stage) {
+      const auto script = Game::Get().ScriptManTask().Script();
+      if (!script) {
         BD_WARN("[game] no stage (not in field)");
         return;
       }
       BD_INFO("[game] stage {} category={} combinedNum={} area={} sub={}",
-              stage.Name(), stage.Category(), stage.CombinedNum(), stage.Area(),
-              stage.Sub());
+              script.Name(), script.Category(), script.CombinedNum(),
+              script.Area(), script.Sub());
     },
     "GameState", "Print the current stage name, category and id");
 
 REXCVAR_DEFINE_COMMAND_ARGS(
     game_cutscene,
     [](std::string_view) {
-      const auto c = Game::Get().Cutscene();
-      const auto m = Game::Get().Movie();
-      if (c) {
-        const std::string prefix = c.Prefix();
+      const auto event = Game::Get().IssEvent();
+      const auto movie = Game::Get().SofdecPlayer();
+      if (event) {
+        const std::string prefix = event.Prefix();
         BD_INFO("[game] event scene {}{:03d}_evt_{:02d} (id {}) task=0x{:08X} "
                 "live={}",
-                prefix.empty() ? "??" : prefix.c_str(), c.EventNumber(),
-                c.SceneNumber(), c.EventId(), c.TaskAddress(), c.LiveCount());
+                prefix.empty() ? "??" : prefix.c_str(), event.EventNumber(),
+                event.SceneNumber(), event.EventId(), event.Address(),
+                bd::engine::IssEvent::LiveCount());
       } else {
         BD_INFO("[game] event scene: none");
       }
-      BD_INFO("[game] sofdec movie: {} (status {})", m ? "playing" : "none",
-              m.Status());
+      BD_INFO("[game] sofdec movie: {} (status {})",
+              movie ? "playing" : "none", movie.Status());
     },
     "GameState", "Report engine event (.evt) and Sofdec movie (.sfd) playback");
 
@@ -150,16 +152,18 @@ REXCVAR_DEFINE_COMMAND_ARGS(
 REXCVAR_DEFINE_COMMAND_ARGS(
     game_party,
     [](std::string_view) {
-      const auto party = Game::Get().Party();
+      const auto entity = Game::Get().FieldPlayerEntity();
+      const auto party = entity.Party();
       if (!party) {
         BD_WARN("[game] no party (no field player entity)");
         return;
       }
       BD_INFO(
           "[game] active party: {} member(s), {} participating, leader slot {}",
-          party.Size(), party.ActiveCount(), party.Leader().SlotId());
-      for (size_t i = 0; i < party.Size(); ++i) {
-        const auto c = party.At(i);
+          party.Size(), entity.ActiveCount(),
+          entity.Leader().Chara().SlotId());
+      for (const auto &member : party) {
+        const auto c = member.Chara();
         BD_INFO("[game]  slot {} lv {} exp {} HP {}/{} MP {}/{}{}", c.SlotId(),
                 c.Level(), c.Exp(), c.HP(), c.MaxHP(), c.MP(), c.MaxMP(),
                 c.IsAlive() ? "" : " [KO]");
@@ -170,15 +174,15 @@ REXCVAR_DEFINE_COMMAND_ARGS(
 REXCVAR_DEFINE_COMMAND_ARGS(
     game_roster,
     [](std::string_view) {
-      const auto roster = Game::Get().Roster();
+      const auto roster = Game::Get().FieldPlayerEntity().Roster();
       if (!roster) {
         BD_WARN("[game] no roster");
         return;
       }
       BD_INFO("[game] roster: {} member(s), unlockedSlots=0x{:X}",
-              roster.Size(), roster.UnlockedSlots());
-      for (size_t i = 0; i < roster.Size(); ++i) {
-        const auto c = roster.At(i);
+              roster.Size(), Game::Get().GameTask().UnlockedSlots());
+      for (const auto &member : roster) {
+        const auto c = member.Chara();
         BD_INFO("[game]  slot {} flags=0x{:X}{}", c.SlotId(), c.StatusFlags(),
                 StatusNames(c.StatusFlags()));
       }
@@ -188,7 +192,7 @@ REXCVAR_DEFINE_COMMAND_ARGS(
 REXCVAR_DEFINE_COMMAND_ARGS(
     game_effects,
     [](std::string_view args) {
-      const auto party = Game::Get().Party();
+      const auto party = Game::Get().FieldPlayerEntity().Party();
       if (!party) {
         BD_WARN("[effects] no party (no field player entity)");
         return;
@@ -199,7 +203,7 @@ REXCVAR_DEFINE_COMMAND_ARGS(
         BD_WARN("[effects] no party member at index {}", want);
         return;
       }
-      const auto c = party.At(want);
+      const auto c = party.At(want).Chara();
       const u32 flags = c.StatusFlags();
       BD_INFO("[effects] slot {} HP {}/{} status=0x{:X}{}", c.SlotId(), c.HP(),
               c.MaxHP(), flags, StatusNames(flags));
@@ -237,7 +241,7 @@ REXCVAR_DEFINE_COMMAND_ARGS(
 REXCVAR_DEFINE_COMMAND_ARGS(
     game_stats,
     [](std::string_view args) {
-      const auto party = Game::Get().Party();
+      const auto party = Game::Get().FieldPlayerEntity().Party();
       if (!party) {
         BD_WARN("[stats] no party (no field player entity)");
         return;
@@ -248,7 +252,7 @@ REXCVAR_DEFINE_COMMAND_ARGS(
         BD_WARN("[stats] no party member at index {}", want);
         return;
       }
-      const auto c = party.At(want);
+      const auto c = party.At(want).Chara();
       const auto b = bd::engine::StatBreakdown::For(c);
       if (!b) {
         BD_WARN("[stats] breakdown unavailable for slot {}", c.SlotId());
@@ -298,7 +302,7 @@ REXCVAR_DEFINE_COMMAND_ARGS(
         return;
       }
       const size_t idx = static_cast<size_t>(ints[0]);
-      const auto c = Game::Get().Party().At(idx);
+      const auto c = Game::Get().FieldPlayerEntity().Party().At(idx).Chara();
       if (!c) {
         BD_WARN("[game] no active character at index {}", idx);
         return;
@@ -327,27 +331,27 @@ REXCVAR_DEFINE_COMMAND_ARGS(
 REXCVAR_DEFINE_COMMAND_ARGS(
     game_gold,
     [](std::string_view) {
-      const auto inv = Game::Get().Inventory();
-      if (!inv) {
+      const auto items = Game::Get().ItemSaveData();
+      if (!items) {
         BD_WARN("[game] no item save data");
         return;
       }
-      BD_INFO("[game] gold: {}", inv.Gold());
+      BD_INFO("[game] gold: {}", items.Gold());
     },
     "GameState", "Print current gold");
 
 REXCVAR_DEFINE_COMMAND_ARGS(
     game_inventory,
     [](std::string_view) {
-      const auto inv = Game::Get().Inventory();
-      if (!inv) {
+      const auto items = Game::Get().ItemSaveData();
+      if (!items) {
         BD_WARN("[game] no item save data");
         return;
       }
       BD_INFO("[game] inventory: {} non-empty slot(s), gold {}",
-              inv.UsedCount(), inv.Gold());
-      for (size_t i = 0; i < inv.SlotCount(); ++i) {
-        const auto it = inv.At(i);
+              items.UsedCount(), items.Gold());
+      for (size_t i = 0; i < items.SlotCount(); ++i) {
+        const auto it = items.At(i);
         if (it.id == 0)
           continue;
         BD_INFO("[game]  slot {} item {} x{}", i, it.id, it.count);
@@ -358,26 +362,30 @@ REXCVAR_DEFINE_COMMAND_ARGS(
 REXCVAR_DEFINE_COMMAND_ARGS(
     game_battle,
     [](std::string_view) {
-      const auto b = Game::Get().Battle();
-      BD_INFO("[game] inBattle={} party={} enemies={}", b.IsActive(),
-              b.CombatantCount(), b.EnemyCount());
-      // Absent counters and zeroed counters are different answers, and
-      // HasStats separates them.
-      if (b.HasStats())
-        BD_INFO("[game] battlesWon={} escapes={} surroundWins={}", b.Wins(),
-                b.Escapes(), b.SurroundWins());
+      const auto &g = Game::Get();
+      const auto battle = g.BattleTask();
+      BD_INFO("[game] inBattle={} party={} enemies={}",
+              static_cast<bool>(g.BattleCameraTask()),
+              g.FieldPlayerEntity().Party().Size(), battle.EnemyCount());
+      // Absent counters and zeroed counters are different answers, and the
+      // record separates them.
+      const auto record = g.PlayRecord();
+      if (record)
+        BD_INFO("[game] battlesWon={} escapes={} surroundWins={}",
+                record.BattlesWon(), record.Escapes(), record.SurroundWins());
       else
         BD_WARN("[game] battle stats unavailable");
-      if (!b.HasManager()) {
+      if (!battle) {
         BD_INFO("[game] phase/enemies require battle-manager root capture");
         return;
       }
       BD_INFO(
           "[game] phase={} sub={} step={} loaded={} combined={} actor=0x{:08X}",
-          b.Phase(), b.SubPhase(), b.ActionStep(), b.ResourcesLoaded(),
-          b.CombinedNum(), b.CurrentActorAddress());
-      for (size_t i = 0; i < b.EnemyCount(); ++i) {
-        const auto e = b.EnemyAt(i);
+          battle.Phase(), battle.SubPhase(), battle.ActionStep(),
+          battle.ResourcesLoaded(), battle.CombinedNum(),
+          battle.CurrentActor().Address());
+      for (size_t i = 0; i < battle.EnemyCount(); ++i) {
+        const auto e = battle.EnemyAt(i).Chara();
         BD_INFO("[game]  enemy type {} HP {}/{}{}", e.TypeId(), e.HP(),
                 e.MaxHP(), e.IsAlive() ? "" : " [dead]");
       }
@@ -395,7 +403,8 @@ REXCVAR_DEFINE_COMMAND_ARGS(
         BD_WARN("[game] usage: game_set_hp <activeIndex> <value>");
         return;
       }
-      auto c = Game::Get().Party().At(static_cast<size_t>(v[0]));
+      const auto party = Game::Get().FieldPlayerEntity().Party();
+      auto c = party.At(static_cast<size_t>(v[0])).Chara();
       if (!c) {
         BD_WARN("[game] no active member at index {}", v[0]);
         return;
@@ -418,7 +427,8 @@ REXCVAR_DEFINE_COMMAND_ARGS(
         BD_WARN("[game] usage: game_set_mp <activeIndex> <value>");
         return;
       }
-      auto c = Game::Get().Party().At(static_cast<size_t>(v[0]));
+      const auto party = Game::Get().FieldPlayerEntity().Party();
+      auto c = party.At(static_cast<size_t>(v[0])).Chara();
       if (!c) {
         BD_WARN("[game] no active member at index {}", v[0]);
         return;
@@ -441,13 +451,13 @@ REXCVAR_DEFINE_COMMAND_ARGS(
         BD_WARN("[game] usage: game_set_gold <value>");
         return;
       }
-      auto inv = Game::Get().Inventory();
-      const u32 before = inv.Gold();
-      if (!inv.SetGold(static_cast<u32>(v[0]))) {
+      auto items = Game::Get().ItemSaveData();
+      const u32 before = items.Gold();
+      if (!items.SetGold(static_cast<u32>(v[0]))) {
         BD_WARN("[game] no item save data");
         return;
       }
-      BD_INFO("[game] gold {} -> {}", before, inv.Gold());
+      BD_INFO("[game] gold {} -> {}", before, items.Gold());
     },
     "GameState", "Set gold (clamped 0..99999999)");
 
@@ -459,9 +469,9 @@ REXCVAR_DEFINE_COMMAND_ARGS(
         BD_WARN("[game] usage: game_set_item <slot> <itemId> <qty>");
         return;
       }
-      auto inv = Game::Get().Inventory();
-      if (!inv.SetAt(static_cast<size_t>(v[0]), static_cast<u32>(v[1]),
-                     static_cast<u32>(v[2]))) {
+      auto items = Game::Get().ItemSaveData();
+      if (!items.SetAt(static_cast<size_t>(v[0]), static_cast<u32>(v[1]),
+                       static_cast<u32>(v[2]))) {
         BD_WARN("[game] write failed (bad slot or no item save data)");
         return;
       }
@@ -489,7 +499,5 @@ REXCVAR_DEFINE_COMMAND_ARGS(
               "pos_y={:.2f}",
               o.MusicVolume(), o.SeVolume(), o.Brightness(), o.ScreenPosX(),
               o.ScreenPosY());
-      BD_INFO("[game] ctl_normal={} ctl_mechatt={}", o.CtlNormalType(),
-              o.CtlMechattType());
     },
     "GameState", "Dump the stock game options");

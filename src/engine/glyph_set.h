@@ -8,13 +8,13 @@
  */
 #pragma once
 
-#include <atomic>
 #include <string_view>
 #include <vector>
 
 #include <rex/types.h>
 
 #include "engine/d2anime/anime_layout.h"
+#include "engine/input/actions.h"
 #include "engine/live_texture_stamp.h"
 
 namespace bd::engine {
@@ -29,8 +29,6 @@ enum class GlyphSet : i32 {
 
 // Which controller's art the prompts wear whenever they are wearing a
 // controller's. Auto follows the pad the host has connected, and falls back to
-// the 360, which is the disc's own block and the one set that costs no
-// substitution.
 enum class PadSet : i32 {
   Auto = -1,
   Xbox360 = 0,
@@ -45,11 +43,7 @@ inline constexpr i32 kPadSetLast = static_cast<i32>(PadSet::SteamDeck);
 const char *ToString(GlyphSet set);
 const char *ToString(PadSet set);
 
-// Index into bd::platform::kBindableKeys of the key a keybind cvar currently
-// names, or -1 when it is unbound or names a key no cap art covers. The footer
-// sheet and the runtime cap library both order their cells this way, so this is
-// the one place a bind turns into a picture.
-int BoundKeyIndex(const char *keybindCvar);
+int BoundKeyIndex(Action action);
 
 // The same lookup for a bare key name ("Up", "LMB"), with any modifier prefix
 // already stripped.
@@ -69,7 +63,7 @@ class Glyphs {
 public:
   static Glyphs &Get();
 
-  // Once per guest tick. Follows the input device and reapplies on a change of
+  // Once per engine tick. Follows the input device and reapplies on a change of
   // device or of any keybind.
   void Tick();
 
@@ -102,6 +96,18 @@ public:
   // Index is a kBindableKeys position, negative gets the blank cell.
   static UVRect KeyArtUV(int keyIndex);
 
+  bool PadButtonUV(int padButton, UVRect &uv) const;
+
+  // Sheet cell holding a pad button's art in the current pad set, or -1 for a
+  // code the sheet has no art for.
+  int PadSheetCell(int padButton) const;
+
+  static std::vector<u8> SheetPixels();
+
+  static constexpr u32 kSheetCols = 8;
+  static constexpr u32 kSheetRows = 32;
+  static constexpr u32 kSheetCellPx = 64;
+
   // Position of a bind's modifier prefix ("Shift+", "Ctrl+", "Alt+", with or
   // without the plus) in the sheet's modifier run, or -1 for anything else.
   static int ModifierIndex(std::string_view prefix);
@@ -116,16 +122,12 @@ public:
 private:
   Glyphs() = default;
 
-  // Serves the sheet and subscribes to the keybind cvars. Called on the first
-  // tick because the VFS has to be up and no prompt can have drawn yet.
   void InitOnce();
   void Apply();
   void WriteCell(u32 va, int cell) const;
   GlyphSet Wanted() const;
   PadSet WantedPad() const;
 
-  // The full sheet blob for the resolved set: the served bytes as shipped on
-  // a pad, and with each pad cell's texels replaced by its bound key's cap on
   // a keyboard. Serves fresh loads and restamps live instances alike.
   std::vector<u8> ComposeSheet() const;
 
@@ -141,8 +143,7 @@ private:
   PadSet pad_ = PadSet::Xbox360;
   u32 generation_ = 0;
   LiveTextureStamp sheetStamp_;
-  // Set from whichever thread wrote the cvar, read on the guest tick.
-  std::atomic<bool> bindsDirty_{false};
+  u32 bindGeneration_ = 0;
 };
 
 } // namespace bd::engine

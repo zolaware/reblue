@@ -43,6 +43,7 @@ protected:
   OnFinalizePaths(const rex::PathConfig &defaults,
                   std::function<void(rex::PathConfig)> resume) override;
   void OnConfigurePaths(rex::PathConfig &paths) override;
+  void OnConfigureLogging(rex::LogConfig &config) override;
   void OnPreLaunchModule() override;
   void OnWindowPixelSizeChanged(u32 pixel_width, u32 pixel_height) override;
   bool OnWindowCloseRequested() override;
@@ -57,8 +58,8 @@ private:
   rex::PathConfig PathsForInstall(const rex::PathConfig &defaults,
                                   const bd::installer::InstallConfig &cfg);
 
-  // Whether this build reached an install it did not write from outside it,
-  // meaning the upgrade copies binaries and has to ask first.
+  // Whether this build sits outside a non-portable install, so upgrading it
+  // copies binaries and has to ask first. Callers gate on official and newer.
   bool NeedsUpgradePrompt(const bd::installer::InstallConfig &cfg) const;
 
   // Restamps the record so the upgrade is not offered again. Everything the
@@ -96,9 +97,6 @@ private:
   void StopPreGuestPump();
   void InstallOverlayDrawHook();
 
-  void SetPerfOverlayStage(bd::ui::OverlayStage stage,
-                           rex::ui::ImGuiDrawer *drawer);
-
   // Raises the update prompt the first time Updates::Newer() has an answer.
   // Polled from the per-frame overlay marshal rather than a new pump.
   void MaybeShowUpdatePrompt();
@@ -115,13 +113,9 @@ private:
 #ifdef REBLUE_BUILD_INSTALLER
   std::unique_ptr<bd::installer::InstallerWizard> installer_wizard_;
 #endif
-  std::unique_ptr<bd::ui::PerfOverlay> perf_overlay_;
-  std::unique_ptr<bd::ui::WatermarkOverlay> watermark_;
   std::unique_ptr<bd::ui::FadeOverlay> fade_overlay_;
+  std::unique_ptr<bd::ui::PauseOverlay> pause_overlay_;
 
-  // Raw observer: ImGuiDialog self-deletes on Close(), and the on_closed lambda
-  // nulls this back to nullptr.
-  bd::ui::ReportIssueDialog *report_issue_ = nullptr;
   // The check the prompt last answered, so a re-run offers its build instead
   // of reading as the one already declined.
   u32 update_prompt_generation_ = 0;

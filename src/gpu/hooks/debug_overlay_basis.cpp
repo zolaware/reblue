@@ -73,7 +73,7 @@ private:
 
 bool OutputResActive() {
   u32 w, h;
-  return bd::gpu::Output::LatchedFit(w, h);
+  return bd::gpu::Output::RenderSize(w, h);
 }
 
 } // namespace

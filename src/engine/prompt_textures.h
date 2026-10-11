@@ -14,7 +14,7 @@
 namespace bd::engine {
 
 // Everything outside the footers: the field interact icon, the script and
-// battle prompt atlas, and the QTE buttons.
+// battle prompt atlas, the menu character pager, and the QTE buttons.
 //
 // The footers all read eleven shared globals, so restamping one sheet moves
 // every one of them at once. These do not. Each names a texture of its own
@@ -33,7 +33,7 @@ public:
   // and unmounting on the device change.
   void Publish();
 
-  // Once per guest tick, with Glyphs' generation. Restamps every live loaded
+  // Once per engine tick, with Glyphs' generation. Restamps every live loaded
   // instance whose art is not the current generation's.
   void Sync(u32 generation);
 

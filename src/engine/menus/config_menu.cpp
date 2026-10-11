@@ -12,14 +12,16 @@
 #include "core/logging.h"
 #include "core/memory_helpers.h"
 #include "core/settings_model.h"
-#include "core/task_layout.h"
 #include "engine/achievements/achievement_list.h"
 #include "engine/d2anime/anime_mouse.h"
 #include "engine/d2anime/d2anime.h"
+#include "engine/input/binding_store.h"
+#include "engine/input/input_sources.h"
 #include "engine/sfx.h"
 #include "engine/glyph_set.h"
 #include "engine/menus/config_layout.h"
 #include "engine/menus/config_menu_data.h"
+#include "engine/task.h"
 #include "platform/platform.h"
 
 #include <algorithm>
@@ -30,10 +32,10 @@
 
 namespace bd::engine {
 
-std::array<D2AnimeMenu *, ConfigMenu::kMenuCount> ConfigMenu::Menus() {
-  std::array<D2AnimeMenu *, kMenuCount> all = {&section_menu_, &modlist_menu_,
-                                               &dlclist_menu_, &achvlist_menu_,
-                                               &keybind_menu_};
+std::array<AnimeMenu *, ConfigMenu::kMenuCount> ConfigMenu::Menus() {
+  std::array<AnimeMenu *, kMenuCount> all = {
+      &section_menu_,  &modlist_menu_,  &dlclist_menu_,
+      &langlist_menu_, &achvlist_menu_, &bind_menu_};
   for (int p = 0; p < kSettingsSectionCount; ++p)
     all[kFixedMenus + p] = &settings_menus_[p];
   return all;
@@ -41,7 +43,7 @@ std::array<D2AnimeMenu *, ConfigMenu::kMenuCount> ConfigMenu::Menus() {
 
 void ConfigMenu::ResetMenus() {
   for (auto *m : Menus())
-    *m = D2AnimeMenu();
+    *m = AnimeMenu();
 }
 
 bool ConfigMenu::MenusReady() {
@@ -51,10 +53,21 @@ bool ConfigMenu::MenusReady() {
   return true;
 }
 
-void ConfigMenu::ShowOnly(std::initializer_list<D2AnimeMenu *> visible) {
+void ConfigMenu::ShowOnly(std::initializer_list<AnimeMenu *> visible) {
   for (auto *m : Menus())
-    m->SetVisible(std::find(visible.begin(), visible.end(), m) !=
-                  visible.end());
+    m->SetVisibleAndPlay(std::find(visible.begin(), visible.end(), m) !=
+                         visible.end());
+}
+
+const char *ConfigMenu::DeleteKindName(DeleteKind kind) {
+  switch (kind) {
+  case DeleteKind::DLC:
+    return "dlc";
+  case DeleteKind::Language:
+    return "language";
+  default:
+    return "mod";
+  }
 }
 
 ConfigMenu::State ConfigMenu::SectionState(int cursor) const {
@@ -67,6 +80,8 @@ ConfigMenu::State ConfigMenu::SectionState(int cursor) const {
     return State::MODLIST;
   if (cursor == kSettingsSectionCount + 1)
     return State::DLCLIST;
+  if (cursor == kSettingsSectionCount + 2)
+    return State::LANGLIST;
   return State::ACHVLIST;
 }
 
@@ -75,7 +90,7 @@ ConfigMenu::State ConfigMenu::ContentState() const {
                                   : state_;
 }
 
-D2AnimeMenu *ConfigMenu::ContentMenu() {
+AnimeMenu *ConfigMenu::ContentMenu() {
   switch (ContentState()) {
   case State::SETTINGS:
     return &CurrentSettingsList();
@@ -84,6 +99,12 @@ D2AnimeMenu *ConfigMenu::ContentMenu() {
     return &modlist_menu_;
   case State::DLCLIST:
     return &dlclist_menu_;
+  case State::LANGLIST:
+  case State::LANGADD:
+  case State::LANGPICK:
+  case State::LANGJOB:
+  case State::LANGNOTICE:
+    return &langlist_menu_;
   case State::ACHVLIST:
     return &achvlist_menu_;
   default:
@@ -108,6 +129,9 @@ void ConfigMenu::SyncPreview(int cursor) {
     break;
   case State::DLCLIST:
     SetHeaders("", i18n::Text("menu.header.dlc"), "");
+    break;
+  case State::LANGLIST:
+    SetHeaders("", i18n::Text("menu.header.languages"), "");
     break;
   case State::ACHVLIST:
     SetHeaders("", i18n::Text("menu.header.achievements"), "");
@@ -135,6 +159,13 @@ void ConfigMenu::ApplyVisibility() {
   case State::DLCLIST:
     ShowOnly({&section_menu_, &dlclist_menu_});
     break;
+  case State::LANGLIST:
+  case State::LANGADD:
+  case State::LANGPICK:
+  case State::LANGJOB:
+  case State::LANGNOTICE:
+    ShowOnly({&section_menu_, &langlist_menu_});
+    break;
   case State::ACHVLIST:
     ShowOnly({&section_menu_, &achvlist_menu_});
     break;
@@ -143,10 +174,7 @@ void ConfigMenu::ApplyVisibility() {
     break;
   case State::KEYBINDS:
   case State::KEYBIND_CAPTURE:
-    ShowOnly({&keybind_menu_});
-    break;
-  case State::PADLAYOUT:
-    ShowOnly({});
+    ShowOnly({&bind_menu_});
     break;
   default:
     // The popups keep whichever list they were raised over.
@@ -154,7 +182,7 @@ void ConfigMenu::ApplyVisibility() {
   }
 }
 
-void ConfigMenu::ActivateOnly(D2AnimeMenu *target) {
+void ConfigMenu::ActivateOnly(AnimeMenu *target) {
   for (auto *m : Menus())
     m->SetActive(m == target);
 }
@@ -170,10 +198,11 @@ void ConfigMenu::SetHeaders(const std::string &sections,
 
 void ConfigMenu::SetKeybindChrome(const char *hintKey) {
   auto &layout = GetLayout();
-  layout.hdrActions.set(i18n::Text("menu.header.actions"));
-  layout.hdrMovement.set(i18n::Text("menu.header.movement"));
-  layout.hdrCompat.set(i18n::Text("menu.header.compat"));
-  layout.kbHint.set(hintKey ? i18n::Text(hintKey) : std::string());
+  if (conflict_shown_)
+    layout.kbHint.set(
+        i18n::Fmt("menu.hint.conflict", BindRowLabel(conflict_action_)));
+  else
+    layout.kbHint.set(hintKey ? i18n::Text(hintKey) : std::string());
   layout.kbChromeVis.set(1.0);
 }
 
@@ -192,8 +221,7 @@ void ConfigMenu::SetFooter(const FooterLabels &f) {
     layout.ftrB.set(i18n::Text(f.b));
 }
 
-void ConfigMenu::Create(u32 parentTask, Surface surface,
-                        PPCFunc *parentUpdate) {
+void ConfigMenu::Create(Task parent, Surface surface, PPCFunc *parentUpdate) {
   // Before the CSV is generated: its defaults are baked from the catalog.
   i18n::SyncLocale();
 
@@ -207,12 +235,15 @@ void ConfigMenu::Create(u32 parentTask, Surface surface,
   wants_restart_ = false;
   cursor_.Reset();
   reorder_origin_ = -1;
-  capture_index_ = -1;
+  capture_slot_ = -1;
+  capture_chip_ = -1;
+  last_bind_slot_ = 0;
+  conflict_shown_ = false;
   settings_page_ = SettingsPage::Gameplay;
   glyph_gen_ = 0;
   ResetMenus();
 
-  task_ = D2AnimeTask::Load(parentTask, "d2anime\\modmgr\\L_modmgr.csv",
+  task_ = D2AnimeTask::Load(parent, "d2anime\\modmgr\\L_modmgr.csv",
                             D2AnimeTask::Reveal::Held);
   if (!task_) {
     BD_ERROR("[config] LoadAsync failed");
@@ -223,17 +254,15 @@ void ConfigMenu::Create(u32 parentTask, Surface surface,
   // A previous life's popup died with its parent's task tree, the handle must
   // not carry into this one.
   confirm_popup_.Drop();
+  notice_popup_.Drop();
 
   // TaskBase__ctor sets the structural parent. The notification link is what
   // TitleTask_OnChildComplete fires on, so only the title surface wires it:
   // in-game the parent is the camp task, whose notify slot is not ours to
   // take.
   if (surface == Surface::Title) {
-    auto *parentBase = bd::mem::at<bd::TaskBase_t>(parentTask);
-    auto *childBase = bd::mem::at<bd::TaskBase_t>(task_.guest_address());
-    parentBase->notifyChild = task_.guest_address();
-    childBase->notifyParent = parentTask;
-    childBase->notifyParentUID = parentBase->taskUID;
+    parent.SetNotifyChild(task_);
+    task_.SetNotifyParent(parent);
   }
 
   active_ = true;
@@ -243,17 +272,18 @@ void ConfigMenu::Create(u32 parentTask, Surface surface,
   // menu otherwise.
   MenuMouse::Get().SetRowFilter([this](u32 listVA, int index) {
     for (int p = 0; p < kSettingsSectionCount; ++p) {
-      if (settings_menus_[p].guest_address() != listVA)
+      if (settings_menus_[p].Address() != listVA)
         continue;
       return SettingsSlotToRow(static_cast<SettingsPage>(p), index) >= 0;
     }
     return true;
   });
-  BD_DEBUG("[config] child task at 0x{:08X}", task_.guest_address());
+  BD_DEBUG("[config] child task at 0x{:08X}", task_.Address());
 }
 
 void ConfigMenu::Destroy() {
   MenuMouse::Get().SetRowFilter(nullptr);
+  CancelLanguageJob();
 
   if (dirty_) {
     SaveAndReload();
@@ -268,22 +298,14 @@ void ConfigMenu::Destroy() {
   }
 
   // Clear the parent's notification pointer before Kill so it doesn't dangle.
-  // Both reads validate: Destroy runs from Close on a frame the stock screen
-  // may already have torn the task down, and at() host-faults on a freed
-  // pointer rather than failing. A write of guest 0x31873226 out of here is
-  // what that looks like.
-  if (task_) {
-    const auto *self =
-        bd::mem::try_at<const bd::TaskBase_t>(task_.guest_address());
-    const u32 parent = self ? u32(self->notifyParent) : 0u;
-    if (auto *parentTask = bd::mem::try_at<bd::TaskBase_t>(parent))
-      parentTask->notifyChild = 0u;
-  }
+  if (task_)
+    task_.NotifyParent().ClearNotifyChild();
 
   task_.Kill();
   // A live popup is a child of task_ and dies with it, so drop the handle
-  // without Kill() so no DEAD flag write reaches freed guest memory later.
+  // without Kill() so no DEAD flag write reaches freed engine memory later.
   confirm_popup_.Drop();
+  notice_popup_.Drop();
   ResetMenus();
 
   if (!wants_restart_)
@@ -295,7 +317,8 @@ void ConfigMenu::Destroy() {
   wants_restart_ = false;
   cursor_.Reset();
   reorder_origin_ = -1;
-  capture_index_ = -1;
+  capture_slot_ = -1;
+  conflict_shown_ = false;
 
   BD_DEBUG("[config] destroyed");
 }
@@ -308,6 +331,7 @@ void ConfigMenu::Dismiss() {
 
   // A forced close can reach here from any state, popup up and a list active.
   confirm_popup_.Kill();
+  notice_popup_.Kill();
   for (auto *m : Menus())
     m->SetActive(false);
   if (task_)
@@ -319,7 +343,8 @@ void ConfigMenu::Dismiss() {
   wants_restart_ = false;
   cursor_.Reset();
   reorder_origin_ = -1;
-  capture_index_ = -1;
+  capture_slot_ = -1;
+  conflict_shown_ = false;
   held_dir_ = 0;
   held_frames_ = 0;
   drag_row_ = -1;
@@ -328,7 +353,7 @@ void ConfigMenu::Dismiss() {
   BD_DEBUG("[config] dismissed");
 }
 
-D2AnimeMenu &ConfigMenu::CurrentSettingsList() {
+AnimeMenu &ConfigMenu::CurrentSettingsList() {
   int page = static_cast<int>(settings_page_);
   if (page < 0 || page >= kSettingsSectionCount)
     page = 0;
@@ -341,14 +366,14 @@ bool ConfigMenu::DiscoverMenus() {
   if (!task_ || !task_.IsReady())
     return false;
 
-  section_menu_ = task_.FindMenuByName("SltSection");
-  modlist_menu_ = task_.FindMenuByName("ModList");
-  dlclist_menu_ = task_.FindMenuByName("DlcList");
-  achvlist_menu_ = task_.FindMenuByName("AchvList");
+  section_menu_ = task_.FindMenu("SltSection");
+  modlist_menu_ = task_.FindMenu("ModList");
+  dlclist_menu_ = task_.FindMenu("DlcList");
+  langlist_menu_ = task_.FindMenu("LangList");
+  achvlist_menu_ = task_.FindMenu("AchvList");
   for (int p = 0; p < kSettingsSectionCount; ++p)
-    settings_menus_[p] =
-        task_.FindMenuByName(ConfigLayout::kSettingsListNames[p]);
-  keybind_menu_ = task_.FindMenuByName("KeybindList");
+    settings_menus_[p] = task_.FindMenu(ConfigLayout::kSettingsListNames[p]);
+  bind_menu_ = task_.FindMenu(GetLayout().bindList.name);
 
   if (!MenusReady()) {
     ResetMenus();
@@ -357,6 +382,7 @@ bool ConfigMenu::DiscoverMenus() {
 
   modlist_menu_.SeedEntries(ModCount());
   dlclist_menu_.SeedEntries(DlcCount());
+  langlist_menu_.SeedEntries(LanguageCount());
   achvlist_menu_.SeedEntries(GetAchievementList().size());
   for (int p = 0; p < kSettingsSectionCount; ++p)
     settings_menus_[p].SeedEntries(
@@ -364,8 +390,8 @@ bool ConfigMenu::DiscoverMenus() {
 
   BD_DEBUG("[config] discovered menus: section=0x{:08X} modlist=0x{:08X} "
            "dlclist=0x{:08X} ({}mods, {}dlc)",
-           section_menu_.guest_address(), modlist_menu_.guest_address(),
-           dlclist_menu_.guest_address(), ModCount(), DlcCount());
+           section_menu_.Address(), modlist_menu_.Address(),
+           dlclist_menu_.Address(), ModCount(), DlcCount());
 
   return true;
 }
@@ -377,7 +403,6 @@ void ConfigMenu::Transition(State next) {
         if (next == State::CLOSING ||
             (state_ != State::SECTION && next == State::SECTION) ||
             (state_ == State::KEYBINDS && next == State::SETTINGS) ||
-            (state_ == State::PADLAYOUT && next == State::SETTINGS) ||
             (state_ == State::KEYBIND_CAPTURE && next == State::KEYBINDS) ||
             (state_ == State::REORDER && next == State::MODLIST)) {
             sfx::Play(sfx::kCancel);
@@ -387,10 +412,11 @@ void ConfigMenu::Transition(State next) {
             sfx::Play(sfx::kOpen);
         }
         // Opening submenus, reorder mode, capture, and popups -> play kOpen
-        else if (next == State::KEYBINDS || next == State::PADLAYOUT ||
+        else if (next == State::KEYBINDS ||
             next == State::KEYBIND_CAPTURE || next == State::REORDER ||
             next == State::CONFIRM_DELETE || next == State::CONFIRM_REBOOT ||
-            next == State::CONFIRM_RESET_BINDS) {
+            next == State::CONFIRM_RESET_BINDS || next == State::LANGADD ||
+            next == State::LANGPICK) {
             sfx::Play(sfx::kOpen);
         }
     }
@@ -414,6 +440,17 @@ void ConfigMenu::Transition(State next) {
     dlclist_menu_.SetActive(false);
     HideDLCDetail();
     break;
+  case State::LANGLIST:
+    langlist_menu_.SetActive(false);
+    break;
+  case State::LANGADD:
+  case State::LANGPICK:
+    confirm_popup_.Kill();
+    break;
+  case State::LANGJOB:
+  case State::LANGNOTICE:
+    notice_popup_.Kill();
+    break;
   case State::ACHVLIST:
     achvlist_menu_.SetActive(false);
     break;
@@ -422,10 +459,7 @@ void ConfigMenu::Transition(State next) {
     break;
   case State::KEYBINDS:
   case State::KEYBIND_CAPTURE:
-    keybind_menu_.SetActive(false);
-    break;
-  case State::PADLAYOUT:
-    HidePadLayout();
+    bind_menu_.SetActive(false);
     break;
   case State::CONFIRM_DELETE:
   case State::CONFIRM_REBOOT:
@@ -452,15 +486,12 @@ void ConfigMenu::Transition(State next) {
   layout.rowDesc0.set("");
   layout.rowDesc1.set("");
   layout.rowDescC.set("");
-  layout.hdrActions.set("");
-  layout.hdrMovement.set("");
-  layout.hdrCompat.set("");
   layout.kbHint.set("");
   layout.kbChromeVis.set(-1.0);
 
   // Brings up a list with its cursor on it, what every content state does
   // once the panels are settled.
-  const auto open = [](D2AnimeMenu &menu) {
+  const auto open = [](AnimeMenu menu) {
     menu.SetActive(true);
     menu.AttachCursor();
   };
@@ -511,6 +542,65 @@ void ConfigMenu::Transition(State next) {
     BD_DEBUG("[config] state -> DLCLIST");
     break;
 
+  case State::LANGLIST:
+    HideDetailPanel();
+    HideDLCDetail();
+    if (LanguageCount() == 0) {
+      langlist_menu_.SetActive(false);
+      SetHeaders("", "", "");
+    } else {
+      open(langlist_menu_);
+      SetHeaders("", i18n::Text("menu.header.languages"),
+                 i18n::Text("menu.header.details"));
+    }
+    PopulateNames();
+    UpdateLanguageDetail(langlist_menu_.CursorIndex());
+    BD_DEBUG("[config] state -> LANGLIST ({} installed)", LanguageCount());
+    break;
+
+  case State::LANGADD: {
+    const bool first = lang_prompt_.empty();
+    const std::string q1 =
+        first ? i18n::Text("menu.language.add_ask")
+              : i18n::Fmt("menu.language.missing_discs", lang_prompt_);
+    const std::string q2 = first ? i18n::Text("menu.language.add_discs")
+                                 : i18n::Text("menu.language.missing_ask");
+    confirm_popup_.Create(task_, q1.c_str(), q2.c_str(), "", nullptr, nullptr,
+                          0);
+    ActivateOnly(nullptr);
+    BD_DEBUG("[config] state -> LANGADD (missing \"{}\")", lang_prompt_);
+    break;
+  }
+
+  case State::LANGPICK: {
+    const int offers = static_cast<int>(LanguageOfferCount());
+    const bool movies = lang_pick_ >= offers;
+    const std::string q1 =
+        movies ? i18n::Text("menu.language.movies_ask")
+               : i18n::Fmt("menu.language.add_one",
+                           LanguageOfferName(lang_pick_));
+    const std::string q2 = movies ? LanguageOfferMovies()
+                                  : LanguageOfferKinds(lang_pick_);
+    confirm_popup_.Create(task_, q1.c_str(), q2.c_str(), "", nullptr, nullptr,
+                          0);
+    ActivateOnly(nullptr);
+    BD_DEBUG("[config] state -> LANGPICK ({} of {})", lang_pick_, offers);
+    break;
+  }
+
+  case State::LANGJOB:
+    SetHeaders("", i18n::Text("menu.header.languages"),
+               i18n::Text("menu.header.details"));
+    ActivateOnly(nullptr);
+    BD_DEBUG("[config] state -> LANGJOB");
+    break;
+
+  case State::LANGNOTICE:
+    ShowLanguageNotice(lang_notice_);
+    ActivateOnly(nullptr);
+    BD_DEBUG("[config] state -> LANGNOTICE (\"{}\")", lang_notice_);
+    break;
+
   case State::ACHVLIST: {
     RefreshAchievementList();
     open(achvlist_menu_);
@@ -549,31 +639,32 @@ void ConfigMenu::Transition(State next) {
   }
 
   case State::KEYBINDS:
-    open(keybind_menu_);
+    open(bind_menu_);
+    if (bind_menu_) {
+      const BindCell cell = BindGridEntry(bind_menu_.CursorIndex()).cell;
+      if (cell == BindCell::Header || cell == BindCell::Blank) {
+        int first = 0;
+        while (BindGridEntry(first).cell == BindCell::Header)
+          first += 2;
+        bind_menu_.SetCursorIndex(first);
+      }
+    }
+    last_bind_slot_ = bind_menu_.CursorIndex();
     HideDetailPanel();
     HideDLCDetail();
     RefreshKeybindVisuals();
     SetHeaders("", "", "");
     // The pointer interactions are the ones nothing on screen names.
-    SetKeybindChrome("menu.hint.keybinds");
+    SetKeybindChrome("menu.hint.binds");
     BD_DEBUG("[config] state -> KEYBINDS");
     break;
 
   case State::KEYBIND_CAPTURE:
     RefreshKeybindVisuals();
-    SetKeybindChrome("menu.hint.capture");
-    BD_DEBUG("[config] state -> KEYBIND_CAPTURE (row {})", capture_index_);
-    break;
-
-  case State::PADLAYOUT:
-    HideDetailPanel();
-    HideDLCDetail();
-    SetHeaders("", "", "");
-    layout.title.set(i18n::Text(pad_action_ == SettingAction::MechatLayout
-                                    ? "settings.controls.mechat_layout.label"
-                                    : "settings.controls.pad_layout.label"));
-    RefreshPadLayout();
-    BD_DEBUG("[config] state -> PADLAYOUT");
+    SetKeybindChrome(capture_chip_ == kBindPadChip ? "menu.hint.capture_pad"
+                                                   : "menu.hint.capture");
+    BD_DEBUG("[config] state -> KEYBIND_CAPTURE ({} chip {})",
+             BindEntryLabel(BindGridEntry(capture_slot_)), capture_chip_);
     break;
 
   case State::REORDER:
@@ -585,28 +676,33 @@ void ConfigMenu::Transition(State next) {
 
   case State::CONFIRM_DELETE: {
     std::string name;
-    if (delete_is_dlc_) {
+    switch (delete_kind_) {
+    case DeleteKind::DLC: {
       auto &dlc = DLC();
       if (delete_index_ < static_cast<int>(dlc.Count()))
         name = dlc.At(static_cast<size_t>(delete_index_)).display_name;
-    } else {
-      name = ModAt(delete_index_).name;
+      break;
     }
-    confirm_popup_.Create(task_.guest_address(),
-                          i18n::Fmt("menu.confirm.delete", name).c_str(),
+    case DeleteKind::Language:
+      name = LanguageName(delete_index_);
+      break;
+    case DeleteKind::Mod:
+      name = ModAt(delete_index_).name;
+      break;
+    }
+    confirm_popup_.Create(task_, i18n::Fmt("menu.confirm.delete", name).c_str(),
                           i18n::Text("menu.confirm.undone").c_str());
     ActivateOnly(nullptr);
     BD_DEBUG("[config] state -> CONFIRM_DELETE ({}[{}] \"{}\")",
-             delete_is_dlc_ ? "dlc" : "mod", delete_index_, name);
+             DeleteKindName(delete_kind_), delete_index_, name);
     break;
   }
 
   case State::CONFIRM_REBOOT:
-    confirm_popup_.Create(task_.guest_address(),
-                          i18n::Text(bd::platform::IsSteamGameMode()
-                                         ? "menu.confirm.quit"
-                                         : "menu.confirm.restart")
-                              .c_str());
+    confirm_popup_.Create(task_, i18n::Text(bd::platform::IsSteamGameMode()
+                                                ? "menu.confirm.quit"
+                                                : "menu.confirm.restart")
+                                     .c_str());
     ActivateOnly(nullptr);
     BD_DEBUG("[config] state -> CONFIRM_REBOOT");
     break;
@@ -614,9 +710,8 @@ void ConfigMenu::Transition(State next) {
   case State::CONFIRM_RESET_BINDS:
     // The list stays up behind the popup, so its section panels and titles,
     // which every transition clears, have to be put back with it.
-    SetKeybindChrome("menu.hint.keybinds");
-    confirm_popup_.Create(task_.guest_address(),
-                          i18n::Text("menu.confirm.reset_binds").c_str(),
+    SetKeybindChrome("menu.hint.binds");
+    confirm_popup_.Create(task_, i18n::Text("menu.confirm.reset_binds").c_str(),
                           i18n::Text("menu.confirm.undone").c_str());
     ActivateOnly(nullptr);
     BD_DEBUG("[config] state -> CONFIRM_RESET_BINDS");
@@ -630,7 +725,7 @@ void ConfigMenu::Transition(State next) {
     break;
   }
 
-  layout.SyncVars(task_.guest_address());
+  layout.SyncVars(task_.AnimeData());
   UpdateFooter();
 }
 
@@ -647,6 +742,9 @@ void ConfigMenu::EnforceActiveFlags() {
   case State::DLCLIST:
     ActivateOnly(DlcCount() > 0 ? &dlclist_menu_ : nullptr);
     break;
+  case State::LANGLIST:
+    ActivateOnly(LanguageCount() > 0 ? &langlist_menu_ : nullptr);
+    break;
   case State::ACHVLIST:
     ActivateOnly(&achvlist_menu_);
     break;
@@ -654,10 +752,13 @@ void ConfigMenu::EnforceActiveFlags() {
     ActivateOnly(&CurrentSettingsList());
     break;
   case State::KEYBINDS:
-    ActivateOnly(&keybind_menu_);
+    ActivateOnly(&bind_menu_);
     break;
   case State::KEYBIND_CAPTURE:
-  case State::PADLAYOUT:
+  case State::LANGADD:
+  case State::LANGPICK:
+  case State::LANGJOB:
+  case State::LANGNOTICE:
   case State::CONFIRM_DELETE:
   case State::CONFIRM_REBOOT:
   case State::CONFIRM_RESET_BINDS:
@@ -683,7 +784,7 @@ bool ConfigMenu::Prime() {
   const bool ready = task_ && MenusReady();
   if (task_ && task_.IsVisible() != ready) {
     task_.SetVisibleAndPlay(ready);
-    // The guest's own show puts every menu on the task back up, keybind rows
+    // The engine's own show puts every menu on the task back up, keybind rows
     // included, so the state's set goes back on top of it.
     if (ready)
       ApplyVisibility();
@@ -760,26 +861,53 @@ void ConfigMenu::Update(PPCContext &ctx, u8 *base) {
     RefreshDLCVisuals();
     cursor_.Poll(dlclist_menu_, DlcCount(), [&](int c) { UpdateDLCDetail(c); });
     break;
+  case State::LANGLIST:
+    cursor_.Poll(langlist_menu_, LanguageCount(), [&](int c) {
+      UpdateLanguageDetail(c);
+      UpdateFooter();
+    });
+    break;
+  case State::LANGJOB:
+    ShowLanguageNotice(LanguageJobStatus());
+    if (const int percent = LanguageJobPercent(); percent >= 0)
+      SetRowDesc(i18n::Fmt("menu.language.progress", percent));
+    break;
+  case State::LANGNOTICE:
+    ShowLanguageNotice(lang_notice_);
+    break;
   case State::ACHVLIST:
     RefreshAchvVisuals();
     cursor_.Poll(achvlist_menu_, [&](int c) { UpdateAchvRowDesc(c); });
     break;
   case State::SETTINGS:
     RefreshSettingsVisuals();
-    cursor_.Poll(CurrentSettingsList(), [&](int) { UpdateFooter(); });
+    cursor_.Poll(CurrentSettingsList(), [&](int slot) {
+      UpdateSettingsRowDesc(slot);
+      UpdateFooter();
+    });
     break;
   case State::KEYBINDS:
   case State::KEYBIND_CAPTURE:
     RefreshKeybindVisuals();
     break;
-  case State::PADLAYOUT:
-    RefreshPadLayout();
-    break;
   default:
     break;
   }
 
-  GetLayout().SyncVars(task_.guest_address());
+  GetLayout().SyncVars(task_.AnimeData());
+
+  if (state_ == State::KEYBINDS || state_ == State::KEYBIND_CAPTURE) {
+    constexpr u16 kPadIdCount = 24;
+    u32 buttons = 0;
+    for (u16 id = 0; id < kPadIdCount; ++id) {
+      Source source;
+      source.kind = SourceKind::PadButton;
+      source.code = id;
+      if (InputSources::Get().Active(source))
+        buttons |= 1u << id;
+    }
+    bd::platform::SetCapturePadButtons(buttons);
+  }
 
   // Ahead of the handlers, so a click made as the pointer crosses between the
   // sidebar and the list beside it is read by the one it hit.
@@ -795,6 +923,21 @@ void ConfigMenu::Update(PPCContext &ctx, u8 *base) {
   case State::DLCLIST:
     HandleDLCList();
     break;
+  case State::LANGLIST:
+    HandleLangList();
+    break;
+  case State::LANGADD:
+    HandleLangAdd();
+    break;
+  case State::LANGPICK:
+    HandleLangPick();
+    break;
+  case State::LANGJOB:
+    HandleLangJob();
+    break;
+  case State::LANGNOTICE:
+    HandleLangNotice();
+    break;
   case State::ACHVLIST:
     HandleAchvlist();
     break;
@@ -806,9 +949,6 @@ void ConfigMenu::Update(PPCContext &ctx, u8 *base) {
     break;
   case State::KEYBIND_CAPTURE:
     HandleKeybindCapture();
-    break;
-  case State::PADLAYOUT:
-    HandlePadLayout();
     break;
   case State::REORDER:
     HandleReorder();

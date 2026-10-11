@@ -30,7 +30,7 @@ u32 AllocateSlot(VideoState &s) {
 // hold draws whose constants index this slot, so rewriting it now would serve
 // them the null sentinel. DrainDescriptorSlotsLocked pays the rewrite
 // once the slot's next fence proves every such list retired. The old texture
-// object outlives the descriptor via texture_graveyard / SurfacePool, which
+// object outlives the descriptor via texture_graveyard, which
 // share the same boundary. Caller holds s.mutex.
 void ParkDescriptorSlotLocked(VideoState &s, u32 slot, u32 null_index) {
   if (slot < kNullTextureDescriptorCount ||
@@ -89,8 +89,6 @@ u32 BindTextureSRVLocked(VideoState &s, GuestTexture *tex) {
     plume::RenderTextureViewDesc view_desc;
     // D3D12 forbids a typed-depth SRV format, so view D32_FLOAT as R32_FLOAT
     // for BD's depth shader-resolves (fog / soft particles / SSAO inputs).
-    // D32_FLOAT_S8_UINT is left as-is: plume's toDXGITextureView already
-    // specializes it to a depth-only view.
     view_desc.format = (tex->format == plume::RenderFormat::D32_FLOAT)
                            ? plume::RenderFormat::R32_FLOAT
                            : tex->format;

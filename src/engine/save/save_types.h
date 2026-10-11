@@ -1,6 +1,6 @@
 /**
  * @file    engine/save/save_types.h
- * @brief   Guest memory layouts (be<>) for the X360 content/save structs the
+ * @brief   Engine memory layouts (be<>) for the X360 content/save structs the
  *          save hooks read and write.
  *
  * @copyright Copyright (c) 2026 Tom Clay <tomc@tctechstuff.com>

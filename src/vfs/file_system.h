@@ -11,6 +11,7 @@
 #include <rex/types.h>
 
 #include <atomic>
+#include <filesystem>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -23,6 +24,9 @@
 #include "vfs/key.h"
 
 namespace bd::vfs {
+
+// Rows appended to shipped database tables, keyed by the table's path.
+using DbRows = std::unordered_map<Key, std::vector<std::string>>;
 
 enum class MountKind : u8 { Generated, Loose, Archive, ShippedPack };
 
@@ -79,12 +83,22 @@ struct DirEntry {
 // load order needs. A miss in the Overlay tier means the file is not ours and
 // the caller runs the engine's own IO, which reaches the disc and the
 // registered .ipk packs. A miss in the Fallback tier means it exists nowhere.
+//
+// A patch holds a place in the same ordering without serving anything on its
+// own: its rows extend whatever the entries below it serve for that key, or
+// the disc file and then the Fallback tier when none of them does. A patch
+// under a mount that replaces the whole file is shadowed by it.
 class FileSystem {
 public:
   // Replaces any mount already registered under 'name'. A priority below
   // kPriorityEngine puts the mount in the Fallback tier.
   void Add(std::string name, int priority, std::shared_ptr<Mount> mount);
+  void AddPatch(std::string name, int priority, DbRows rows);
   void Remove(std::string_view name);
+
+  // Where the engine's own IO reads loose files from, so a patched table no
+  // mount serves still has a base to extend.
+  void SetDiscRoot(std::filesystem::path root);
 
   std::optional<StatResult> Stat(const Key &key,
                                  Tier tier = Tier::Overlay) const;
@@ -101,12 +115,23 @@ private:
     int priority = 0;
     u64 seq = 0;
     std::shared_ptr<Mount> mount;
+    std::shared_ptr<const DbRows> patch;
   };
+
+  struct Composed {
+    u64 revision = 0;
+    ReadResult result;
+  };
+
+  void Insert(Entry entry);
 
   // Mounts are walked outside the lock so a slow inflate does not serialize
   // every other IO thread. The shared_ptr copies keep a mount alive through a
   // concurrent Remove.
   std::vector<Entry> Snapshot(Tier tier) const;
+
+  std::optional<ReadResult> ReadUnpatched(const Key &key, Tier tier) const;
+  std::optional<ReadResult> ReadDisc(const Key &key) const;
 
   // Answering List from Keys() would walk every key of every mount per
   // directory, so the whole tree is indexed once and rebuilt only when the
@@ -116,12 +141,18 @@ private:
   mutable std::mutex mutex_;
   std::vector<Entry> mounts_; // priority desc, then seq desc
   u64 next_seq_ = 0;
+  std::filesystem::path disc_root_;
 
   // revision_ starts ahead of indexed_revision_ so the first List builds.
   std::atomic<u64> revision_{1};
   mutable std::mutex index_mutex_;
   mutable std::unordered_map<Key, std::map<std::string, bool>> index_;
   mutable u64 indexed_revision_ = 0;
+
+  // A patched table is composed once per mount set, since the engine stats it
+  // before every read and each stat has to measure the result.
+  mutable std::mutex composed_mutex_;
+  mutable std::unordered_map<Key, Composed> composed_;
 };
 
 // Mods outrank DLC so a mod can override a file a DLC pack adds. The engine's

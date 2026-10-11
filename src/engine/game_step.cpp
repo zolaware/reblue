@@ -1,6 +1,6 @@
 /**
  * @file    engine/game_step.cpp
- * @brief   The bdMainGameStep hook: one guest logic step, and everything that
+ * @brief   The bdMainGameStep hook: one engine logic step, and everything that
  *          has to observe it.
  *
  * @copyright Copyright (c) 2026 Tom Clay <tomc@tctechstuff.com>
@@ -10,16 +10,20 @@
  */
 #include <rex/hook.h>
 
-#include "engine/battle.h"
+#include "engine/battle_task.h"
 #include "engine/cheats.h"
+#include "engine/cutscene_pause.h"
 #include "engine/frame_interp.h"
 #include "engine/hud_fade.h"
+#include "engine/input/dispatch.h"
 
 REX_EXTERN(__imp__bdMainGameStep);
 REX_HOOK_RAW(bdMainGameStep) {
-  bd::engine::OnGuestGameStep();
-  bd::engine::OnBattleGameStep();
+  bd::engine::OnGameStep();
+  bd::engine::BattleTask::OnBattleGameStep();
   bd::engine::HudFade::Get().Poll();
+  bd::engine::CutscenePause::Get().Poll();
   __imp__bdMainGameStep(ctx, base);
+  bd::engine::RunDispatch();
   bd::engine::Cheats::Get().Apply();
 }

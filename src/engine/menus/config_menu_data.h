@@ -44,6 +44,35 @@ bool IsDLCEnabled(int index);
 // True once DLC has been installed or deleted this session. Latched until the
 // next process launch (DLC mounts at boot, so applying it needs a restart).
 bool DlcChanged();
+
+void RefreshLanguages();
+size_t LanguageCount();
+std::string LanguageName(int index);
+std::string LanguageKinds(int index);
+std::string LanguageSize(int index);
+bool LanguageRemovable(int index);
+
+enum class LanguageAddResult { Canceled, Missing, NothingNew, Failed, Picked };
+LanguageAddResult AddLanguageSources(std::string &detail);
+void ClearLanguageSources();
+bool RemoveLanguage(int index);
+
+size_t LanguageOfferCount();
+std::string LanguageOfferName(int index);
+std::string LanguageOfferKinds(int index);
+std::string LanguageOfferMovies();
+bool StartLanguageJob(const std::vector<bool> &accepted, bool movies,
+                      std::string &detail);
+
+enum class LanguageJobOutcome { Running, Done, Canceled, Failed };
+std::string LanguageJobStatus();
+int LanguageJobPercent();
+bool LanguageJobCancelable();
+LanguageJobOutcome PollLanguageJob(std::string &error);
+void RequestLanguageJobCancel();
+void CancelLanguageJob();
+bool LanguagesChanged();
+
 ConfigLayout &GetLayout();
 
 } // namespace bd::engine

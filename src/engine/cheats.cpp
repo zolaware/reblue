@@ -5,6 +5,7 @@
 #include "engine/cheats.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <vector>
 #include <iterator>
 #include <string_view>
@@ -16,8 +17,12 @@
 #include "core/logging.h"
 #include "core/memory_helpers.h"
 #include "core/settings.h" // kCvarGroup, FormatCvar
+#include "engine/battle_task.h"
+#include "engine/chara.h"
 #include "engine/events.h"
+#include "engine/field_player_entity.h"
 #include "engine/game.h"
+#include "engine/item_save_data.h"
 #include "engine/achievements/achievements.h"
 #include "engine/game_tables.h"
 
@@ -176,12 +181,12 @@ REXCVAR_DEFINE_BOOL(bd_cheat_give_valuable, false, kCvarGroup,
 namespace bd::engine {
 namespace {
 
-// What Inventory::SetGold clamps to, so pinning here writes what the guest
+// What ItemSaveData::SetGold clamps to, so pinning here writes what the guest
 // would have stored rather than a value it has to correct.
 constexpr u32 kGoldMax = 99999999u;
 
-// What Inventory::SetAt clamps a stack to, so pinning here writes a count the
-// guest would have stored itself.
+// What ItemSaveData::SetAt clamps a stack to, so pinning here writes a count
+// the guest would have stored itself.
 constexpr u32 kItemStackMax = 99u;
 
 // Ceiling on the id sweep for "give all". Well past the ids the shipped item
@@ -230,6 +235,26 @@ constexpr u32 kSettleSteps = 60;
 constexpr i32 kMultMin = 1;
 constexpr i32 kMultMax = 99;
 constexpr i32 kStatBonusMax = 99999;
+
+// The five derived stats of the battle-params block this file scales, at the
+// offsets Player_CalcBattleParams writes them into it. chara.cpp carries the
+// full layout; only these fields are named here so offsetof stays honest
+// without a second copy of it.
+struct ScaledStats_t {
+  /* 0x00 */ u8 _pad00[0x38];
+  /* 0x38 */ be_u32 attack;
+  /* 0x3C */ be_u32 defense;
+  /* 0x40 */ u8 _pad40[0x08];
+  /* 0x48 */ be_u32 magicAttack;
+  /* 0x4C */ be_u32 magicDefense;
+  /* 0x50 */ u8 _pad50[0x04];
+  /* 0x54 */ be_u32 agility;
+};
+static_assert(offsetof(ScaledStats_t, attack) == 0x38);
+static_assert(offsetof(ScaledStats_t, defense) == 0x3C);
+static_assert(offsetof(ScaledStats_t, magicAttack) == 0x48);
+static_assert(offsetof(ScaledStats_t, magicDefense) == 0x4C);
+static_assert(offsetof(ScaledStats_t, agility) == 0x54);
 
 // A derived stat, at its offset inside the params block the guest just wrote.
 // Reads back what it computed and stores the product.
@@ -517,7 +542,8 @@ void Cheats::Init() {
   reg("bd_cheat_give_valuable", &Cheats::AdoptGrants);
 
   // Subscriptions are permanent and callback-scoped, so the handles the bus
-  // hands over are not kept: the snapshot holds scalars and node addresses.
+  // hands over are not kept: the snapshot holds scalars and character
+  // addresses.
   Events::Subscribe<BattleStarted>(
       [](const BattleStarted &) { Cheats::Get().OnBattleStarted(); });
   Events::Subscribe<BattleEnded>(
@@ -605,11 +631,11 @@ void Cheats::Apply() {
     return;
 
   if (invincible_ || infiniteMP_ || statusImmune_) {
-    auto party = g.Party();
+    const auto party = g.FieldPlayerEntity().Party();
     if (party) {
       const size_t n = party.Size();
       for (size_t i = 0; i < n; ++i) {
-        auto c = party.At(i);
+        Player c = party.At(i).Chara();
         // Reviving is the game's own flow. Topping a knocked-out member's HP
         // up from here leaves the KO status bit set behind it, and the two
         // disagreeing is worse than the member staying down.
@@ -656,12 +682,12 @@ void Cheats::Apply() {
   }
 
   if (unlockClasses_ || statBonus_ > 0) {
-    auto roster = g.Roster();
+    const auto roster = g.FieldPlayerEntity().Roster();
     if (roster) {
       const size_t n = roster.Size();
       const u32 bonus = static_cast<u32>(statBonus_);
       for (size_t i = 0; i < n; ++i) {
-        auto c = roster.At(i);
+        Player c = roster.At(i).Chara();
         if (!c)
           continue;
         if (unlockClasses_ && c.UnlockedClasses() != kAllClasses) {
@@ -675,9 +701,9 @@ void Cheats::Apply() {
         if (statBonus_ > 0) {
           for (u32 b = 0; b < kPermanentBonusCount; ++b) {
             const auto which = static_cast<PermanentBonus>(b);
-            if (c.StatBonus(which) < bonus) {
-              const u32 had = c.StatBonus(which);
-              if (c.SetStatBonus(which, bonus) && !toldStatBonus_) {
+            if (c.PermanentBonus(which) < bonus) {
+              const u32 had = c.PermanentBonus(which);
+              if (c.SetPermanentBonus(which, bonus) && !toldStatBonus_) {
                 toldStatBonus_ = true;
                 BD_CHEAT_DIAG("[cheat-diag] stat_bonus: slot {} bonus[{}] {} -> {}",
                         c.SlotId(), b, had, bonus);
@@ -690,13 +716,13 @@ void Cheats::Apply() {
   }
 
   if (oneHitKill_) {
-    auto b = g.Battle();
-    // EnemyAt needs the manager root, which bdBattleSceneUpdate captures once
-    // per step and which is only trusted inside the step that produced it.
-    if (b.IsActive() && b.HasManager()) {
+    const auto b = g.BattleTask();
+    // The manager handle is captured by the battle scene update once per step
+    // and only trusted inside the step that produced it.
+    if (b) {
       const size_t n = b.EnemyCount();
       for (size_t i = 0; i < n; ++i) {
-        auto e = b.EnemyAt(i);
+        Enemy e = b.EnemyAt(i).Chara();
         // 1 rather than 0: the guest's own death path is what clears the
         // actor, awards the battle and ends the encounter, so the kill has to
         // come from a hit landing rather than from this write.
@@ -707,7 +733,7 @@ void Cheats::Apply() {
   }
 
   if (infiniteItems_) {
-    auto inv = g.Inventory();
+    auto inv = g.ItemSaveData();
     if (inv) {
       // Topped up every step rather than restored on use, so a stack never
       // reaches zero in the first place: the guest clears a slot's id the
@@ -729,19 +755,19 @@ void Cheats::Apply() {
   }
 
   if (infiniteMedals_) {
-    auto inv = g.Inventory();
-    if (inv && inv.Medals() < Inventory::kMedalsMax) {
+    auto inv = g.ItemSaveData();
+    if (inv && inv.Medals() < ItemSaveData::kMedalsMax) {
       const u32 from = inv.Medals();
-      if (inv.SetMedals(Inventory::kMedalsMax) && !toldInfiniteMedals_) {
+      if (inv.SetMedals(ItemSaveData::kMedalsMax) && !toldInfiniteMedals_) {
         toldInfiniteMedals_ = true;
         BD_CHEAT_DIAG("[cheat-diag] infinite_medals: {} -> {}", from,
-                Inventory::kMedalsMax);
+                ItemSaveData::kMedalsMax);
       }
     }
   }
 
   if (infiniteGold_) {
-    auto inv = g.Inventory();
+    auto inv = g.ItemSaveData();
     if (inv && inv.Gold() < kGoldMax) {
       const u32 from = inv.Gold();
       if (inv.SetGold(kGoldMax) && !toldInfiniteGold_) {
@@ -758,7 +784,7 @@ void Cheats::Apply() {
 // of which ids exist, and ItemRecord answers zero for the gaps. Stops at the
 // last slot, so a table larger than the inventory fills it and no more.
 void Cheats::FillInventory(ItemCategory only) {
-  auto inv = Game::Get().Inventory();
+  auto inv = Game::Get().ItemSaveData();
   if (!inv)
     return;
   const size_t slots = inv.SlotCount();
@@ -817,17 +843,17 @@ void Cheats::ScaleBattleParams(u32 paramsEA) {
   if (!paramsEA)
     return;
   if (attackMult_ > 1)
-    ScaleStat(paramsEA, offsetof(CharaBattleParams_t, attack), attackMult_);
+    ScaleStat(paramsEA, offsetof(ScaledStats_t, attack), attackMult_);
   if (magicAttackMult_ > 1)
-    ScaleStat(paramsEA, offsetof(CharaBattleParams_t, magicAttack),
+    ScaleStat(paramsEA, offsetof(ScaledStats_t, magicAttack),
               magicAttackMult_);
   if (defenceMult_ > 1)
-    ScaleStat(paramsEA, offsetof(CharaBattleParams_t, defense), defenceMult_);
+    ScaleStat(paramsEA, offsetof(ScaledStats_t, defense), defenceMult_);
   if (magicDefenceMult_ > 1)
-    ScaleStat(paramsEA, offsetof(CharaBattleParams_t, magicDefense),
+    ScaleStat(paramsEA, offsetof(ScaledStats_t, magicDefense),
               magicDefenceMult_);
   if (agilityMult_ > 1)
-    ScaleStat(paramsEA, offsetof(CharaBattleParams_t, agility), agilityMult_);
+    ScaleStat(paramsEA, offsetof(ScaledStats_t, agility), agilityMult_);
 }
 
 // ---- per-fight rewards ----
@@ -844,16 +870,16 @@ void Cheats::OnBattleStarted() {
   if (!g.IsReady())
     return;
 
-  auto roster = g.Roster();
+  const auto roster = g.FieldPlayerEntity().Roster();
   if (roster) {
     const size_t n = roster.Size();
     preBattle_.reserve(n);
     for (size_t i = 0; i < n; ++i) {
-      auto c = roster.At(i);
+      const Player c = roster.At(i).Chara();
       if (!c)
         continue;
       MemberSnapshot m;
-      m.nodeEA = c.Address();
+      m.charaEA = c.Address();
       m.exp = c.Exp();
       // Every class, not just the active one: accessories in this game can
       // spread SP across classes, and a per-class diff catches that for free.
@@ -862,8 +888,8 @@ void Cheats::OnBattleStarted() {
       preBattle_.push_back(m);
     }
   }
-  preGold_ = g.Inventory().Gold();
-  preMedals_ = g.Inventory().Medals();
+  preGold_ = g.ItemSaveData().Gold();
+  preMedals_ = g.ItemSaveData().Medals();
   armed_ = true;
 }
 
@@ -887,19 +913,19 @@ bool Cheats::AwardRewards() {
   bool paid = false;
 
   if (expMult_ > 1 || spMult_ > 1) {
-    auto roster = g.Roster();
+    const auto roster = g.FieldPlayerEntity().Roster();
     if (roster) {
       const size_t n = roster.Size();
       for (size_t i = 0; i < n; ++i) {
-        auto c = roster.At(i);
+        Player c = roster.At(i).Chara();
         if (!c)
           continue;
         const u32 ea = c.Address();
-        // Match on the node rather than the index: a battle can add a member,
-        // which would shift every position after it.
-        const auto it =
-            std::find_if(preBattle_.begin(), preBattle_.end(),
-                         [ea](const MemberSnapshot &m) { return m.nodeEA == ea; });
+        // Match on the character handle rather than the index: a battle can
+        // add a member, which would shift every position after it.
+        const auto it = std::find_if(
+            preBattle_.begin(), preBattle_.end(),
+            [ea](const MemberSnapshot &m) { return m.charaEA == ea; });
         if (it == preBattle_.end())
           continue;
 
@@ -913,8 +939,7 @@ bool Cheats::AwardRewards() {
           const u32 bonus =
               static_cast<u32>(std::min<u64>(bonus64, u64(kProgressMax)));
           if (bonus > 0) {
-            // Handles are node-relative; the guest wants the chara itself.
-            const u32 chara = c.Address() + kNodeChara;
+            const u32 chara = c.Address();
             const u32 before = now;
             u32 ret = 0;
             {
@@ -950,11 +975,11 @@ bool Cheats::AwardRewards() {
   }
 
   if (medalsMult_ > 1) {
-    auto inv = g.Inventory();
+    auto inv = g.ItemSaveData();
     if (inv) {
       const u32 now = inv.Medals();
       const u32 want =
-          TopUp(preMedals_, now, medalsMult_, Inventory::kMedalsMax);
+          TopUp(preMedals_, now, medalsMult_, ItemSaveData::kMedalsMax);
       if (want != now && inv.SetMedals(want)) {
         BD_CHEAT_DIAG("[cheat-diag] medals snap={} now={} -> after={}", preMedals_,
                 now, want);
@@ -965,7 +990,7 @@ bool Cheats::AwardRewards() {
   }
 
   if (goldMult_ > 1) {
-    auto inv = g.Inventory();
+    auto inv = g.ItemSaveData();
     if (inv) {
       const u32 now = inv.Gold();
       const u32 want = TopUp(preGold_, now, goldMult_, kGoldMax);

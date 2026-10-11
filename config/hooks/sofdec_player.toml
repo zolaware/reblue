@@ -1,0 +1,14 @@
+# Movie playback tracking (bodies in src/engine/sofdec_player.cpp).
+
+[[midasm_hook]]
+address = 0x8212FB6C
+name = "bdMoviePlaybackHook"
+registers = ["r31"]
+after_instruction = false
+
+[[midasm_hook]]
+address = 0x8212EF20
+name = "bdMovieTaskDrawTickGateHook"
+registers = ["r31", "r11"]
+after_instruction = false
+jump_address_on_true = 0x8212EF68

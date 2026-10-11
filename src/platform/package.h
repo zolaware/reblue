@@ -26,9 +26,14 @@ public:
     kUnpackFailed,
   };
 
-  // Fetches 'url' into 'cache_zip', reusing a copy already there whose digest
-  // matches, then replaces 'dest' with its contents. 'dest' is left absent on
-  // any failure, so a partial unpack is never visible.
+  // Fetches 'url' into 'dest', reusing a copy already there whose digest
+  // matches. 'dest' is left absent on any failure.
+  static Result FetchVerified(const std::string &url, const std::string &sha256,
+                              const std::filesystem::path &dest,
+                              const DownloadProgress &progress);
+
+  // FetchVerified into 'cache_zip', then replaces 'dest' with its contents.
+  // 'dest' is left absent on any failure, so a partial unpack is never visible.
   static Result Fetch(const std::string &url, const std::string &sha256,
                       const std::filesystem::path &cache_zip,
                       const std::filesystem::path &dest,

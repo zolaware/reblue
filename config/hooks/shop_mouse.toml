@@ -1,0 +1,15 @@
+# Shop count arrows (bodies in src/engine/menus/shop_mouse.cpp).
+
+# The confirm test at the top of the list handlers, on the cmpwi that reads its
+# result. States 4 through 6 hold the task in r31, state 7 in r30.
+[[midasm_hook]]
+address = 0x821CA264
+name = "bdShopListConfirmHook"
+registers = ["r3", "r31"]
+after_instruction = false
+
+[[midasm_hook]]
+address = 0x821CA81C
+name = "bdShopListConfirmHook"
+registers = ["r3", "r30"]
+after_instruction = false

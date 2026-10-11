@@ -4,7 +4,6 @@
  */
 #include "gpu/settings.h"
 
-#include <algorithm>
 #include <charconv>
 #include <cmath>
 #include <numbers>
@@ -15,23 +14,25 @@
 
 #include "core/logging.h"
 #include "core/settings.h" // kCvarGroup
+#include "gpu/output.h"
+#include "gpu/pipeline/pso_predictor.h"
 
 REXCVAR_DECLARE(bool, bd_pso_precache);
 REXCVAR_DECLARE(bool, bd_geometry_gpu_upload);
 REXCVAR_DECLARE(bool, bd_dred);
+REXCVAR_DECLARE(bool, bd_scene_color_r11g11b10);
 REXCVAR_DECLARE(i32, bd_anisotropy);
 REXCVAR_DECLARE(i32, bd_supersampling);
 REXCVAR_DECLARE(i32, bd_msaa);
+REXCVAR_DECLARE(i32, bd_post_quality);
+REXCVAR_DECLARE(i32, bd_reflection_quality);
 REXCVAR_DECLARE(bool, bd_ntsc_filter);
 REXCVAR_DECLARE(double, bd_dof_strength);
-REXCVAR_DECLARE(double, bd_reflection_upscale);
 REXCVAR_DECLARE(i32, bd_shadow_dimension);
 REXCVAR_DECLARE(double, bd_shadow_distance);
 REXCVAR_DECLARE(i32, bd_aspect_ratio);
 REXCVAR_DECLARE(i32, bd_fov_offset);
 REXCVAR_DECLARE(bool, bd_vsync);
-REXCVAR_DECLARE(i32, bd_diag_verbosity);
-REXCVAR_DECLARE(i32, bd_surface_pool_budget_pct);
 
 REXCVAR_DEFINE_BOOL(bd_pso_precache, true, kCvarGroup,
                     "Precompile pipelines during loads instead of at first "
@@ -47,33 +48,54 @@ REXCVAR_DEFINE_BOOL(bd_dred, true, kCvarGroup,
                     "so a lost device names the op and resource it died on. "
                     "Costs a little GPU time per op. Requires restart.");
 
-REXCVAR_DEFINE_INT32(bd_anisotropy, 16, kCvarGroup,
+REXCVAR_DEFINE_BOOL(bd_scene_color_r11g11b10, false, kCvarGroup,
+                    "Store the HDR scene as R11G11B10_FLOAT instead of "
+                    "R16G16B16A16_FLOAT: half the VRAM per scene surface, "
+                    "no alpha channel, 6/6/5-bit mantissas. Requires "
+                    "restart.");
+
+REXCVAR_DEFINE_INT32(bd_anisotropy, bd::gpu::kDefaultSettings.anisotropy,
+                     kCvarGroup,
                      "Anisotropic texture filtering level.")
     .range(0, 16);
 
-REXCVAR_DEFINE_INT32(bd_supersampling, 1, kCvarGroup,
-                     "Scene supersampling (SSAA) factor. Only 1/2/4. Above 1 "
-                     "this takes the AA path and bd_msaa is ignored. Requires "
-                     "restart.")
-    .range(1, 4)
+REXCVAR_DEFINE_INT32(bd_supersampling, bd::gpu::kDefaultSettings.superSampling,
+                     kCvarGroup,
+                     "Render the scene at 2x the output resolution and "
+                     "downsample. 1 = off, 2 = on.")
+    .range(1, 2)
     .validator([](std::string_view v) {
       int n = 0;
       auto r = std::from_chars(v.data(), v.data() + v.size(), n);
-      return r.ec == std::errc() && (n == 1 || n == 2 || n == 4);
-    })
-    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+      return r.ec == std::errc() && (n == 1 || n == 2);
+    });
 
-REXCVAR_DEFINE_INT32(bd_msaa, 4, kCvarGroup,
+REXCVAR_DEFINE_INT32(bd_msaa, bd::gpu::kDefaultSettings.msaa, kCvarGroup,
                      "MSAA sample count for the 3D scene: 0 = off, 2, 4, 8. "
-                     "Clamped to device support, ignored while "
-                     "bd_supersampling > 1. Requires restart.")
+                     "Clamped to device support.")
     .range(0, 8)
     .validator([](std::string_view v) {
       int n = 0;
       auto r = std::from_chars(v.data(), v.data() + v.size(), n);
       return r.ec == std::errc() && (n == 0 || n == 2 || n == 4 || n == 8);
-    })
-    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+    });
+
+REXCVAR_DEFINE_INT32(bd_post_quality,
+                     static_cast<i32>(bd::gpu::kDefaultSettings.postQuality),
+                     kCvarGroup,
+                     "Resolution the bloom and depth-of-field chain runs at: "
+                     "0 = half the scene, 1 = the scene, 2 = the widened "
+                     "bloom target the native renderer builds.")
+    .range(static_cast<i32>(bd::gpu::PostQuality::Low),
+           static_cast<i32>(bd::gpu::PostQuality::High));
+
+REXCVAR_DEFINE_INT32(
+    bd_reflection_quality,
+    static_cast<i32>(bd::gpu::kDefaultSettings.reflectionQuality), kCvarGroup,
+    "How far a planar reflection grows past the size BD authored: 0 = not at "
+    "all, 1 = with the render resolution, 2 = with supersampling too.")
+    .range(static_cast<i32>(bd::gpu::ReflectionQuality::Low),
+           static_cast<i32>(bd::gpu::ReflectionQuality::High));
 
 REXCVAR_DEFINE_BOOL(bd_ntsc_filter, false, kCvarGroup,
                     "Restore BD's analog-TV scanline filter. Every shipped "
@@ -91,36 +113,23 @@ REXCVAR_DEFINE_DOUBLE(bd_dof_strength, 1.0, kCvarGroup,
       return rex::cvar::ParseDouble(v, d) && std::isfinite(d);
     });
 
-// A ceiling rather than a factor, so the size the game asks for still carries.
-// Water sits in a fraction of the frame and its reflection re-renders the
-// scene, so the fill this buys back is worth more than the sharpness it costs.
-REXCVAR_DEFINE_DOUBLE(bd_reflection_upscale, 2.0, kCvarGroup,
-                      "Ceiling on how far the planar water reflection is "
-                      "scaled above BD's own 320-wide base. 1.0 = the size "
-                      "the game asks for, higher trades fill rate for a "
-                      "sharper reflection.")
-    .range(1.0, 8.0)
-    .validator([](std::string_view v) {
-      f64 d = 0;
-      return rex::cvar::ParseDouble(v, d) && std::isfinite(d);
-    });
-
-REXCVAR_DEFINE_INT32(bd_shadow_dimension, 4096, kCvarGroup,
+REXCVAR_DEFINE_INT32(bd_shadow_dimension,
+                     bd::gpu::kDefaultSettings.shadowDimension, kCvarGroup,
                      "Sun shadow-map resolution in pixels. Only "
-                     "512/1024/2048/4096/8192, requires restart.")
+                     "512/1024/2048/4096/8192.")
     .range(512, 8192)
     .validator([](std::string_view v) {
       int n = 0;
       auto r = std::from_chars(v.data(), v.data() + v.size(), n);
       return r.ec == std::errc() &&
              (n == 512 || n == 1024 || n == 2048 || n == 4096 || n == 8192);
-    })
-    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+    });
 
 // A range alone does not reject NaN: neither NaN < min nor NaN > max is ever
 // true, so it passes validation and reaches shadowPcfScale, where clamp and
 // max propagate it into the uploaded constant.
-REXCVAR_DEFINE_DOUBLE(bd_shadow_distance, 2.0, kCvarGroup,
+REXCVAR_DEFINE_DOUBLE(bd_shadow_distance,
+                      bd::gpu::kDefaultSettings.shadowDistance, kCvarGroup,
                       "Sun shadow draw-distance multiplier (1.0 = X360 "
                       "native).")
     .range(1.0, 4.0)
@@ -146,17 +155,6 @@ REXCVAR_DEFINE_INT32(bd_fov_offset, 0, kCvarGroup,
 
 REXCVAR_DEFINE_BOOL(bd_vsync, true, kCvarGroup, "Vertical sync.");
 
-REXCVAR_DEFINE_INT32(bd_diag_verbosity, 0, kCvarGroup,
-                     "Render diagnostic log verbosity: 0 silent, 1 fallback "
-                     "diagnostics, 2 per-frame telemetry.")
-    .range(0, 2);
-
-REXCVAR_DEFINE_INT32(bd_surface_pool_budget_pct, 0, kCvarGroup,
-                     "Percent of adapter VRAM the render-target pool may hold "
-                     "parked. 0 = auto (three eighths of it). Lower trades "
-                     "allocation hitches for VRAM headroom.")
-    .range(0, bd::gpu::kSurfacePoolBudgetCapPercent);
-
 namespace bd::gpu {
 namespace {
 
@@ -169,47 +167,7 @@ std::string FormatCvar(f64 v) {
 std::string FormatCvar(i32 v) { return std::to_string(v); }
 std::string FormatCvar(bool v) { return v ? "true" : "false"; }
 
-constexpr i32 kAALevelOff = 1;
-constexpr i32 kSuperSampleMaxLevel = 4;
-constexpr i32 kMultiSampleMaxLevel = 8;
-constexpr i32 kAAPowerOfTwoStep = 2;
 constexpr f64 kShadowDistanceEpsilon = 0.01;
-
-// bd_supersampling's validator accepts only 1/2/4 and bd_msaa's only
-// 0/2/4/8, so a level between two legal values must round down to one
-// instead of picking a number the validator rejects outright, which
-// would leave the write a silent no-op and the pair disagreeing. Every
-// legal non-off value on both cvars is a power of two, so the nearest one
-// at or below the level (and at or below the path's cap) is always legal.
-// Callers always pass level > kAALevelOff.
-constexpr i32 SnapAALevel(i32 level, i32 cap) {
-  i32 snapped = kAALevelOff;
-  for (i32 v = kAAPowerOfTwoStep; v <= cap; v *= kAAPowerOfTwoStep) {
-    if (level >= v)
-      snapped = v;
-  }
-  return snapped;
-}
-
-struct PresetBundle {
-  i32 superSampling;
-  i32 msaa;
-  i32 anisotropy;
-  f64 shadowDistance;
-  i32 shadowDimension;
-};
-
-// Cost-ranked: the AA path is the expensive setting, so Low and Medium stay on
-// multisampling and High and Ultra step onto supersampling. The 8192 shadow
-// map costs real VRAM and fill, so it is Ultra only. Anisotropic filtering is
-// near-free on modern GPUs and the menus offer it as a plain on/off, so every
-// preset takes the full level.
-constexpr PresetBundle kPresets[kQualityPresetCount] = {
-    /* Low    */ {1, 0, 16, 1.0, 2048},
-    /* Medium */ {1, 4, 16, 2.0, 4096},
-    /* High   */ {2, 0, 16, 2.0, 4096},
-    /* Ultra  */ {4, 0, 16, 4.0, 8192},
-};
 
 } // namespace
 
@@ -226,15 +184,10 @@ void Settings::AdoptDOFStrength() {
 void Settings::AdoptShadowDistance() {
   shadowDistance_ = REXCVAR_GET(bd_shadow_distance);
 }
-void Settings::AdoptReflectionUpscale() {
-  reflectionUpscale_ = REXCVAR_GET(bd_reflection_upscale);
-}
 void Settings::AdoptVsync() { vsync_ = REXCVAR_GET(bd_vsync); }
-void Settings::AdoptDiagVerbosity() {
-  diagVerbosity_ = REXCVAR_GET(bd_diag_verbosity);
-}
 void Settings::AdoptAspectRatio() {
   aspectRatio_ = REXCVAR_GET(bd_aspect_ratio);
+  Output::Recompute();
 }
 void Settings::AdoptFOVOffset() { fovOffset_ = REXCVAR_GET(bd_fov_offset); }
 void Settings::AdoptShadowDimension() {
@@ -247,13 +200,24 @@ void Settings::AdoptGeometryGPUUpload() {
   geometryGPUUpload_ = REXCVAR_GET(bd_geometry_gpu_upload);
 }
 void Settings::AdoptDRED() { dred_ = REXCVAR_GET(bd_dred); }
-void Settings::AdoptSurfacePoolBudgetPercent() {
-  surfacePoolBudgetPercent_ = REXCVAR_GET(bd_surface_pool_budget_pct);
+void Settings::AdoptSceneColorR11G11B10() {
+  sceneColorR11G11B10_ = REXCVAR_GET(bd_scene_color_r11g11b10);
 }
 void Settings::AdoptSuperSampling() {
   superSampling_ = REXCVAR_GET(bd_supersampling);
 }
-void Settings::AdoptMSAA() { msaa_ = REXCVAR_GET(bd_msaa); }
+void Settings::AdoptMSAA() {
+  const i32 was = msaa_;
+  msaa_ = REXCVAR_GET(bd_msaa);
+  if (msaa_ != was && msaa_ != 0)
+    ReemitPredictions();
+}
+void Settings::AdoptPostQuality() {
+  postQuality_ = REXCVAR_GET(bd_post_quality);
+}
+void Settings::AdoptReflectionQuality() {
+  reflectionQuality_ = REXCVAR_GET(bd_reflection_quality);
+}
 
 bool Settings::SetAnisotropy(i32 v) {
   return rex::cvar::SetFlagByName("bd_anisotropy", FormatCvar(v));
@@ -271,7 +235,6 @@ bool Settings::SetShadowDistance(f64 v) {
   return rex::cvar::SetFlagByName("bd_shadow_distance", FormatCvar(v));
 }
 
-// Both writes attempted, for the same reason SetAAPair attempts both.
 bool Settings::SetShadowQuality(f64 distance, i32 dimension) {
   const bool dist = SetShadowDistance(distance);
   const bool dim =
@@ -279,16 +242,8 @@ bool Settings::SetShadowQuality(f64 distance, i32 dimension) {
   return dist && dim;
 }
 
-bool Settings::SetSurfacePoolBudgetPercent(i32 v) {
-  return rex::cvar::SetFlagByName("bd_surface_pool_budget_pct", FormatCvar(v));
-}
-
 bool Settings::SetVsync(bool v) {
   return rex::cvar::SetFlagByName("bd_vsync", FormatCvar(v));
-}
-
-bool Settings::SetDiagVerbosity(i32 v) {
-  return rex::cvar::SetFlagByName("bd_diag_verbosity", FormatCvar(v));
 }
 
 bool Settings::SetAspectRatio(i32 v) {
@@ -310,65 +265,31 @@ f64 Settings::FOVTanScale() const {
          std::tan(kAuthoredFOVDegrees * kHalfDegreesToRadians);
 }
 
-gpu::AAMode Settings::AAMode() const {
-  return superSampling_ > kAALevelOff ? gpu::AAMode::SuperSample
-                                      : gpu::AAMode::MultiSample;
+bool Settings::SetSuperSampling(i32 v) {
+  return rex::cvar::SetFlagByName("bd_supersampling", FormatCvar(v));
 }
 
-i32 Settings::AALevel() const {
-  if (AAMode() == gpu::AAMode::SuperSample)
-    return superSampling_;
-  return msaa_ > kAALevelOff ? msaa_ : kAALevelOff;
+bool Settings::SetMSAA(i32 v) {
+  return rex::cvar::SetFlagByName("bd_msaa", FormatCvar(v));
 }
 
-// Both writes are attempted even if the first is rejected, so a partial
-// failure shows up in the return instead of being hidden by a short-circuit
-// that would leave the path and its multiplier disagreeing.
-bool Settings::SetAAPair(i32 superSampling, i32 msaa) {
-  const bool ss =
-      rex::cvar::SetFlagByName("bd_supersampling", FormatCvar(superSampling));
-  const bool ms = rex::cvar::SetFlagByName("bd_msaa", FormatCvar(msaa));
-  BD_DEBUG("[config] AA: supersampling={} msaa={}", superSampling, msaa);
-  return ss && ms;
+bool Settings::SetPostQuality(i32 v) {
+  return rex::cvar::SetFlagByName("bd_post_quality", FormatCvar(v));
 }
 
-// Switching path carries the current multiplier across. Enabling supersampling
-// bumps an Off level to 2x, since a no-op enable reads as broken, and caps at
-// the supersampling ceiling.
-bool Settings::SetAAMode(gpu::AAMode mode) {
-  i32 level = AALevel();
-  if (mode == gpu::AAMode::SuperSample) {
-    level = std::clamp(level, 2, MaxAALevel(gpu::AAMode::SuperSample));
-    return SetAAPair(level, 0);
-  }
-  return SetAAPair(kAALevelOff, level > kAALevelOff ? level : 0);
-}
-
-i32 Settings::MaxAALevel(gpu::AAMode mode) {
-  return mode == gpu::AAMode::SuperSample ? kSuperSampleMaxLevel
-                                          : kMultiSampleMaxLevel;
-}
-
-bool Settings::SetAALevel(i32 level) {
-  if (level <= kAALevelOff)
-    return SetAAPair(kAALevelOff, 0);
-  const i32 snapped = SnapAALevel(level, MaxAALevel(AAMode()));
-  if (AAMode() == gpu::AAMode::SuperSample)
-    return SetAAPair(snapped, 0);
-  return SetAAPair(kAALevelOff, snapped);
+bool Settings::SetReflectionQuality(i32 v) {
+  return rex::cvar::SetFlagByName("bd_reflection_quality", FormatCvar(v));
 }
 
 gpu::QualityPreset Settings::QualityPreset() const {
   for (u32 i = 0; i < kQualityPresetCount; ++i) {
     const PresetBundle &p = kPresets[i];
-    const i32 ss = superSampling_ > kAALevelOff ? superSampling_ : kAALevelOff;
-    // SetAAPair always writes msaa 0 alongside superSampling > 1, so both
-    // settings exact-match rather than msaa being ignored on the supersampling
-    // bundles.
-    if (ss == p.superSampling && msaa_ == p.msaa &&
+    if (superSampling_ == p.superSampling && msaa_ == p.msaa &&
         anisotropy_ == p.anisotropy &&
         std::abs(shadowDistance_ - p.shadowDistance) < kShadowDistanceEpsilon &&
-        shadowDimension_ == p.shadowDimension) {
+        shadowDimension_ == p.shadowDimension &&
+        postQuality_ == static_cast<i32>(p.postQuality) &&
+        reflectionQuality_ == static_cast<i32>(p.reflectionQuality)) {
       return static_cast<gpu::QualityPreset>(i);
     }
   }
@@ -380,12 +301,15 @@ bool Settings::SetQualityPreset(gpu::QualityPreset preset) {
   if (i >= kQualityPresetCount)
     return false; // Custom is a state, not a target
   const PresetBundle &p = kPresets[i];
-  bool ok = SetAAPair(p.superSampling, p.msaa);
+  bool ok = SetSuperSampling(p.superSampling);
+  ok = SetMSAA(p.msaa) && ok;
   ok = SetAnisotropy(p.anisotropy) && ok;
   ok = SetShadowDistance(p.shadowDistance) && ok;
   ok = rex::cvar::SetFlagByName("bd_shadow_dimension",
                                 FormatCvar(p.shadowDimension)) &&
        ok;
+  ok = SetPostQuality(static_cast<i32>(p.postQuality)) && ok;
+  ok = SetReflectionQuality(static_cast<i32>(p.reflectionQuality)) && ok;
   BD_DEBUG("[config] quality preset = {}", ToString(preset));
   return ok;
 }
@@ -395,18 +319,18 @@ void Settings::AdoptCvars() {
   AdoptNTSCFilter();
   AdoptDOFStrength();
   AdoptShadowDistance();
-  AdoptReflectionUpscale();
   AdoptVsync();
-  AdoptDiagVerbosity();
   AdoptAspectRatio();
   AdoptFOVOffset();
   AdoptShadowDimension();
   AdoptPSOPrecache();
   AdoptGeometryGPUUpload();
   AdoptDRED();
-  AdoptSurfacePoolBudgetPercent();
+  AdoptSceneColorR11G11B10();
   AdoptSuperSampling();
   AdoptMSAA();
+  AdoptPostQuality();
+  AdoptReflectionQuality();
 }
 
 void Settings::Init() {
@@ -422,18 +346,23 @@ void Settings::Init() {
   reg("bd_ntsc_filter", &Settings::AdoptNTSCFilter);
   reg("bd_dof_strength", &Settings::AdoptDOFStrength);
   reg("bd_shadow_distance", &Settings::AdoptShadowDistance);
-  reg("bd_reflection_upscale", &Settings::AdoptReflectionUpscale);
   reg("bd_vsync", &Settings::AdoptVsync);
-  reg("bd_diag_verbosity", &Settings::AdoptDiagVerbosity);
   reg("bd_aspect_ratio", &Settings::AdoptAspectRatio);
   reg("bd_fov_offset", &Settings::AdoptFOVOffset);
   reg("bd_shadow_dimension", &Settings::AdoptShadowDimension);
   reg("bd_pso_precache", &Settings::AdoptPSOPrecache);
   reg("bd_geometry_gpu_upload", &Settings::AdoptGeometryGPUUpload);
   reg("bd_dred", &Settings::AdoptDRED);
-  reg("bd_surface_pool_budget_pct", &Settings::AdoptSurfacePoolBudgetPercent);
+  reg("bd_scene_color_r11g11b10", &Settings::AdoptSceneColorR11G11B10);
   reg("bd_supersampling", &Settings::AdoptSuperSampling);
   reg("bd_msaa", &Settings::AdoptMSAA);
+  reg("bd_post_quality", &Settings::AdoptPostQuality);
+  reg("bd_reflection_quality", &Settings::AdoptReflectionQuality);
+
+  rex::cvar::RegisterChangeCallback(
+      "resolution", [](std::string_view, std::string_view) {
+        Output::Recompute();
+      });
 }
 
 } // namespace bd::gpu

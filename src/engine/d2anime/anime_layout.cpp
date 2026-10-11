@@ -5,8 +5,7 @@
  * @license     BSD 3-Clause - see LICENSE
  */
 #include "engine/d2anime/anime_layout.h"
-#include "engine/d2anime/anime_vars.h"
-#include "engine/d2anime/d2anime_task.h"
+#include "engine/d2anime/anime_data.h"
 
 #include <format>
 #include <string>
@@ -301,18 +300,17 @@ std::string AnimeLayout::ToCSV() {
   return b.build();
 }
 
-void AnimeLayout::SyncVars(u32 taskAddr) {
-  u32 varBag = D2AnimeTask(taskAddr).VarBag();
+void AnimeLayout::SyncVars(AnimeData varBag) {
   for (auto &ref : vars_) {
     std::visit(
         [&](auto *var) {
           using T = std::remove_pointer_t<decltype(var)>;
           if constexpr (std::is_same_v<T, FloatV>) {
-            VarBagSetFloat(varBag, var->name(), var->value());
+            varBag.SetFloat(var->name(), var->value());
           } else if constexpr (std::is_same_v<T, StringV>) {
-            VarBagSetText(varBag, var->name(), var->value());
+            varBag.SetText(var->name(), var->value());
           } else if constexpr (std::is_same_v<T, ColorV>) {
-            VarBagSetColor(varBag, var->name(), var->argb());
+            varBag.SetColor(var->name(), var->argb());
           }
         },
         ref);

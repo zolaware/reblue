@@ -10,7 +10,6 @@
  */
 #pragma once
 
-#include <filesystem>
 #include <string>
 
 #include <rex/types.h>
@@ -28,7 +27,6 @@ class ImGuiDrawer;
 namespace bd::ui {
 
 struct UpdatePromptContext {
-  std::filesystem::path install_root;
   std::string version;
   u64 size = 0; // artifact size in bytes, for the offer text
 };

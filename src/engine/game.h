@@ -9,12 +9,18 @@
  */
 #pragma once
 
-#include "engine/battle.h"
-#include "engine/cutscene.h"
-#include "engine/field.h"
-#include "engine/inventory.h"
+#include "engine/battle_camera_task.h"
+#include "engine/battle_task.h"
+#include "engine/field_player_entity.h"
+#include "engine/game_task.h"
+#include "engine/iss_event.h"
+#include "engine/item_save_data.h"
 #include "engine/language.h"
-#include "engine/party.h"
+#include "engine/loader.h"
+#include "engine/play_record.h"
+#include "engine/script_man_task.h"
+#include "engine/sequence_control.h"
+#include "engine/sofdec_player.h"
 
 namespace bd::engine {
 
@@ -35,29 +41,38 @@ class Game {
 public:
   static Game &Get();
 
-  // Guest memory is mapped. Every accessor below returns defaults until it is.
+  // Engine memory is mapped. Every accessor below returns defaults until it is.
   bool IsReady() const;
 
   EngineMode Mode() const;
 
-  // Field predicates that no single object owns.
-  bool FieldSessionLive() const;    // GameTask != 0
-  bool FieldControllerLive() const; // FieldSceneController != 0
+  // Predicates that read more than one root.
   bool FieldGameplayActive() const; // GameTask && !shutdownFlag
-  u32 FieldState() const;           // FSC+0x6A0, 4 interactive / 5 transition
-  bool IsLoading() const;           // any loader slot state in {1,2,3}
-  bool LoadingScreenUp() const;     // loader+0x88 handle present
+  bool IsLoading() const;           // any Loader slot mid-load
+  bool LoadingScreenUp() const;     // the now-loading wheel is up
   bool MindowsPanelActive() const;  // Mindows panel focused, NOT the camp menu
-  u32 CurrentModuleAddress() const; // SequenceControl+0x70, identity unresolved
 
-  engine::Stage Stage() const; // forwards to Field().Stage()
-  engine::Field Field() const { return {}; }
-  engine::Party Party() const { return {}; }
-  engine::Roster Roster() const { return {}; }
-  engine::Inventory Inventory() const { return {}; }
-  engine::Battle Battle() const { return {}; }
-  engine::Cutscene Cutscene() const { return {}; }
-  engine::Movie Movie() const { return {}; }
+  // The overlay is up but suppressed, so nothing of it is drawn and the
+  // keyboard belongs to the game again.
+  bool MindowsHidden() const;
+  void SetMindowsHidden(bool hidden);
+  void ToggleMindows();
+
+  engine::ScriptManTask ScriptManTask() const;
+  engine::FieldPlayerEntity FieldPlayerEntity() const;
+  engine::GameTask GameTask() const;
+  engine::Loader Loader() const;
+  engine::SequenceControl SequenceControl() const;
+  engine::ItemSaveData ItemSaveData() const;
+  engine::BattleCameraTask BattleCameraTask() const;
+  engine::PlayRecord PlayRecord() const;
+
+  // Empty until bdBattleSceneUpdate has run this step: the manager has no root
+  // global and is only ever passed as 'this'.
+  engine::BattleTask BattleTask() const;
+
+  engine::IssEvent IssEvent() const;
+  engine::SofdecPlayer SofdecPlayer() const;
   engine::Language Language() const { return {}; }
 
 private:

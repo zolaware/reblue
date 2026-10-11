@@ -1,0 +1,22 @@
+# Script prompts (bodies in src/engine/script_man_task.cpp).
+
+# Every confirm test a script prompt makes, on the cmpwi that reads its result:
+# ScriptWindow's close and its text skip, and ScriptMan's confirm-or-cancel
+# wait ahead of a screen fade.
+[[midasm_hook]]
+address = 0x821A6374
+name = "bdScriptConfirmHook"
+registers = ["r3"]
+after_instruction = false
+
+[[midasm_hook]]
+address = 0x821A63EC
+name = "bdScriptConfirmHook"
+registers = ["r3"]
+after_instruction = false
+
+[[midasm_hook]]
+address = 0x821A0398
+name = "bdScriptConfirmHook"
+registers = ["r3"]
+after_instruction = false

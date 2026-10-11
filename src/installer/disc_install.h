@@ -1,6 +1,6 @@
 /**
  * @file    installer/disc_install.h
- * @brief   GDFX disc image extraction into the local game data directory.
+ * @brief   Disc image and Games on Demand extraction into the game data dir.
  *
  * @copyright Copyright (c) 2026 Tom Clay <tomc@tctechstuff.com>
  *            All rights reserved.
@@ -20,12 +20,17 @@
 #include <set>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace rex::filesystem {
-class DiscImageDevice;
-}
+class Device;
+class Entry;
+} // namespace rex::filesystem
 
 namespace bd::installer {
+
+inline constexpr const char *kDiscLabels[kDiscCount] = {"DVD 1", "DVD 2",
+                                                        "DVD 3"};
 
 struct InstallProgress {
   std::atomic<size_t> files_done{0};
@@ -63,37 +68,56 @@ struct InstallProgress {
   }
 };
 
-std::unique_ptr<rex::filesystem::DiscImageDevice>
-OpenDiscImage(const std::filesystem::path &iso_path);
+bool ValidateDisc(rex::filesystem::Entry &root, int disc_number);
 
-// Confirms the disc in a 3-disc set via 'bd_disc_<N>.xml' at the disc root.
-bool ValidateDisc(rex::filesystem::DiscImageDevice &disc, int disc_number);
-
-// Cheap identity (no full hash): file size + bd_disc_N marker size.
-std::string DiscFingerprint(const std::filesystem::path &iso_path,
-                            rex::filesystem::DiscImageDevice &disc,
+std::string DiscFingerprint(size_t content_size, rex::filesystem::Entry &root,
                             int disc_number);
 
-struct DiscLanguages {
-  std::set<std::string> ui; // [Language] codes, drives the wizard "lights"
-  std::set<std::string>
-      all; // union of [Language]+[Voice]+[BGM], always has "us"
+class DiscImage {
+public:
+  static std::unique_ptr<DiscImage> Open(const std::filesystem::path &file);
+
+  DiscImage(std::unique_ptr<rex::filesystem::Device> device,
+            size_t content_size);
+  ~DiscImage();
+
+  rex::filesystem::Entry *Root(int disc_number) const {
+    return roots_[disc_number - 1];
+  }
+  size_t ContentSize() const { return content_size_; }
+
+private:
+  std::unique_ptr<rex::filesystem::Device> device_;
+  std::array<rex::filesystem::Entry *, kDiscCount> roots_{};
+  size_t content_size_ = 0;
 };
 
-// Reads bd_boot.ini from a disc and returns its declared language codes,
-// lowercased. Absent/empty bd_boot.ini yields ui={}, all={"us"}.
-DiscLanguages ParseDiscLanguages(rex::filesystem::DiscImageDevice &disc);
+struct LanguageChoice {
+  std::string code;
+  bool text = false;
+  bool voice = false;
+};
+
+struct InstallSelection {
+  std::vector<LanguageChoice> languages;
+  bool movies = true;
+};
 
 class Installer {
 public:
-  // Extracts into game_data_dest (no subdir) and writes reblue_install.marker
-  // on success. repair=true verifies files already on disk (size match) and
-  // copies only the missing ones, preserving an existing install. false does a
-  // full extract.
   static std::thread
-  RunAsync(const std::array<std::filesystem::path, kDiscCount> &iso_paths,
+  RunAsync(const std::array<std::filesystem::path, kDiscCount> &sources,
            const std::filesystem::path &game_data_dest, bool repair,
-           InstallProgress &progress);
+           const InstallSelection &selection, InstallProgress &progress);
+
+  static std::thread AddLanguagesAsync(
+      const std::array<std::filesystem::path, kDiscCount> &sources,
+      const std::filesystem::path &game_data_dest,
+      const InstallSelection &selection, InstallProgress &progress);
+
+  static std::thread
+  RemoveLanguageAsync(const std::filesystem::path &game_data_dest,
+                      const std::string &lang, InstallProgress &progress);
 };
 
 } // namespace bd::installer

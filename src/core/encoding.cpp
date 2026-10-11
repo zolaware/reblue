@@ -34,6 +34,19 @@ std::string SjisToUtf8(std::string_view s) {
   MultiByteToWideChar(932, 0, s.data(), (int)s.size(), w.data(), n);
   return WideToUtf8(w);
 }
+std::string Utf8ToSjis(std::string_view s) {
+  if (s.empty())
+    return {};
+  std::wstring w = Utf8ToWide(s);
+  int n = WideCharToMultiByte(932, 0, w.data(), (int)w.size(), nullptr, 0,
+                              nullptr, nullptr);
+  if (n <= 0)
+    return std::string(s);
+  std::string o((size_t)n, '\0');
+  WideCharToMultiByte(932, 0, w.data(), (int)w.size(), o.data(), n, nullptr,
+                      nullptr);
+  return o;
+}
 std::string U16ToUtf8(std::u16string_view s) {
   if (s.empty())
     return {};
@@ -86,29 +99,10 @@ u32 NextUtf8(std::string_view s, size_t &i) {
   return cp;
 }
 
-} // namespace
-
-// wchar_t is 32-bit on Linux, so wide strings hold raw code points.
-std::wstring Utf8ToWide(std::string_view s) {
-  std::wstring o;
-  o.reserve(s.size());
-  for (size_t i = 0; i < s.size();)
-    o.push_back(static_cast<wchar_t>(NextUtf8(s, i)));
-  return o;
-}
-
-std::string WideToUtf8(std::wstring_view s) {
-  std::string o;
-  o.reserve(s.size());
-  for (wchar_t c : s)
-    AppendUtf8(o, static_cast<u32>(c));
-  return o;
-}
-
-std::string SjisToUtf8(std::string_view s) {
+std::string Convert(std::string_view s, const char *to, const char *from) {
   if (s.empty())
     return {};
-  iconv_t cd = iconv_open("UTF-8", "CP932");
+  iconv_t cd = iconv_open(to, from);
   if (cd == reinterpret_cast<iconv_t>(-1))
     return std::string(s);
   std::string in(s);
@@ -129,6 +123,33 @@ std::string SjisToUtf8(std::string_view s) {
   }
   iconv_close(cd);
   return std::string(out.data(), static_cast<size_t>(outbuf - out.data()));
+}
+
+} // namespace
+
+// wchar_t is 32-bit on Linux, so wide strings hold raw code points.
+std::wstring Utf8ToWide(std::string_view s) {
+  std::wstring o;
+  o.reserve(s.size());
+  for (size_t i = 0; i < s.size();)
+    o.push_back(static_cast<wchar_t>(NextUtf8(s, i)));
+  return o;
+}
+
+std::string WideToUtf8(std::wstring_view s) {
+  std::string o;
+  o.reserve(s.size());
+  for (wchar_t c : s)
+    AppendUtf8(o, static_cast<u32>(c));
+  return o;
+}
+
+std::string SjisToUtf8(std::string_view s) {
+  return Convert(s, "UTF-8", "CP932");
+}
+
+std::string Utf8ToSjis(std::string_view s) {
+  return Convert(s, "CP932", "UTF-8");
 }
 
 std::u16string Utf8ToU16(std::string_view s) {

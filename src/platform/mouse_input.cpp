@@ -4,8 +4,12 @@
  */
 #include "platform/mouse_input.h"
 
-#include <rex/ui/window.h>
+#include <cstdlib>
 
+#include <rex/ui/window.h>
+#include <rex/ui/windowed_app_context.h>
+
+#include "core/logging.h"
 #include "engine/engine.h"
 
 namespace bd::platform {
@@ -23,6 +27,7 @@ void MouseInput::Attach(rex::ui::Window *window) {
   window_.store(window, std::memory_order_relaxed);
   window->AddInputListener(this, kZOrder);
   window->AddListener(this);
+  QueuePointerUpdate();
 }
 
 void MouseInput::Detach() {
@@ -30,13 +35,17 @@ void MouseInput::Detach() {
   if (!window)
     return;
   gameCursor_.store(false, std::memory_order_relaxed);
-  ApplyGameCursorState();
+  look_.store(false, std::memory_order_relaxed);
+  ApplyPointerMode();
   window->RemoveInputListener(this);
   window->RemoveListener(this);
   window_.store(nullptr, std::memory_order_relaxed);
   hasPosition_.store(false, std::memory_order_relaxed);
   moved_.store(false, std::memory_order_relaxed);
   wheelAccum_.store(0, std::memory_order_relaxed);
+  wheelTaken_.store(0, std::memory_order_relaxed);
+  lookDx_.store(0.0f, std::memory_order_relaxed);
+  lookDy_.store(0.0f, std::memory_order_relaxed);
   buttons_.store(0, std::memory_order_relaxed);
 }
 
@@ -53,7 +62,28 @@ bool MouseInput::MovedSince() {
 }
 
 int MouseInput::TakeWheelDetents() {
-  return wheelAccum_.exchange(0, std::memory_order_relaxed);
+  const int taken = wheelAccum_.exchange(0, std::memory_order_relaxed);
+  wheelTaken_.store(taken, std::memory_order_relaxed);
+  return taken;
+}
+
+int MouseInput::WheelDetents() const {
+  return wheelTaken_.load(std::memory_order_relaxed);
+}
+
+bool MouseInput::TakeLookDelta(f32 &dx, f32 &dy) {
+  const f32 x = lookDx_.exchange(0.0f, std::memory_order_relaxed);
+  const f32 y = lookDy_.exchange(0.0f, std::memory_order_relaxed);
+  if (x == 0.0f && y == 0.0f)
+    return false;
+  dx = x;
+  dy = y;
+  return true;
+}
+
+void MouseInput::PeekLookDelta(f32 &dx, f32 &dy) const {
+  dx = lookDx_.load(std::memory_order_relaxed);
+  dy = lookDy_.load(std::memory_order_relaxed);
 }
 
 bool MouseInput::WindowSize(f32 &w, f32 &h) const {
@@ -70,35 +100,106 @@ bool MouseInput::WindowSize(f32 &w, f32 &h) const {
 }
 
 void MouseInput::SetGameCursorActive(bool active) {
-  gameCursor_.store(active, std::memory_order_relaxed);
+  if (gameCursor_.exchange(active, std::memory_order_relaxed) != active)
+    QueuePointerUpdate();
 }
 
-void MouseInput::ApplyGameCursorState() {
+void MouseInput::SetLookActive(bool active) {
+  if (look_.exchange(active, std::memory_order_relaxed) != active)
+    QueuePointerUpdate();
+}
+
+void MouseInput::QueuePointerUpdate() {
+  rex::ui::Window *window = window_.load(std::memory_order_relaxed);
+  if (!window || updateQueued_.exchange(true, std::memory_order_relaxed))
+    return;
+  window->app_context().CallInUIThreadDeferred([this] {
+    updateQueued_.store(false, std::memory_order_relaxed);
+    ApplyPointerMode();
+  });
+}
+
+void MouseInput::ApplyPointerMode() {
   rex::ui::Window *window = window_.load(std::memory_order_relaxed);
   if (!window)
     return;
-  const bool hide = gameCursor_.load(std::memory_order_relaxed);
-  if (hide == arrowHidden_)
+  PointerMode want = PointerMode::Free;
+  if (focused_.load(std::memory_order_relaxed)) {
+    if (look_.load(std::memory_order_relaxed))
+      want = PointerMode::Locked;
+    else if (gameCursor_.load(std::memory_order_relaxed))
+      want = PointerMode::Hidden;
+  }
+  if (want == mode_)
     return;
-  arrowHidden_ = hide;
-  if (hide) {
+
+  if (mode_ == PointerMode::Locked) {
+    window->SetRelativeMouseMode(false);
+    relative_ = false;
+  }
+  if (mode_ == PointerMode::Free)
     arrowVisibility_ = window->GetCursorVisibility();
-    window->SetCursorVisibility(rex::ui::Window::CursorVisibility::kHidden);
-  } else {
+
+  if (want == PointerMode::Free) {
     window->SetCursorVisibility(arrowVisibility_);
+  } else {
+    window->SetCursorVisibility(rex::ui::Window::CursorVisibility::kHidden);
+  }
+  if (want == PointerMode::Locked) {
+    relative_ = window->SetRelativeMouseMode(true);
+    if (!relative_)
+      BD_WARN("[mouse] pointer lock unavailable, mouse look recenters the "
+              "pointer instead");
+    lockX_ = i32(x_.load(std::memory_order_relaxed));
+    lockY_ = i32(y_.load(std::memory_order_relaxed));
+  }
+  lookDx_.store(0.0f, std::memory_order_relaxed);
+  lookDy_.store(0.0f, std::memory_order_relaxed);
+  mode_ = want;
+}
+
+void MouseInput::RecenterLockedPointer(i32 x, i32 y) {
+  rex::ui::Window *window = window_.load(std::memory_order_relaxed);
+  if (!window)
+    return;
+  const i32 width = i32(window->GetActualPhysicalWidth());
+  const i32 height = i32(window->GetActualPhysicalHeight());
+  if (width <= 0 || height <= 0)
+    return;
+  if (std::abs(x - width / 2) < width / 4 &&
+      std::abs(y - height / 2) < height / 4)
+    return;
+  i32 centerX = 0;
+  i32 centerY = 0;
+  if (window->WarpMouseToCenter(centerX, centerY)) {
+    lockX_ = centerX;
+    lockY_ = centerY;
   }
 }
 
 void MouseInput::OnMouseMove(rex::ui::MouseEvent &e) {
-  ApplyGameCursorState();
+  if (mode_ == PointerMode::Locked) {
+    if (relative_) {
+      lookDx_.fetch_add(e.dx(), std::memory_order_relaxed);
+      lookDy_.fetch_add(e.dy(), std::memory_order_relaxed);
+      return;
+    }
+    lookDx_.fetch_add(f32(e.x() - lockX_), std::memory_order_relaxed);
+    lookDy_.fetch_add(f32(e.y() - lockY_), std::memory_order_relaxed);
+    lockX_ = e.x();
+    lockY_ = e.y();
+    RecenterLockedPointer(e.x(), e.y());
+    return;
+  }
   const f32 x = f32(e.x());
   const f32 y = f32(e.y());
-  f32 prevX = x_.load(std::memory_order_relaxed);
-  f32 prevY = y_.load(std::memory_order_relaxed);
+  const f32 prevX = x_.load(std::memory_order_relaxed);
+  const f32 prevY = y_.load(std::memory_order_relaxed);
   x_.store(x, std::memory_order_relaxed);
   y_.store(y, std::memory_order_relaxed);
-  if (!hasPosition_.exchange(true, std::memory_order_relaxed) || x != prevX ||
-      y != prevY)
+  const bool hadPosition =
+      hasPosition_.exchange(true, std::memory_order_relaxed);
+  if (!hadPosition || x != prevX || y != prevY)
     moved_.store(true, std::memory_order_relaxed);
 }
 
@@ -112,10 +213,6 @@ void MouseInput::OnMouseWheel(rex::ui::MouseEvent &e) {
 }
 
 void MouseInput::OnMouseDown(rex::ui::MouseEvent &e) {
-  ApplyGameCursorState();
-  // Above MnkInputDriver and below the ImGui drawer: the dialog has already
-  // had this click, and the guest must not read it as a pad press too. The
-  // release still goes through, or MnK would hold the button down forever.
   if (engine::HostOverlayOwnsPointer()) {
     e.set_handled(true);
     return;
@@ -135,12 +232,20 @@ bool MouseInput::AnyButtonDown() const {
   return buttons_.load(std::memory_order_relaxed) != 0;
 }
 
+void MouseInput::OnGotFocus(rex::ui::UISetupEvent &) {
+  focused_.store(true, std::memory_order_relaxed);
+  ApplyPointerMode();
+}
+
 void MouseInput::OnLostFocus(rex::ui::UISetupEvent &) {
-  // The arrow belongs to whatever the user alt-tabbed to now.
-  gameCursor_.store(false, std::memory_order_relaxed);
-  ApplyGameCursorState();
+  focused_.store(false, std::memory_order_relaxed);
+  ApplyPointerMode();
   moved_.store(false, std::memory_order_relaxed);
   wheelAccum_.store(0, std::memory_order_relaxed);
+  wheelTaken_.store(0, std::memory_order_relaxed);
+  lookDx_.store(0.0f, std::memory_order_relaxed);
+  lookDy_.store(0.0f, std::memory_order_relaxed);
+  hasPosition_.store(false, std::memory_order_relaxed);
   buttons_.store(0, std::memory_order_relaxed);
 }
 

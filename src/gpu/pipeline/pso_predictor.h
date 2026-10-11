@@ -46,6 +46,8 @@ void OnLoadEnd();
 // stride.
 void OnDeclRegistered(u32 slotVa, u8 stride);
 
+void ReemitPredictions();
+
 // Pair-level verification: true if a load-time prediction covered this pair.
 bool IsPairPredicted(u64 vsHash, u64 psHash);
 

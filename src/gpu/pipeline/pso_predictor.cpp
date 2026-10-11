@@ -279,10 +279,8 @@ size_t EmitTechDeclLocked(u32 tech, const DeclRecord &d) {
             // mirroring the recorder's residual twin, so the predictor, the
             // bulk precompile path, covers the MSAA variants too.
             if (msaa != plume::RenderSampleCount::COUNT_1 &&
-                p.renderTargetFormat ==
-                    plume::RenderFormat::R16G16B16A16_FLOAT &&
-                p.depthStencilFormat ==
-                    plume::RenderFormat::D32_FLOAT_S8_UINT) {
+                p.renderTargetFormat == Video::SceneColorFormat() &&
+                plume::RenderFormatIsStencil(p.depthStencilFormat)) {
               PipelineState ms = p;
               ms.sampleCount = msaa;
               EnqueuePipeline(ms);
@@ -492,6 +490,16 @@ void OnDeclRegistered(u32 slotVa, u8 stride) {
   if (!TrySnapshotLocked())
     return;
   EmitAssetDeclLocked(asset, rec);
+}
+
+void ReemitPredictions() {
+  std::lock_guard<std::mutex> lock(g_mutex);
+  g_emitted.clear();
+  if (!TrySnapshotLocked())
+    return;
+  for (const auto &[lm, asset] : g_assets)
+    for (const DeclRecord &d : asset.decls)
+      EmitAssetDeclLocked(asset, d);
 }
 
 bool IsPairPredicted(u64 vsHash, u64 psHash) {

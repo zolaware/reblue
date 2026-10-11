@@ -12,6 +12,10 @@
 
 #include <rex/types.h>
 
+#include "engine/d2anime/anime_menu.h"
+#include "engine/d2anime/command_select_task.h"
+#include "engine/task.h"
+
 namespace bd::engine {
 
 // Drives both of the engine's list widgets: AnimeMenu, the CSV template one
@@ -26,14 +30,13 @@ class MenuMouse {
 public:
   static MenuMouse &Get();
 
-  // From the AnimeMenu_Update hook, once per live menu per frame. No guest
+  // From the AnimeMenu_Update hook, once per live menu per frame. No engine
   // calls, no mutation.
   void Observe(u32 menuVA);
-  // The same, from the CommandSelectTask::vf02 hook.
   void ObserveCommandSelect(u32 taskVA);
 
-  // Once per guest frame from bdInputSystemUpdate. Publishes whether a menu is
-  // on screen, then applies whatever the previous frame observed.
+  // Once per engine frame from bdInputSystemUpdate. Publishes whether a menu
+  // is on screen, then applies whatever the previous frame observed.
   void BeginFrame();
 
   // Whether the pointer, rather than the pad, currently owns the cursor. The
@@ -58,14 +61,14 @@ public:
     return !rowFilter_ || rowFilter_(listVA, index);
   }
 
-  // Detents seen this guest frame, drained by the read. BeginFrame overwrites
+  // Detents seen this engine frame, drained by the read. BeginFrame overwrites
   // rather than accumulates, so a spin nobody reads is discarded instead of
   // banking for whichever screen opens next.
   int TakeWheelDetents();
 
   // True while the pointer holds the engine's scrollbar. The confirm button is
   // the grab, so the button layer swallows it for as long as this stands.
-  bool DraggingScrollbar() const { return dragVA_ != 0; }
+  bool DraggingScrollbar() const { return static_cast<bool>(dragList_); }
 
   // Takes the cursor from hover the way a pad press does and anchors the
   // reclaim guard where the pointer sits: a spin jiggles the mouse a pixel or
@@ -110,22 +113,22 @@ private:
 
   // One slot per widget so a popup over a list cannot lose its candidate to
   // whichever hook ran second. A command select wins the frame, being modal.
-  u32 focusedMenu_ = 0;
-  u32 focusedSelect_ = 0;
-  u32 pendingMenu_ = 0;
+  AnimeMenu focusedMenu_;
+  CommandSelectTask focusedSelect_;
+  AnimeMenu pendingMenu_;
   int pendingIndex_ = -1;
-  u32 pendingSelect_ = 0;
+  CommandSelectTask pendingSelect_;
   int pendingSelectIndex_ = -1;
 
-  u32 edgeVA_ = 0;
+  Task edgeList_;
   bool edgeSelect_ = false;
   int edgeDir_ = 0;
   int edgeFrames_ = 0;
 
   // The menu whose bar is held, and where inside the thumb it was grabbed, so
   // the thumb keeps its grip on the pointer rather than jumping to center on
-  // it. Zero when nothing is held.
-  u32 dragVA_ = 0;
+  // it. Empty when nothing is held.
+  Task dragList_;
   f32 dragGrab_ = 0.0f;
   bool buttonWasDown_ = false;
 

@@ -12,6 +12,11 @@ on:
         required: false
         type: string
         default: ""
+      arch:
+        description: "Which build to produce: arm64, amd64, or all"
+        required: false
+        type: string
+        default: all
       sdk_tag:
         description: "rexglue-sdk release tag to build against"
         required: true
@@ -47,11 +52,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - arch: arm64
-            runner: macos-15
-          - arch: amd64
-            runner: macos-15-intel
+        include: >-
+          ${{ fromJSON(inputs.arch == 'arm64'
+          && '[{"arch":"arm64","runner":"macos-15"}]'
+          || inputs.arch == 'amd64'
+          && '[{"arch":"amd64","runner":"macos-15-intel"}]'
+          || '[{"arch":"arm64","runner":"macos-15"},{"arch":"amd64","runner":"macos-15-intel"}]') }}
     name: mac-${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     env:

@@ -18,12 +18,12 @@
 namespace bd::engine {
 
 // A VFS provider covers every load made after the art changes, this covers the
-// instances already sitting in guest memory when it does. Sync rewrites each
+// instances already sitting in engine memory when it does. Sync rewrites each
 // live instance whose stamp is not the given generation, so a tick where
 // nothing changed touches no texture and never composes.
 class LiveTextureStamp {
 public:
-  // 'name' as the guest asset name resolves it: a basename, extension
+  // 'name' as the engine asset name resolves it: a basename, extension
   // optional. compose returns the full blob file image and runs at most once
   // per call.
   void Sync(const char *name, u32 generation,

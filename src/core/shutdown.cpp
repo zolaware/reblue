@@ -13,10 +13,10 @@
 #include <thread>
 
 #include "core/logging.h"
-#include "core/perf.h"
 #include "core/settings.h"
 #include "core/threading.h"
 #include "gpu/gpu.h"
+#include "vfs/vfs.h"
 
 #include <rex/logging.h>
 #include <rex/runtime.h>
@@ -55,7 +55,7 @@ template <typename F> void Stage(const char *name, F &&fn) {
   fn();
   const double ms =
       std::chrono::duration<double, std::milli>(Clock::now() - t0).count();
-  BD_INFO("[shutdown] {} ({:.1f} ms)", name, ms);
+  BD_DEV_INFO("[shutdown] {} ({:.1f} ms)", name, ms);
 }
 
 // Armed before any work so every later stall is bounded. A quit never hangs on
@@ -100,7 +100,7 @@ void StopGuestThreads() {
   ArmWatchdog(exit_code);
 
   Stage("quiesce-renderer", [] { gpu::Video::BeginShutdown(); });
-  Stage("perf-csv", [] { PerfCSVShutdown(); });
+  Stage("disc-prefetch", [] { vfs::VFS::Get().Prefetch().Shutdown(); });
   Stage("stop-guest-threads", [] { StopGuestThreads(); });
   Stage("flush-caches", [] { gpu::FlushPSOCapture(); });
   Stage("gpu-drain", [] { gpu::Video::Shutdown(UiPump()); });
@@ -169,7 +169,7 @@ void QuiesceForExit() {
   // a dead-looking window with the replacement never spawned.
   ArmWatchdog(0);
   Stage("quiesce-renderer", [] { gpu::Video::BeginShutdown(); });
-  Stage("perf-csv", [] { PerfCSVShutdown(); });
+  Stage("disc-prefetch", [] { vfs::VFS::Get().Prefetch().Shutdown(); });
   Stage("stop-guest-threads", [] { StopGuestThreads(); });
   Stage("gpu-drain", [] { gpu::Video::Shutdown(UiPump()); });
   g_finished.store(true, std::memory_order_release);

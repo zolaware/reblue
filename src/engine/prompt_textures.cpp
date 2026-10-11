@@ -10,15 +10,18 @@
 #include <algorithm>
 #include <iterator>
 #include <mutex>
-#include <string_view>
 #include <vector>
 
+#include <rex/ppc.h>
 #include <stb_image.h>
 
 #include "core/logging.h"
+#include "engine/d2anime/anime_input.h"
 #include "engine/d2anime/anime_mount.h"
 #include "engine/glyph_set.h"
 #include "engine/guest_texture.h"
+#include "engine/input/actions.h"
+#include "engine/input/binding_store.h"
 #include "engine/live_texture_stamp.h"
 #include "embedded.h"
 #include "platform/platform.h"
@@ -27,24 +30,18 @@ namespace bd::engine {
 
 namespace {
 
-// The cap library tools/build_glyph_sheet.py emits beside the footer sheet: one
-// 128px cell per bindable key in kBindableKeys order, then the arrow cluster,
-// then four face buttons per pad in PadSet order for the pad side of these
-// prompts.
+// The cap library beside the footer sheet: one 128px cell per bindable key in
+// kBindableKeys order, then the arrow cluster, then four face buttons per pad
+// in PadSet order, then LB and RB per pad in the same order.
 constexpr u32 kLibCell = 128;
 constexpr u32 kLibCols = 8;
 constexpr u32 kPadCellBase = u32(bd::platform::kBindableKeyCount) + 1;
 constexpr u32 kPadFaceButtons = 4;
-
-// A prompt texture's cell always stands for a face button.
-int PadOrdinal(const char *keybind) {
-  constexpr const char *kOrder[] = {"keybind_a", "keybind_b", "keybind_x",
-                                    "keybind_y"};
-  for (int i = 0; i < 4; ++i)
-    if (std::string_view(keybind) == kOrder[i])
-      return i;
-  return -1;
-}
+constexpr u32 kPadShoulderBase =
+    kPadCellBase + u32(kPadSetLast + 1) * kPadFaceButtons;
+constexpr u32 kPadShoulderButtons = 2;
+constexpr u32 kLibPadCellEnd =
+    kPadShoulderBase + u32(kPadSetLast + 1) * kPadShoulderButtons;
 
 constexpr const char *kMount = "ui:prompt-textures";
 
@@ -53,10 +50,8 @@ constexpr const char *kMount = "ui:prompt-textures";
 // has to read here, not the shading.
 constexpr float kPressedDim = 0.62f;
 
-// One cell of a served texture: the button it stands for, named by the cvar
-// holding that button's key, and whether it is the pressed frame.
 struct PromptCell {
-  const char *keybind;
+  Action action;
   bool pressed;
 };
 
@@ -70,8 +65,9 @@ struct InkBox {
 
 constexpr InkBox kInk64 = {13, 15, 38, 40};
 constexpr InkBox kInkActEv = {42, 14, 172, 92};
+constexpr InkBox kInkShoulder = {1, 1, 36, 43};
 
-// One served texture: the file the guest opens, its shipped dimensions, its cell
+// One served texture: the file the engine opens, its shipped dimensions, its cell
 // grid and the cells in row-major order.
 struct PromptTex {
   const char *key;
@@ -82,21 +78,27 @@ struct PromptTex {
   u32 cellCount;
 };
 
-constexpr PromptCell kCellA[] = {{"keybind_a", false}};
-constexpr PromptCell kCellAPsh[] = {{"keybind_a", true}};
-constexpr PromptCell kCellB[] = {{"keybind_b", false}};
-constexpr PromptCell kCellBPsh[] = {{"keybind_b", true}};
-constexpr PromptCell kCellX[] = {{"keybind_x", false}};
-constexpr PromptCell kCellXPsh[] = {{"keybind_x", true}};
-constexpr PromptCell kCellY[] = {{"keybind_y", false}};
-constexpr PromptCell kCellYPsh[] = {{"keybind_y", true}};
+constexpr PromptCell kCellA[] = {{Action::Confirm, false}};
+constexpr PromptCell kCellAPsh[] = {{Action::Confirm, true}};
+constexpr PromptCell kCellB[] = {{Action::Cancel, false}};
+constexpr PromptCell kCellBPsh[] = {{Action::Cancel, true}};
+constexpr PromptCell kCellX[] = {{Action::Attack, false}};
+constexpr PromptCell kCellXPsh[] = {{Action::Attack, true}};
+constexpr PromptCell kCellY[] = {{Action::MainMenu, false}};
+constexpr PromptCell kCellYPsh[] = {{Action::MainMenu, true}};
+
+// The menu pager pair, LB then RB, which the menus page on through the field
+// skill binds.
+constexpr PromptCell kCellsPager[] = {{Action::FieldSkill2, false},
+                                      {Action::FieldSkill1, false}};
 
 // ic_btn's own pos rows: posAnr, posApsh, posBnr, posBpsh and so on down the
 // four rows, normal in the left column and pressed in the right.
 constexpr PromptCell kCellsIcBtn[] = {
-    {"keybind_a", false}, {"keybind_a", true}, {"keybind_b", false},
-    {"keybind_b", true},  {"keybind_x", false}, {"keybind_x", true},
-    {"keybind_y", false}, {"keybind_y", true}};
+    {Action::Confirm, false}, {Action::Confirm, true},
+    {Action::Cancel, false},  {Action::Cancel, true},
+    {Action::Attack, false},  {Action::Attack, true},
+    {Action::MainMenu, false}, {Action::MainMenu, true}};
 
 #define BD_PROMPT_TEX(path, w, h, cols, rows, ink, cells)                      \
   { path, w, h, cols, rows, ink, cells, u32(std::size(cells)) }
@@ -126,6 +128,11 @@ constexpr PromptTex kTextures[] = {
     BD_PROMPT_TEX("sca\\common\\res\\ic_btn.dds", 128, 256, 2, 4, kInk64,
                   kCellsIcBtn),
 
+    // The character pager on the shop's equipment screens and every camp
+    // screen that reuses L_shp_lbrb.csv.
+    BD_PROMPT_TEX("d2anime\\shp\\res\\ic_shp_lbrb.dds", 128, 64, 2, 1,
+                  kInkShoulder, kCellsPager),
+
     // The action event QTEs, one texture per button per state.
     BD_PROMPT_TEX("minigame\\actev\\d2anim\\res\\acv_btn_a_nrm.dds", 256, 128, 1,
                   1, kInkActEv, kCellA),
@@ -152,21 +159,24 @@ constexpr PromptTex kTextures[] = {
 struct CapLibrary {
   std::vector<u8> rgba;
   u32 width = 0, height = 0;
+  u32 cellPx = 0, cols = 0;
   std::vector<InkBox> ink;
 };
 
 std::mutex s_mutex;
 CapLibrary s_lib;
 bool s_libTried = false;
+CapLibrary s_sheet;
+bool s_sheetTried = false;
 
 // Alpha bounds of one library cell, in cell-local coordinates. A cell with no
 // art at all comes back zero-sized and is skipped rather than drawn as a dot.
 InkBox ScanCell(const CapLibrary &lib, u32 cell) {
-  const u32 ox = (cell % kLibCols) * kLibCell;
-  const u32 oy = (cell / kLibCols) * kLibCell;
-  u32 x0 = kLibCell, y0 = kLibCell, x1 = 0, y1 = 0;
-  for (u32 y = 0; y < kLibCell; ++y) {
-    for (u32 x = 0; x < kLibCell; ++x) {
+  const u32 ox = (cell % lib.cols) * lib.cellPx;
+  const u32 oy = (cell / lib.cols) * lib.cellPx;
+  u32 x0 = lib.cellPx, y0 = lib.cellPx, x1 = 0, y1 = 0;
+  for (u32 y = 0; y < lib.cellPx; ++y) {
+    for (u32 x = 0; x < lib.cellPx; ++x) {
       const u8 a = lib.rgba[(size_t(oy + y) * lib.width + ox + x) * 4 + 3];
       if (!a)
         continue;
@@ -179,6 +189,13 @@ InkBox ScanCell(const CapLibrary &lib, u32 cell) {
   if (x1 <= x0 || y1 <= y0)
     return {0, 0, 0, 0};
   return {x0, y0, x1 - x0, y1 - y0};
+}
+
+void ScanCells(CapLibrary &lib) {
+  const u32 cells = (lib.width / lib.cellPx) * (lib.height / lib.cellPx);
+  lib.ink.resize(cells);
+  for (u32 i = 0; i < cells; ++i)
+    lib.ink[i] = ScanCell(lib, i);
 }
 
 // Guarded because a VFS provider runs on whichever thread opened the file, and
@@ -201,19 +218,71 @@ const CapLibrary *Library() {
 
   s_lib.width = u32(w);
   s_lib.height = u32(h);
+  s_lib.cellPx = kLibCell;
+  s_lib.cols = kLibCols;
   s_lib.rgba.assign(pixels, pixels + size_t(w) * h * 4);
   stbi_image_free(pixels);
-
-  const u32 cells = (s_lib.width / kLibCell) * (s_lib.height / kLibCell);
-  s_lib.ink.resize(cells);
-  for (u32 i = 0; i < cells; ++i)
-    s_lib.ink[i] = ScanCell(s_lib, i);
+  ScanCells(s_lib);
   return &s_lib;
 }
 
-// Area-averaged sample of a library cell's ink rect. Every destination here is a
-// downscale from the 128px library, and point sampling a cap's outline at a
-// third of its size drops whole strokes out of it.
+const CapLibrary *Sheet() {
+  if (s_sheetTried)
+    return s_sheet.width ? &s_sheet : nullptr;
+  s_sheetTried = true;
+
+  s_sheet.rgba = Glyphs::SheetPixels();
+  if (s_sheet.rgba.empty()) {
+    BD_ERROR("[prompts] the glyph sheet did not decode");
+    return nullptr;
+  }
+  s_sheet.cellPx = Glyphs::kSheetCellPx;
+  s_sheet.cols = Glyphs::kSheetCols;
+  s_sheet.width = Glyphs::kSheetCols * Glyphs::kSheetCellPx;
+  s_sheet.height = Glyphs::kSheetRows * Glyphs::kSheetCellPx;
+  ScanCells(s_sheet);
+  return &s_sheet;
+}
+
+struct CapRef {
+  const CapLibrary *lib = nullptr;
+  u32 cell = 0;
+};
+
+// The cap of the pad button an action is bound to, in one pad's art. The face
+// and shoulder buttons come from the library at its larger size, everything
+// else from that pad's block on the glyph sheet.
+CapRef PadCap(Action action, u32 set) {
+  for (const Source &s : Bindings::Get().Sources(action)) {
+    if (s.kind != SourceKind::PadButton)
+      continue;
+    const auto button = static_cast<Button>(s.code);
+    switch (button) {
+    case Button::A:
+    case Button::B:
+    case Button::X:
+    case Button::Y:
+      return {Library(), kPadCellBase + set * kPadFaceButtons + u32(button) -
+                             u32(Button::A)};
+    case Button::LB:
+    case Button::RB:
+      return {Library(), kPadShoulderBase + set * kPadShoulderButtons +
+                             u32(button) - u32(Button::LB)};
+    default:
+      break;
+    }
+    const int cell = Glyphs::Get().PadSheetCell(int(s.code));
+    if (cell < 0)
+      return {};
+    return {Sheet(), u32(cell)};
+  }
+  return {};
+}
+
+// Area-averaged sample of a library cell's ink rect. Nearly every destination
+// is a downscale, and point sampling a cap's outline at a third of its size
+// drops whole strokes out of it. A sheet cap drawn into a QTE button is the one
+// upscale, and comes out nearest-sampled.
 void DrawCap(std::vector<u8> &dst, u32 dstW, const CapLibrary &lib, u32 cell,
              const InkBox &box, bool pressed) {
   const InkBox &src = lib.ink[cell];
@@ -229,8 +298,8 @@ void DrawCap(std::vector<u8> &dst, u32 dstW, const CapLibrary &lib, u32 cell,
   const u32 left = box.x + (box.w - outW) / 2;
   const u32 top = box.y + (box.h - outH) / 2;
 
-  const u32 cx = (cell % kLibCols) * kLibCell + src.x;
-  const u32 cy = (cell / kLibCols) * kLibCell + src.y;
+  const u32 cx = (cell % lib.cols) * lib.cellPx + src.x;
+  const u32 cy = (cell / lib.cols) * lib.cellPx + src.y;
 
   for (u32 y = 0; y < outH; ++y) {
     const u32 sy0 = src.h * y / outH;
@@ -279,22 +348,20 @@ std::vector<u8> Compose(const PromptTex &tex) {
   const u32 cellH = tex.height / tex.rows;
 
   for (u32 i = 0; i < tex.cellCount; ++i) {
-    int cell;
+    CapRef cap;
     if (keyboard) {
-      cell = BoundKeyIndex(tex.cells[i].keybind);
+      const int key = BoundKeyIndex(tex.cells[i].action);
+      if (key >= 0)
+        cap = {lib, u32(key)};
     } else {
-      const int ord = PadOrdinal(tex.cells[i].keybind);
-      const int set = static_cast<int>(Glyphs::Get().Pad());
-      cell = ord < 0 ? -1
-                     : int(kPadCellBase) +
-                           set * int(kPadFaceButtons) + ord;
+      cap = PadCap(tex.cells[i].action, u32(Glyphs::Get().Pad()));
     }
-    if (cell < 0 || size_t(cell) >= lib->ink.size())
+    if (!cap.lib || cap.cell >= cap.lib->ink.size())
       continue;
     const InkBox box = {(i % tex.cols) * cellW + tex.ink.x,
                         (i / tex.cols) * cellH + tex.ink.y, tex.ink.w,
                         tex.ink.h};
-    DrawCap(rgba, tex.width, *lib, u32(cell), box, tex.cells[i].pressed);
+    DrawCap(rgba, tex.width, *cap.lib, cap.cell, box, tex.cells[i].pressed);
   }
   return BuildGuestTexture(rgba, tex.width, tex.height);
 }
@@ -305,12 +372,24 @@ LiveTextureStamp s_stamps[std::size(kTextures)];
 bool PadArtPresent(const CapLibrary &lib) {
   // Every set's block, since the player can pick any of them and a half-built
   // library should fall back rather than serve one pad an empty prompt.
-  for (u32 i = 0; i <= u32(kPadSetLast) * kPadFaceButtons + 3; ++i) {
-    const size_t cell = kPadCellBase + i;
+  for (u32 cell = kPadCellBase; cell < kLibPadCellEnd; ++cell) {
     if (cell >= lib.ink.size() || !lib.ink[cell].w)
       return false;
   }
   return true;
+}
+
+u32 PromptIconButton(u32 id) {
+  const auto isFace = [](u32 v) {
+    return v >= u32(Button::A) && v <= u32(Button::Y);
+  };
+  if (isFace(id))
+    return id;
+  for (const Source &s : Bindings::Get().Sources(Action::Interact)) {
+    if (s.kind == SourceKind::PadButton && isFace(s.code))
+      return s.code;
+  }
+  return u32(Button::A);
 }
 
 } // namespace
@@ -380,3 +459,11 @@ void PromptTextures::SetEnabled(bool on) {
 }
 
 } // namespace bd::engine
+
+// ScriptMan's action icon and the carriage prompt switch on Interact's engine id
+// for their ic_btn row and know only the four face ids. A rebind that parts
+// Interact from Confirm leaves it on a spare id, and the switch's fall-through
+// leaves the row rect zeroed, which draws the whole sheet.
+void bdPromptIconButtonHook(PPCRegister &r11) {
+  r11.u64 = bd::engine::PromptIconButton(r11.u32);
+}

@@ -167,13 +167,4 @@ constexpr UVRect kUvWrpHatenaSmall = {0.0f, 0.5f, 0.5f, 1.0f};
 
 bool MarkerVisible(const Marker &mk) { return mk.trackable && !mk.collected; }
 
-    bool FloorReady(u32 db) {
-  const auto *m = mem::try_at<const MiniMapDB_t>(db);
-        return m && static_cast<u32>(m->texEntries) != 0 &&
-            static_cast<float>(m->texW) > 0.0f &&
-            static_cast<float>(m->texH) > 0.0f &&
-            static_cast<float>(m->scaleX) != 0.0f &&
-            static_cast<float>(m->scaleZ) != 0.0f;
-    }
-
 } // namespace bd::engine

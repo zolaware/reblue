@@ -1,7 +1,7 @@
 name: Build Windows
 
-# One configure builds both runtimes, reblue.exe (D3D12) and reblue_vk.exe
-# (Vulkan), and both ship in one zip. Step bodies live in .github/scripts.
+# Builds reblue.exe (D3D12) and reblue_vk.exe (Vulkan), both of which ship.
+# Step bodies live in .github/scripts.
 
 on:
   workflow_call:

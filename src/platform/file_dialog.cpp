@@ -21,7 +21,7 @@ namespace {
 
 struct DialogResult {
   std::atomic<bool> done{false};
-  std::optional<std::filesystem::path> path;
+  std::vector<std::filesystem::path> paths;
   std::string error_message;
 };
 
@@ -32,8 +32,9 @@ void SDLCALL DialogCallback(void *userdata, const char *const *filelist,
     // filelist == NULL indicates backend error (missing xdg-desktop-portal,
     // zenity, etc.), distinct from user cancel.
     result->error_message = SDL_GetError();
-  } else if (filelist[0]) {
-    result->path = std::filesystem::path(filelist[0]);
+  } else {
+    for (const char *const *it = filelist; *it != nullptr; ++it)
+      result->paths.emplace_back(*it);
   }
   result->done.store(true, std::memory_order_release);
 }
@@ -64,8 +65,8 @@ std::string ToSdlPattern(const wchar_t *pattern) {
   return out.empty() ? "*" : out;
 }
 
-std::optional<std::filesystem::path>
-RunDialog(const wchar_t *title, bool pick_folder,
+std::vector<std::filesystem::path>
+RunDialog(const wchar_t *title, bool pick_folder, bool many,
           std::span<const FileFilter> filters) {
   DialogResult result;
 
@@ -89,10 +90,13 @@ RunDialog(const wchar_t *title, bool pick_folder,
   SDL_PropertiesID props = SDL_CreateProperties();
   if (props == 0) {
     BD_WARN("SDL_CreateProperties failed: {}", SDL_GetError());
-    return std::nullopt;
+    return {};
   }
   SDL_SetStringProperty(props, SDL_PROP_FILE_DIALOG_TITLE_STRING,
                         title_utf8.c_str());
+  if (many) {
+    SDL_SetBooleanProperty(props, SDL_PROP_FILE_DIALOG_MANY_BOOLEAN, true);
+  }
   if (!sdl_filters.empty()) {
     SDL_SetPointerProperty(props, SDL_PROP_FILE_DIALOG_FILTERS_POINTER,
                            sdl_filters.data());
@@ -113,19 +117,30 @@ RunDialog(const wchar_t *title, bool pick_folder,
   if (!result.error_message.empty()) {
     BD_WARN("SDL file dialog failed: {}", result.error_message);
   }
-  return result.path;
+  return std::move(result.paths);
 }
 
 } // namespace
 
 std::optional<std::filesystem::path>
 ShowOpenFileDialog(const wchar_t *title, std::span<const FileFilter> filters) {
-  return RunDialog(title, /*pick_folder=*/false, filters);
+  auto paths = RunDialog(title, /*pick_folder=*/false, /*many=*/false, filters);
+  if (paths.empty())
+    return std::nullopt;
+  return std::move(paths.front());
+}
+
+std::vector<std::filesystem::path>
+ShowOpenFilesDialog(const wchar_t *title, std::span<const FileFilter> filters) {
+  return RunDialog(title, /*pick_folder=*/false, /*many=*/true, filters);
 }
 
 std::optional<std::filesystem::path>
 ShowOpenFolderDialog(const wchar_t *title) {
-  return RunDialog(title, /*pick_folder=*/true, {});
+  auto paths = RunDialog(title, /*pick_folder=*/true, /*many=*/false, {});
+  if (paths.empty())
+    return std::nullopt;
+  return std::move(paths.front());
 }
 
 } // namespace bd::platform

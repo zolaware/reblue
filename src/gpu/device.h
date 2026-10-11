@@ -61,11 +61,13 @@ public:
   // Same, but the caller holds state().mutex.
   static void OpenCommandListLocked();
 
-  // Fallback clear of the swapchain back buffer on next Present, when no RT is
-  // bound.
-  static void RequestClear(u32 flags, u32 color_argb, float depth, u32 stencil);
+  static void Clear(u32 flags, u32 color_argb, float depth, u32 stencil);
+
+  static void ClearTexture(GuestTexture *texture, u32 color_argb);
 
   static void Present(GuestTexture *frontBuffer = nullptr);
+
+  static void SkipPresent();
 
   // Pre-Runtime present (installer): clear back buffer + overlay hook only.
   static void PresentOverlayFrame();
@@ -74,20 +76,16 @@ public:
   // stays on the render thread at the frame boundary.
   static void RequestResize();
 
-  // The engine unbinds bound surfaces without telling us, so every mirror
-  // naming the dying texture would dangle. retire_bindings=false keeps the
-  // framebuffer entries and bindless slot for a surface headed to the
-  // SurfacePool; the caller owes RetireTextureBindings if pooling falls
-  // through.
-  static void NotifyTextureDestroyed(GuestTexture *dead,
-                                     bool retire_bindings = true);
+  static void SyncBackBufferSizeLocked();
 
-  // Drop a texture's framebuffer cache entries and its bindless slot
-  // (fence-deferred). Takes state().mutex.
+  static void ResizeTexture(GuestTexture *tex, u32 width, u32 height);
+
+  static void NotifyTextureDestroyed(GuestTexture *dead);
+
+  static void ReissueSurface(GuestTexture *surface);
+
   static void RetireTextureBindings(GuestTexture *tex);
 
-  // Teardown runs when the recording frame slot is reused, after its fence is
-  // awaited, so no in-flight command list still references the resource.
   static void QueueResourceDestroy(u32 guest_va, ResourceType type);
 
   // The frame slot currently being recorded (0..kNumFrames-1). Cross-file
@@ -139,14 +137,20 @@ public:
   static const plume::RenderIndexBufferView *QuadlistExpansionIBView();
   static u32 QuadlistMaxQuads();
 
-  // First call per frame transitions the bound RT/depth to write layout, binds
-  // their framebuffer, sets viewport+scissor. Once per frame. Returns
-  // false (caller skips the draw) only when neither RT nor depth is bound.
   static bool BindDrawFramebuffer();
-  // Same, but the caller holds state().mutex.
-  static bool BindDrawFramebufferLocked();
+  static bool BindDrawFramebufferLocked(bool color_clear_follows = false);
 
   static plume::RenderDevice *HostDevice();
+
+  static plume::RenderFormat DepthStencilFormat();
+
+  static plume::RenderFormat SceneColorFormat();
+
+  struct VideoMemory {
+    u64 used = 0;
+    u64 budget = 0;
+  };
+  static VideoMemory MemoryUsage();
 
   // Live swapchain dimensions, or 0 if no swapchain yet.
   static u32 OutputWidth();
@@ -154,15 +158,15 @@ public:
 
   static std::string GetDeviceName();
 
+  // "D3D12" / "Vulkan", known before any device exists.
+  static const char *BackendName();
+
   // "D3D12 12_2" / "Vulkan 1.3.294". Empty until the device is up.
   static const std::string &GetBackendInfo();
 
   // bd_msaa (0/2/4/8) clamped to supported_sample_mask, or COUNT_1 when off or
   // unsupported. Boot-latched, so runtime writes apply on the next reboot.
   static plume::RenderSampleCounts CvarMSAASampleCount();
-
-  // bd_supersampling latched at first use (AA is restart-bound). 1 = MSAA path.
-  static i32 BootSupersampling();
 
   // Shared by every pipeline so descriptor set bindings survive pipeline
   // switches.
@@ -190,15 +194,6 @@ public:
   // only awaited the reused slot's fence, but the other in-flight list can
   // still hold a setVertexBuffers/setIndexBuffer reference to it.
   static void ParkBufferUntilFence(std::unique_ptr<plume::RenderBuffer> buffer);
-
-  // Hold a released RT/DS surface one fence cycle before pooling it. Takes
-  // state().mutex.
-  static void ParkSurfaceForPoolReturn(GuestTexture *surface);
-
-  // Warn + break any backlink from a pool-acquired surface's stale
-  // destinationTextures (the CreateSurface invariant guard). Takes
-  // state().mutex, and the caller's plain field resets follow.
-  static void ScrubPooledSurfaceLinks(GuestTexture *pooled);
 
   // ALPHAREF feeds the SharedConstants cbuffer. Set by bdSetRenderState (arg
   // 100), and read when SharedConstants is rebuilt.
@@ -361,8 +356,11 @@ struct VideoState {
 
   std::string backend_info;
 
-  // AND of device sample count support for scene color (R16G16B16A16_FLOAT) and
-  // depth (D32_FLOAT_S8_UINT). bd_msaa is clamped to this.
+  plume::RenderFormat depth_stencil_format =
+      plume::RenderFormat::D32_FLOAT_S8_UINT;
+  plume::RenderFormat scene_color_format =
+      plume::RenderFormat::R16G16B16A16_FLOAT;
+
   plume::RenderSampleCounts supported_sample_mask =
       plume::RenderSampleCount::COUNT_1;
 
@@ -391,12 +389,6 @@ struct VideoState {
   // begin drops the bound pipeline).
   plume::RenderPipeline *current_pso = nullptr;
 
-  bool clear_pending = false;
-  u32 clear_flags = 0;
-  u32 clear_color_argb = 0xFF000000;
-  float clear_depth = 1.0f;
-  u32 clear_stencil = 0;
-
   std::mutex mutex;
   bool ready = false;
 
@@ -411,16 +403,10 @@ struct VideoState {
   bool command_list_submitted[kNumFrames] =
       {}; // per-slot: submitted, fence not yet awaited at reuse
 
-  // Reset only on RT/DS pointer changes, so BindDrawFramebuffer validates the
-  // bound pair below too: pooled-surface reuse hands back the same pointer for
-  // different effective targets.
   bool draw_framebuffer_bound = false;
-  GuestTexture *bound_fb_rt = nullptr; // effective (rt,ds) the bound fb is for
+  GuestTexture *bound_fb_rt = nullptr;
   GuestTexture *bound_fb_ds = nullptr;
 
-  // True once Present has committed a back buffer this engine frame. A second
-  // Present in the same frame returns early. Reset in RequestClear at the start
-  // of the next frame.
   bool frame_present_committed = false;
 
   // Set by Video::RequestResize from the UI thread, consumed by Present at the
@@ -437,34 +423,13 @@ struct VideoState {
   // when nothing has been drawn yet.
   GuestTexture *back_buffer_surface = nullptr;
 
-  // Not reset in BeginCommandList: this is the cross-frame EDRAM history
-  // source. Per recording slot, so a slot seeds only from its own surface
-  // history and the ring never cross-couples into composite feedback.
-  GuestTexture *last_drawn_rt[kNumFrames] = {};
+  GuestTexture *last_drawn_rt = nullptr;
 
-  // BD's depth resolve callers swap SetDepthStencilSurface to the resolve
-  // destination first, so s.depth_stencil no longer names what the scene drew
-  // into.
-  GuestTexture *last_drawn_ds[kNumFrames] = {};
-
-  // Aligns with the 1280 scene resolve at the DOF blur downsample, where
-  // last_drawn_ds (supersampled main pass depth) does not.
   GuestTexture *scene_depth = nullptr;
 
-  // Most recent D3DDevice_Resolve destination (the engine's final scanned-out
-  // image). Reset every BeginCommandList.
   GuestTexture *last_resolved_dst = nullptr;
 
-  // Stands in for the X360 EDRAM persistence reblue lacks: BD chains
-  // full-screen blends each expecting the previous pass already in its tile.
-  // Per recording slot, so the ring never turns single-frame persistence into
-  // compounding feedback.
-  GuestTexture *fullscreen_chain_head[kNumFrames] = {};
-
-  // The same emulation for off-screen RTT chains, keyed by exact tile dims
-  // (w<<32|h). Cleared every BeginCommandList, so it reaches this frame's
-  // earlier links and no further.
-  std::unordered_map<u64, GuestTexture *> subchain_resolve;
+  GuestTexture *fullscreen_chain_head = nullptr;
 
   GuestTexture *textures[16] = {};
   GuestShader *vertex_shader = nullptr;
@@ -499,9 +464,7 @@ struct VideoState {
   std::vector<std::unique_ptr<plume::RenderBuffer>>
       buffer_graveyard[kNumFrames];
 
-  // pendingGPURead surfaces: the destroy-time materialize copy still reads them
-  // from the unsubmitted list, so they reach SurfacePool one cycle late.
-  std::vector<GuestTexture *> surface_return_graveyard[kNumFrames];
+  std::vector<std::unique_ptr<plume::RenderTexture>> texture_free_backlog;
 
   // The null rewrite must not happen at release: descriptors are read at GPU
   // execution, and the other in-flight list holds draws whose SharedConstants
@@ -539,11 +502,6 @@ GetOrCreateResolveMSAAPipeline(VideoState &s, plume::RenderFormat dst_format,
                                bool depth);
 bool DiagShouldLog(u64 site, const GuestTexture *t, u32 *n_out);
 void DestroyResourceNow(u32 guest_va, ResourceType type);
-// Callable only at DrainSlot entry (post-fence) and without s.mutex held.
-void DrainPooledSurfaceReturns(VideoState &s, u32 slot);
-// Park tex's fence-sensitive GPU objects (image, view, companions) in the
-// current slot's graveyard. Call before destroying a GuestTexture whose objects
-// the other in-flight slot may still reference.
 void ParkTextureGPUObjects(GuestTexture *tex);
 plume::RenderColor ArgbToRenderColor(u32 argb);
 

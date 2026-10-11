@@ -7,10 +7,11 @@
 #include "engine/d2anime/sysmes.h"
 #include "core/i18n.h"
 #include "core/logging.h"
-#include "core/memory_helpers.h"
-#include "core/task_layout.h"
-#include "engine/d2anime/anime_vars.h"
+#include "engine/d2anime/anime_data.h"
 #include "engine/d2anime/d2anime_task.h"
+#include "engine/task.h"
+
+#include <cstddef>
 
 #include <rex/hook.h>
 #include <rex/ppc/stack.h>
@@ -28,18 +29,6 @@ REX_IMPORT(__imp__NormMesWinConfig_LoadStrings, LoadNormMesStrings,
 
 namespace {
 
-// SelMesWinTask fields the host polls once the popup has run.
-struct SelMesWinTask_t {
-  u8 _pad000[0xDC8];
-  be_u32 confirmed; // non-zero once the user confirmed
-  be_u32 canceled;  // non-zero once the user canceled
-  // CommandSelectTask* managing answer selection within SelMesWinTask.
-  be_u32 commandSelect;
-};
-static_assert(offsetof(SelMesWinTask_t, confirmed) == 0xDC8);
-static_assert(offsetof(SelMesWinTask_t, canceled) == 0xDCC);
-static_assert(offsetof(SelMesWinTask_t, commandSelect) == 0xDD0);
-
 // SelMesWin config blob passed to SelMesWinTask_Create. The body is opaque,
 // only the trailing defaultSel field is written by the host.
 struct SelMesWinConfig_t {
@@ -56,17 +45,11 @@ struct NormMesWinConfig_t {
 };
 static_assert(sizeof(NormMesWinConfig_t) == 0x1AC);
 
-struct CommandSelectTask_t {
-  u8 _pad000[0xB0];
-  be_u32 cursorIndex; // selected answer index (0 = first answer / Yes)
-};
-static_assert(offsetof(CommandSelectTask_t, cursorIndex) == 0xB0);
-
 } // namespace
 
 namespace bd::engine {
 
-bool SysMesConfirm::Create(u32 parentTask, const char *q1, const char *q2,
+bool SysMesConfirm::Create(const Task &parent, const char *q1, const char *q2,
                            const char *q3, const char *a1, const char *a2,
                            int defaultSel) {
   if (task_) {
@@ -83,16 +66,15 @@ bool SysMesConfirm::Create(u32 parentTask, const char *q1, const char *q2,
 
   // Engine stores these as wchar_t, and LoadStrings reads them back by RBDEL_
   // name.
-  u32 vb = D2AnimeTask(parentTask).VarBag();
-  VarBagSetText(vb, "RBDEL_SQ1", q1);
-  VarBagSetText(vb, "RBDEL_SQ2", q2 ? q2 : "");
-  VarBagSetText(vb, "RBDEL_SQ3", q3 ? q3 : "");
-  VarBagSetText(vb, "RBDEL_SA1",
-                a1 ? std::string_view(a1)
-                   : std::string_view(i18n::Text("common.yes")));
-  VarBagSetText(vb, "RBDEL_SA2",
-                a2 ? std::string_view(a2)
-                   : std::string_view(i18n::Text("common.no")));
+  const u32 parentTask = parent.Address();
+  AnimeData vb = D2AnimeTask(parentTask).AnimeData();
+  vb.SetText("RBDEL_SQ1", q1);
+  vb.SetText("RBDEL_SQ2", q2 ? q2 : "");
+  vb.SetText("RBDEL_SQ3", q3 ? q3 : "");
+  vb.SetText("RBDEL_SA1", a1 ? std::string_view(a1)
+                             : std::string_view(i18n::Text("common.yes")));
+  vb.SetText("RBDEL_SA2", a2 ? std::string_view(a2)
+                             : std::string_view(i18n::Text("common.no")));
 
   rex::CallFrame frame(*rex::runtime::ThreadState::Get()->context());
   rex::ppc::stack_guard guard(frame.ctx);
@@ -109,63 +91,56 @@ bool SysMesConfirm::Create(u32 parentTask, const char *q1, const char *q2,
   reinterpret_cast<SelMesWinConfig_t *>(base + configAddr)->defaultSel =
       static_cast<u32>(defaultSel);
 
-  task_ = bd::TaskRef(CreateSelMes(frame, base, parentTask, configAddr));
+  task_ = SelMesWinTask(CreateSelMes(frame, base, parentTask, configAddr));
 
-  auto *taskBase = task_.At<bd::TaskBase_t>();
-  auto *parentBase = bd::mem::at<bd::TaskBase_t>(parentTask);
-  if (!taskBase || !parentBase) {
+  if (!task_ || !parent) {
     BD_ERROR("[sysmes] SelMesWinTask_Create gave no usable task");
     task_.Reset();
     return false;
   }
-  taskBase->notifyParent = parentTask;
-  taskBase->notifyParentUID = parentBase->taskUID;
+  task_.SetNotifyParent(parent);
 
   BD_INFO("[sysmes] created SelMesWinTask at 0x{:08X} (parent=0x{:08X})",
           task_.Address(), parentTask);
   return true;
 }
 
+// A popup that no longer resolves reports done, so a screen waiting on one the
+// engine has already torn down moves on.
 bool SysMesConfirm::Poll() const {
-  const auto *t = task_.At<const SelMesWinTask_t>();
-  if (!t)
-    return true;
-  return t->confirmed != 0 || t->canceled != 0;
+  return !task_ || task_.Confirmed() || task_.Canceled();
 }
 
 bool SysMesConfirm::Confirmed() const {
-  const auto *t = task_.At<const SelMesWinTask_t>();
-  if (!t || t->confirmed == 0)
-    return false;
-  return SelectedAnswer() == 0;
+  return task_.Confirmed() && SelectedAnswer() == 0;
 }
+
+bool SysMesConfirm::Canceled() const { return task_.Canceled(); }
 
 int SysMesConfirm::SelectedAnswer() const {
-  const auto *t = task_.At<const SelMesWinTask_t>();
-  if (!t)
+  const CommandSelectTask select = task_.CommandSelect();
+  if (!select)
     return -1;
-  const u32 cmdSel = t->commandSelect;
-  const auto *sel = bd::mem::try_at<const CommandSelectTask_t>(cmdSel);
-  if (!sel)
-    return -1;
-  return static_cast<int>(sel->cursorIndex);
+  return select.CursorIndex();
 }
 
-bool SysMesNotice::Show(u32 parentTask, std::string_view line1,
+bool SysMesNotice::Show(const Task &parent, std::string_view line1,
                         std::string_view line2, std::string_view line3) {
   if (task_ && shown1_ == line1 && shown2_ == line2 && shown3_ == line3)
     return true;
   Kill();
+
+  const u32 parentTask = parent.Address();
 
   auto *memory = REX_KERNEL_MEMORY();
   if (!memory)
     return false;
   auto *base = memory->virtual_membase();
 
-  const u32 vb = D2AnimeTask(parentTask).VarBag();
-  VarBagSetText(vb, "RBNOT_S1", line1);
-  VarBagSetText(vb, "RBNOT_S2", line2);
-  VarBagSetText(vb, "RBNOT_S3", line3);
+  AnimeData vb = D2AnimeTask(parentTask).AnimeData();
+  vb.SetText("RBNOT_S1", line1);
+  vb.SetText("RBNOT_S2", line2);
+  vb.SetText("RBNOT_S3", line3);
 
   rex::CallFrame frame(*rex::runtime::ThreadState::Get()->context());
   rex::ppc::stack_guard guard(frame.ctx);
@@ -179,7 +154,7 @@ bool SysMesNotice::Show(u32 parentTask, std::string_view line1,
   u32 prefixAddr = rex::ppc::stack_push_string(frame.ctx, base, "RBNOT");
   LoadNormMesStrings(frame, base, configAddr, parentTask, prefixAddr);
 
-  task_ = bd::TaskRef(CreateNormMes(frame, base, parentTask, configAddr));
+  task_ = Task(CreateNormMes(frame, base, parentTask, configAddr));
   if (!task_) {
     BD_ERROR("[sysmes] NormMesWinTask_Create gave no usable task");
     return false;
@@ -197,7 +172,7 @@ void SysMesNotice::Kill() {
   const u32 addr = task_.Address();
   if (!addr)
     return;
-  bd::KillTask(addr);
+  task_.Kill();
   task_.Reset();
   shown1_.clear();
   shown2_.clear();
@@ -229,7 +204,7 @@ void SysMesConfirm::Kill() {
   const u32 addr = task_.Address();
   if (!addr)
     return;
-  bd::KillTask(addr);
+  task_.Kill();
   BD_INFO("[sysmes] killed SelMesWinTask at 0x{:08X}", addr);
   task_.Reset();
 }

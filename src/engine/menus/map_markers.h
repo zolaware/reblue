@@ -1,7 +1,7 @@
 /**
  * @file    engine/menus/map_markers.h
- * @brief   The minimap floor database and the marker swatches drawn from it,
- *          shared by the area map screen and the field compass.
+ * @brief   The marker swatches the area map screen and the field compass both
+ *          draw.
  *
  * @copyright   Copyright (c) 2026 Tom Clay <tomc@tctechstuff.com>
  *              All rights reserved.
@@ -9,70 +9,14 @@
  */
 #pragma once
 
-#include <cstddef>
-
 #include <rex/types.h>
 
-#include "core/memory_helpers.h"
 #include "engine/d2anime/anime_layout.h"
 #include "engine/gimmicks.h"
 #include "engine/guest_prim.h"
 #include "engine/guest_texlist.h"
 
 namespace bd::engine {
-
-// One floor of the area minimap: the database\minimap\db_dgXX_YY.mmp record
-// loaded beside a minimap\MM_dgXX_YY texture. Every field below is named by
-// MiniMapDB_RegisterMindowsNodes, and MiniMapTask__DrawWidget reads them in
-// this combination to place the compass crop.
-struct MiniMapDB_t {
-  /* 0x000 */ be_u32 kind;
-  /* 0x004 */ be_f32 texW; // TexSize
-  /* 0x008 */ be_f32 texH;
-  /* 0x00C */ be_f32 scaleX; // MapScale, the world extent the texture covers
-  /* 0x010 */ be_f32 scaleZ;
-  /* 0x014 */ be_f32 dispW; // DispSize, the compass crop half-extent
-  /* 0x018 */ be_f32 dispH;
-  /* 0x01C */ be_f32 offsetX; // OffSet, the world origin's place on the texture
-  /* 0x020 */ be_f32 offsetZ;
-  /* 0x024 */ be_f32 offsetRot;
-  /* 0x028 */ be_f32 plyRot;
-  /* 0x02C */ u8 _pad02C[0x764 - 0x02C];
-  /* 0x764 */ be_f32 texRot;
-  /* 0x768 */ u8 _pad768[0x794 - 0x768];
-  /* 0x794 */ be_u32 texEntries; // null until the .mmp and its texture resolve
-};
-static_assert(sizeof(MiniMapDB_t) == 0x798);
-static_assert(offsetof(MiniMapDB_t, offsetRot) == 0x024);
-static_assert(offsetof(MiniMapDB_t, texRot) == 0x764);
-static_assert(offsetof(MiniMapDB_t, texEntries) == 0x794);
-
-// Visual__SelectRenderTarget takes the holder eight bytes ahead of the entry
-// table it reads.
-constexpr u32 kFloorTexHolder = offsetof(MiniMapDB_t, texEntries) - 8;
-
-// MiniMapTask [FieldSceneCtl_t::miniMapTask], which owns the compass and every
-// floor of the area map.
-struct MiniMapTask_t {
-  /* 0x000 */ u8 _pad000[0x06C];
-  /* 0x06C */ be_u32 chromeTex; // ring, player arrow, target marker
-  /* 0x070 */ u8 _pad070[0x08C - 0x070];
-  /* 0x08C */ MiniMapDB_t baseFloor;
-  /* 0x824 */ u8 _pad824[0x83C - 0x824];
-  /* 0x83C */ mem::GuestVec<u32> floors; // the MM_dgXX_YY_NN sub-floors
-  /* 0x848 */ be_u32 floor; // null until an area map loads
-  /* 0x84C */ u8 _pad84C[0x850 - 0x84C];
-  /* 0x850 */ be_u32 category; // identity triple: a repeat call with the same
-  /* 0x854 */ be_u32 areaHi;   // values returns early instead of reloading
-  /* 0x858 */ be_u32 areaLo;
-};
-static_assert(offsetof(MiniMapTask_t, chromeTex) == 0x06C);
-static_assert(offsetof(MiniMapTask_t, baseFloor) == 0x08C);
-static_assert(offsetof(MiniMapTask_t, floors) == 0x83C);
-static_assert(offsetof(MiniMapTask_t, floor) == 0x848);
-static_assert(offsetof(MiniMapTask_t, category) == 0x850);
-static_assert(offsetof(MiniMapTask_t, areaHi) == 0x854);
-static_assert(offsetof(MiniMapTask_t, areaLo) == 0x858);
 
 // Slots of the chrome texture holder as MiniMapTask__DrawWidget binds them: 1
 // ring, 2 player arrow, 3 destination marker.
@@ -129,7 +73,7 @@ constexpr float kLegendMarkerHalf = 10.5f; // ~21x21 in the legend
 
 u32 DotColor(GimmickKind kind);
 
-// A run of quads at descending z, drawn through the guest's own 2D prim path.
+// A run of quads at descending z, drawn through the engine's own 2D prim path.
 // Caller must have bound the sheet with PrimSelectTexture.
 struct QuadWriter {
   u32 texture = 0;
@@ -162,8 +106,5 @@ void DrawMarkerShape(QuadWriter &out, GimmickKind kind, float x, float y,
 
 // A marker is on the map only while it is still there to find.
 bool MarkerVisible(const Marker &mk);
-
-// Whether a floor's record and the texture it names have both resolved.
-bool FloorReady(u32 db);
 
 } // namespace bd::engine

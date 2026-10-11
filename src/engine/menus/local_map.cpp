@@ -22,45 +22,38 @@
 
 #include "core/i18n.h"
 #include "core/memory_helpers.h"
-#include "core/task_layout.h"
 #include "engine/d2anime/anime_mouse.h"
 #include "engine/d2anime/d2anime.h"
-#include "engine/field.h"
+#include "engine/game.h"
 #include "engine/gimmicks.h"
 #include "engine/glyph_set.h"
 #include "engine/guest_texlist.h"
 #include "engine/menus/local_map.h"
 #include "engine/menus/local_map_layout.h"
 #include "engine/menus/map_markers.h"
+#include "engine/menus/mechatt_map_main_task.h"
+#include "engine/mini_map_task.h"
+#include "engine/script.h"
 #include "engine/settings.h"
 #include "engine/sfx.h"
-#include "engine/state_layout.h"
+#include "engine/task.h"
 #include "gpu/gpu.h"
 
 REX_IMPORT(__imp__AnimeVarBag_FindChildByName, VarBagFindChild, u32(u32, u32));
 
-REX_EXTERN(__imp__WorldMapScreenTask__vf02_Update);
-REX_EXTERN(__imp__WorldMapScreenTask__vf03);
+REX_EXTERN(__imp__MechattMap__MainTask__Update);
+REX_EXTERN(__imp__MechattMap__MainTask__Draw);
 REX_EXTERN(__imp__WorldMapScreen_ApplyReduceLayout);
 
 namespace bd::engine {
 
 namespace {
 
-constexpr u32 kAnime_Visible = offsetof(D2AnimeTask_t, visible);
-
-// WorldMapScreenTask
-constexpr u32 kWms_State = 0x06C;
-// The screen's two L_wrmap.csv D2AnimeTasks, which WorldMapScreen_LoadLayouts
-// fills with the same variables. The fade one carries the open and the close,
-// the other the settled map, so the area view has to veil both.
-constexpr u32 kWms_Fade = 0x078;
-constexpr u32 kWms_Layout = 0x07C;
-constexpr u32 kWmsLayouts[] = {kWms_Fade, kWms_Layout};
-constexpr int kWmsLayoutCount = static_cast<int>(std::size(kWmsLayouts));
 // The two states that read the pad. Every other one is a transition.
-constexpr u32 kWmsStateReduced = 1;
-constexpr u32 kWmsStateEnlarged = 4;
+constexpr u32 kStateReduced = 1;
+constexpr u32 kStateEnlarged = 4;
+
+constexpr int kLayoutCount = 2;
 
 // d2anime\wrmap\L_wrmap.csv 'MapPos': the parchment window the world map image
 // fills, which is the frame ours has to stay inside. Its priority is the prim
@@ -171,15 +164,6 @@ std::string CountLine(std::string_view stem) {
   return out;
 }
 
-u32 MiniMapTaskAddr() {
-  const u32 fsc = mem::load<u32>(addr::kFieldSceneCtl);
-  return mem::try_field<u32>(fsc, offsetof(FieldSceneCtl_t, miniMapTask));
-}
-
-u32 LayoutTask(u32 screenTask) {
-  return mem::try_field<u32>(screenTask, kWms_Layout);
-}
-
 // The world map screen's area map view. It owns the pad while it is up: the
 // screen's own update never runs, so the stock zoom and the stock exit stay off
 // until LT or B hands the screen back.
@@ -191,13 +175,13 @@ public:
   }
 
   // True when the area map consumed this frame's input.
-  bool Update(u32 screenTask);
-  void Draw(u32 screenTask);
+  bool Update(const MechattMapMainTask &screen);
+  void Draw(const MechattMapMainTask &screen);
 
 private:
   struct HiddenAnime {
-    bd::TaskRef task;
-    u32 visible;
+    D2AnimeTask task;
+    bool visible;
   };
 
   void Enter();
@@ -205,17 +189,17 @@ private:
   void HideVanillaAnime();
   void RestoreVanillaAnime();
   void CollectFloors();
-  u32 SelectedFloor() const;
+  MiniMapDB SelectedFloor() const;
   int SelectedIndex() const;
   void ApplyScreenVars(bool areaMap);
-  gpu::TextureContent FloorContent(u32 db, u32 texture);
-  void LoadPrompts(u32 screenTask);
+  gpu::TextureContent FloorContent(const MiniMapDB &db, u32 texture);
+  void LoadPrompts(const MechattMapMainTask &screen);
   void SyncPrompts(bool available);
   bool StepFloor(int delta);
   void Pan();
 
   bool active_ = false;
-  bd::TaskRef screen_;
+  MechattMapMainTask screen_;
   std::string title_;
   std::string counts_;
   std::vector<Marker> markers_;
@@ -224,15 +208,15 @@ private:
   int floor_ = -1; // -1 follows the floor the engine itself picked
   float panU_ = 0.5f;
   float panV_ = 0.5f;
-  std::vector<u32> floors_;
-  std::vector<std::pair<u32, gpu::TextureContent>> content_;
+  std::vector<MiniMapDB> floors_;
+  std::vector<std::pair<MiniMapDB, gpu::TextureContent>> content_;
   std::vector<HiddenAnime> hidden_;
 
   // Stock values saved on entry, one per layout, since which world map shows
   // and whether the screen offers zoom are the screen's own business.
-  float worldFlg_[kWmsLayoutCount] = {1.0f, 1.0f};
-  float cubeFlg_[kWmsLayoutCount] = {-1.0f, -1.0f};
-  float alphaLBRB_[kWmsLayoutCount] = {255.0f, 255.0f};
+  f32 worldFlg_[kLayoutCount] = {1.0f, 1.0f};
+  f32 cubeFlg_[kLayoutCount] = {-1.0f, -1.0f};
+  f32 alphaLBRB_[kLayoutCount] = {255.0f, 255.0f};
 
   D2AnimeTask prompts_;
   bool mounted_ = false;
@@ -241,37 +225,34 @@ private:
 
 void AreaMap::CollectFloors() {
   floors_.clear();
-  const u32 miniMap = MiniMapTaskAddr();
-  const auto *task = mem::try_at<const MiniMapTask_t>(miniMap);
-  if (!task || static_cast<u32>(task->floor) == 0)
+  const ScriptManTask root = Game::Get().ScriptManTask();
+  const MiniMapTask miniMap = root.MiniMap();
+  if (!miniMap.Floor())
     return;
 
   // Nothing calls LoadAreaFloors for the world map, so a dungeon's floors
   // outlive it. The identity triple names the stage they were loaded for.
-  const engine::Stage stage = engine::Field().Stage();
-  if (!stage || static_cast<u32>(task->category) != stage.Category() ||
-      static_cast<u32>(task->areaHi) != stage.Area() ||
-      static_cast<u32>(task->areaLo) != stage.Sub())
+  const engine::Script script = root.Script();
+  if (!script || miniMap.Category() != script.Category() ||
+      miniMap.AreaHi() != script.Area() || miniMap.AreaLo() != script.Sub())
     return;
 
   // MiniMapTask_SelectCurrentFloorDB walks the sub-floor vector and falls back
   // to the inline base map, so the traversal order is the base map first.
-  const u32 base = miniMap + offsetof(MiniMapTask_t, baseFloor);
-  if (FloorReady(base))
+  const MiniMapDB base = miniMap.BaseFloor();
+  if (base.Ready())
     floors_.push_back(base);
 
-  for (u32 i = 0; i < task->floors.size(); ++i) {
-    const u32 db = task->floors[i];
-    if (FloorReady(db))
+  for (const MiniMapDB &db : miniMap.Floors())
+    if (db.Ready())
       floors_.push_back(db);
-  }
 }
 
 // One scan per floor per opening, so a floor measured before its texels landed
 // is measured again the next time.
-gpu::TextureContent AreaMap::FloorContent(u32 db, u32 texture) {
+gpu::TextureContent AreaMap::FloorContent(const MiniMapDB &db, u32 texture) {
   for (const auto &entry : content_)
-    if (entry.first == db)
+    if (entry.first.Address() == db.Address())
       return entry.second;
 
   gpu::TextureContent rect = gpu::TextureContent::Scan(texture);
@@ -283,16 +264,15 @@ gpu::TextureContent AreaMap::FloorContent(u32 db, u32 texture) {
   return rect;
 }
 
-u32 AreaMap::SelectedFloor() const {
+MiniMapDB AreaMap::SelectedFloor() const {
   if (floors_.empty())
-    return 0;
+    return {};
   if (floor_ >= 0 && floor_ < static_cast<int>(floors_.size()))
     return floors_[floor_];
 
-  const u32 live =
-      mem::try_field<u32>(MiniMapTaskAddr(), offsetof(MiniMapTask_t, floor));
-  for (u32 db : floors_)
-    if (db == live)
+  const MiniMapDB live = Game::Get().ScriptManTask().MiniMap().Floor();
+  for (const MiniMapDB &db : floors_)
+    if (db.Address() == live.Address())
       return db;
   return floors_.front();
 }
@@ -303,10 +283,10 @@ int AreaMap::SelectedIndex() const {
   if (floor_ >= 0 && floor_ < static_cast<int>(floors_.size()))
     return floor_;
 
-  const u32 live = SelectedFloor();
+  const MiniMapDB live = SelectedFloor();
   int index = 0;
   for (size_t i = 0; i < floors_.size(); ++i)
-    if (floors_[i] == live)
+    if (floors_[i].Address() == live.Address())
       index = static_cast<int>(i);
   return index;
 }
@@ -329,73 +309,68 @@ void AreaMap::ApplyScreenVars(bool areaMap) {
   const u32 headerName = rex::ppc::stack_push_string("wrmap_hdr");
   const u32 footerName = rex::ppc::stack_push_string("wrmap_ftr");
 
-  for (int i = 0; i < kWmsLayoutCount; ++i) {
-    D2AnimeTask layout(mem::try_field<u32>(screen_.Address(), kWmsLayouts[i]));
+  const D2AnimeTask layouts[kLayoutCount] = {screen_.Fade(), screen_.Layout()};
+  for (int i = 0; i < kLayoutCount; ++i) {
+    const D2AnimeTask &layout = layouts[i];
     if (!layout)
       continue;
-    const u32 bag = layout.VarBag();
+    AnimeData bag = layout.AnimeData();
 
     if (areaMap) {
-      VarBagGetFloat(bag, "WorldFlg", &worldFlg_[i]);
-      VarBagGetFloat(bag, "CubeFlg", &cubeFlg_[i]);
-      VarBagSetFloat(bag, "WorldFlg", -1.0);
-      VarBagSetFloat(bag, "CubeFlg", -1.0);
+      if (const auto v = bag.Float("WorldFlg"))
+        worldFlg_[i] = *v;
+      if (const auto v = bag.Float("CubeFlg"))
+        cubeFlg_[i] = *v;
+      bag.SetFloat("WorldFlg", -1.0);
+      bag.SetFloat("CubeFlg", -1.0);
     } else {
-      VarBagSetFloat(bag, "WorldFlg", worldFlg_[i]);
-      VarBagSetFloat(bag, "CubeFlg", cubeFlg_[i]);
+      bag.SetFloat("WorldFlg", worldFlg_[i]);
+      bag.SetFloat("CubeFlg", cubeFlg_[i]);
     }
-    VarBagSetFloat(bag, "posx", areaMap ? kLegendParked : kLegendHome);
+    bag.SetFloat("posx", areaMap ? kLegendParked : kLegendHome);
 
-    const u32 header = VarBagFindChild(bag, headerName);
+    AnimeData header(VarBagFindChild(bag.Address(), headerName));
     if (header)
-      VarBagSetFloat(header, "alpha", areaMap ? 0.0 : 255.0);
+      header.SetFloat("alpha", areaMap ? 0.0 : 255.0);
     // Cube world has no zoom and its prompt is already dark, so a fixed 255
     // would light one for a zoom the screen refuses to run.
-    const u32 footer = VarBagFindChild(bag, footerName);
+    AnimeData footer(VarBagFindChild(bag.Address(), footerName));
     if (footer) {
-      if (areaMap)
-        VarBagGetFloat(footer, "alpha_LBRB", &alphaLBRB_[i]);
-      VarBagSetFloat(footer, "alpha_LBRB", areaMap ? 0.0 : alphaLBRB_[i]);
+      if (areaMap) {
+        if (const auto v = footer.Float("alpha_LBRB"))
+          alphaLBRB_[i] = *v;
+      }
+      footer.SetFloat("alpha_LBRB", areaMap ? 0.0 : alphaLBRB_[i]);
     }
   }
 }
 
-// One task per marker, all parented to the screen, so one walk of the child
-// list reaches every one. Both layouts stay, since their frame, header and
-// footer are the chrome the area map keeps.
-//
-// Clearing the visible flag on the fade layout would deadlock the screen:
-// vf03 raises drawDirty and vf02 only advances the timeline when it is raised,
-// so an invisible task never reports finished and WorldMapScreenTask__vf02
-// waits on that to leave the transition. Writing the flag rather than calling
-// SetVisibleAndPlay leaves each marker's timeline where it was, so nothing
-// replays its intro on the way back.
 void AreaMap::HideVanillaAnime() {
   hidden_.clear();
-  const u32 screen = screen_.Address();
-  const u32 layout = LayoutTask(screen);
-  const u32 vtable = TaskVtable(layout);
+  const u32 layout = screen_.Layout().Address();
+  const u32 vtable = Task(layout).Vtable();
   if (!vtable)
     return;
 
-  const u32 fade = mem::try_field<u32>(screen, kWms_Fade);
-  const u32 keep = prompts_.guest_address();
-  for (u32 child = FirstChild(screen); child; child = NextSibling(child)) {
-    if (child == layout || child == fade || child == keep)
+  const u32 fade = screen_.Fade().Address();
+  const u32 keep = prompts_.Address();
+  for (Task child : screen_.Children()) {
+    const u32 addr = child.Address();
+    if (addr == layout || addr == fade || addr == keep)
       continue;
-    if (TaskVtable(child) != vtable)
+    if (child.Vtable() != vtable)
       continue;
-    hidden_.push_back(
-        {bd::TaskRef(child), mem::try_field<u32>(child, kAnime_Visible)});
+    D2AnimeTask anime(addr);
+    hidden_.push_back({anime, anime.IsVisible()});
   }
-  for (const HiddenAnime &anime : hidden_)
-    mem::try_store<u32>(anime.task.Address() + kAnime_Visible, 0);
+  for (HiddenAnime &anime : hidden_)
+    anime.task.SetVisible(false);
 }
 
 void AreaMap::RestoreVanillaAnime() {
-  for (const HiddenAnime &anime : hidden_) {
+  for (HiddenAnime &anime : hidden_) {
     if (anime.task)
-      mem::try_store<u32>(anime.task.Address() + kAnime_Visible, anime.visible);
+      anime.task.SetVisible(anime.visible);
   }
   hidden_.clear();
 }
@@ -410,9 +385,9 @@ void AreaMap::Enter() {
   // MiniMapTask_LoadAreaFloors loads only the stage the player is in, so
   // the map on screen is always this stage's, and nothing on it changes while
   // it is up.
-  const engine::Stage stage = engine::Field().Stage();
-  const std::string stem = stage.Name();
-  title_ = stage.DisplayName();
+  const engine::Script script = Game::Get().ScriptManTask().Script();
+  const std::string stem = script.Name();
+  title_ = script.DisplayName();
   if (title_.empty())
     title_ = i18n::Text("map.area");
   counts_ = CountLine(stem);
@@ -433,7 +408,7 @@ void AreaMap::Leave() {
   ApplyScreenVars(false);
 }
 
-void AreaMap::LoadPrompts(u32 screenTask) {
+void AreaMap::LoadPrompts(const MechattMapMainTask &screen) {
   // Before the CSV is generated: the prompt labels come from the catalog.
   i18n::SyncLocale();
 
@@ -444,7 +419,7 @@ void AreaMap::LoadPrompts(u32 screenTask) {
     mounted_ = true;
   }
 
-  prompts_ = D2AnimeTask::Load(screenTask, kLocalMapPromptCSV);
+  prompts_ = D2AnimeTask::Load(screen, kLocalMapPromptCSV);
 }
 
 void AreaMap::SyncPrompts(bool available) {
@@ -511,10 +486,10 @@ void AreaMap::Pan() {
   panV_ = std::clamp(panV_, 0.0f, 1.0f);
 }
 
-bool AreaMap::Update(u32 screenTask) {
+bool AreaMap::Update(const MechattMapMainTask &screen) {
   // A new field scene builds a new screen, and nothing of ours survives it.
   // The heap recycles screen addresses, so the check is on identity.
-  if (screen_.Rebind(screenTask)) {
+  if (screen_.Rebind(screen.Address())) {
     active_ = false;
     floors_.clear();
     content_.clear();
@@ -526,11 +501,11 @@ bool AreaMap::Update(u32 screenTask) {
     // Ahead of the state gate, so the CSV and its textures get the whole open
     // transition to settle. Loading on the first interactive frame instead
     // costs the prompt its first moments on screen.
-    LoadPrompts(screenTask);
+    LoadPrompts(screen);
   }
 
-  const u32 state = mem::try_field<u32>(screenTask, kWms_State);
-  const bool live = state == kWmsStateReduced || state == kWmsStateEnlarged;
+  const u32 state = screen.State();
+  const bool live = state == kStateReduced || state == kStateEnlarged;
   if (!live) {
     // The screen has left the two states that read the pad, so whatever veil
     // the area view put on it has to come off with it.
@@ -564,7 +539,7 @@ bool AreaMap::Update(u32 screenTask) {
 
   // The footer keeps the screen's own cancel prompt, so cancel has to keep
   // closing the screen. Standing down first hands the frame back intact.
-  if (CheckButton(Button::B)) {
+  if (CheckAction(Action::Cancel)) {
     Leave();
     return false;
   }
@@ -595,47 +570,49 @@ bool AreaMap::Update(u32 screenTask) {
   return true;
 }
 
-void AreaMap::Draw(u32 screenTask) {
-  if (!active_ || !screen_.Is(screenTask))
+void AreaMap::Draw(const MechattMapMainTask &screen) {
+  if (!active_ || !screen_.Is(screen.Address()))
     return;
-  const u32 db = SelectedFloor();
-  if (!FloorReady(db))
+  const MiniMapDB db = SelectedFloor();
+  if (!db.Ready())
     return;
-  const auto *m = mem::try_at<const MiniMapDB_t>(db);
 
-  PrimSelectTexture(0, db + kFloorTexHolder);
+  PrimSelectTexture(0, db.TexHolderAddress());
   const u32 floorTex = mem::load<u32>(PrimState() + kPrim_Texture);
   const gpu::TextureContent content = FloorContent(db, floorTex);
 
-  // MiniMapTask__DrawWidget turns its crop by TexRot alone, over a world-axis
-  // raster: OffSet.rot turns only the marker offsets drawn on top.
-  const float rot = float(m->texRot) * kDegToRad;
+  const f32 rot = db.TexRot() * kDegToRad;
   const float cosA = std::cos(rot);
   const float sinA = std::sin(rot);
   const float absCos = std::fabs(cosA);
   const float absSin = std::fabs(sinA);
 
-  const float artW = float(m->texW) * content.Width();
-  const float artH = float(m->texH) * content.Height();
+  const f32 artW = db.TexW() * content.Width();
+  const f32 artH = db.TexH() * content.Height();
   const float fit =
       std::min({kMapAreaW / (artW * absCos + artH * absSin),
                 kFrameH / (artW * absSin + artH * absCos), kMaxMapMagnify});
-  const float halfW = artW * fit * 0.5f;
-  const float halfH = artH * fit * 0.5f;
   const float centerX = kFrameX + kFrameW * 0.5f - kMapCenterOffsetX;
   const float centerY = kFrameY + kFrameH * 0.5f;
 
-  // Zoom shrinks the sampled window rather than the quad, so the map never
-  // spills past the parchment and the UVs never leave the art.
-  const float half = 0.5f / kZoomSteps[zoom_];
-  const float panU = std::clamp(panU_, half, 1.0f - half);
-  const float panV = std::clamp(panV_, half, 1.0f - half);
+  const float zoom = kZoomSteps[zoom_];
+  const bool sideways = absSin > absCos;
+  const float roomW = sideways ? kFrameH : kMapAreaW;
+  const float roomH = sideways ? kMapAreaW : kFrameH;
+  const float drawW = std::min(artW * fit * zoom, roomW);
+  const float drawH = std::min(artH * fit * zoom, roomH);
+  const float halfW = drawW * 0.5f;
+  const float halfH = drawH * 0.5f;
+  const float halfU = drawW / (artW * fit * zoom) * 0.5f;
+  const float halfV = drawH / (artH * fit * zoom) * 0.5f;
+  const float panU = std::clamp(panU_, halfU, 1.0f - halfU);
+  const float panV = std::clamp(panV_, halfV, 1.0f - halfV);
   const float windowU = content.u0 + panU * content.Width();
   const float windowV = content.v0 + panV * content.Height();
-  const float u0 = content.u0 + (panU - half) * content.Width();
-  const float u1 = content.u0 + (panU + half) * content.Width();
-  const float v0 = content.v0 + (panV - half) * content.Height();
-  const float v1 = content.v0 + (panV + half) * content.Height();
+  const float u0 = content.u0 + (panU - halfU) * content.Width();
+  const float u1 = content.u0 + (panU + halfU) * content.Width();
+  const float v0 = content.v0 + (panV - halfV) * content.Height();
+  const float v1 = content.v0 + (panV + halfV) * content.Height();
 
   // Screen space from the map's own, matching XMMatrixRotationY on the row
   // vector bdMatrixRotateAxis hands the compass.
@@ -644,7 +621,7 @@ void AreaMap::Draw(u32 screenTask) {
     *outY = centerY - x * sinA + y * cosA;
   };
   // The body draws at half alpha and ramps to nothing at the left and right
-  // edges. The guest 2D path has no gradient of its own, so the ramp is three
+  // edges. The engine 2D path has no gradient of its own, so the ramp is three
   // quads whose vertex colors meet.
   constexpr u32 kMapBodyColor = 0x80FFFFFFu;
   constexpr u32 kMapEdgeColor = 0x00FFFFFFu;
@@ -659,10 +636,10 @@ void AreaMap::Draw(u32 screenTask) {
 
   // World to texture by the map's offset and scale, then into the zoom and pan
   // window. False when it falls outside.
-  const float offsetX = m->offsetX;
-  const float offsetZ = m->offsetZ;
-  const float invScaleX = 1.0f / float(m->scaleX);
-  const float invScaleZ = 1.0f / float(m->scaleZ);
+  const float offsetX = db.OffsetX();
+  const float offsetZ = db.OffsetZ();
+  const float invScaleX = 1.0f / db.ScaleX();
+  const float invScaleZ = 1.0f / db.ScaleZ();
   const float spanX = halfW * 2.0f / (u1 - u0);
   const float spanY = halfH * 2.0f / (v1 - v0);
   const auto toScreen = [&](float worldX, float worldZ, float *outX,
@@ -693,13 +670,12 @@ void AreaMap::Draw(u32 screenTask) {
        kMapBodyColor);
   band(halfW - fadeX, halfW, u1 - fadeU, u1, kMapBodyColor, kMapEdgeColor);
 
-  const u32 miniMap = MiniMapTaskAddr();
+  const MiniMapTask miniMap = Game::Get().ScriptManTask().MiniMap();
   if (!miniMap)
     return;
 
   if (Settings::Get().MapGimmickMarkers()) {
-    PrimSelectTexture(kChromeMarker,
-                      miniMap + offsetof(MiniMapTask_t, chromeTex));
+    PrimSelectTexture(kChromeMarker, miniMap.ChromeTexAddress());
     const u32 shapeTex = mem::load<u32>(PrimState() + kPrim_Texture);
 
     // The legend swatch is a key rather than a marker, so it holds the
@@ -723,10 +699,10 @@ void AreaMap::Draw(u32 screenTask) {
     }
   }
 
-  const Field field;
-  if (!field.HasPlayer())
+  const Player leader = Game::Get().FieldPlayerEntity().Leader().Chara();
+  if (!leader)
     return;
-  const Vec3 player = field.Position();
+  const Vec3 player = leader.Position();
 
   float markerX = 0.0f;
   float markerY = 0.0f;
@@ -735,8 +711,8 @@ void AreaMap::Draw(u32 screenTask) {
 
   // PlyRot defaults to OffSet.rot, which the map is not turned by.
   const float heading =
-      float(m->texRot) * kDegToRad + field.Rotation()[1] - kHalfPi;
-  PrimSelectTexture(kChromeArrow, miniMap + offsetof(MiniMapTask_t, chromeTex));
+      db.TexRot() * kDegToRad + leader.Rotation()[1] - kHalfPi;
+  PrimSelectTexture(kChromeArrow, miniMap.ChromeTexAddress());
   PrimDrawRectRotated(markerX, markerY, kPlayerZ, kMarkerSize, kMarkerSize,
                       heading, 0, 0, 0, 0, 0, 0, kOpaqueWhite);
 }
@@ -744,13 +720,13 @@ void AreaMap::Draw(u32 screenTask) {
 // ApplyReduceLayout resets the rest of the zoom crossfade but not its alphas.
 // L_wrmap draws the cube-world map on Map1Alpha alone, so a stranded 0 blanks
 // it, while the overworld map, drawn on both alphas, never shows the fault.
-void RestoreMapCrossfade(u32 screenTask) {
-  D2AnimeTask layout(mem::try_field<u32>(screenTask, kWms_Layout));
+void RestoreMapCrossfade(const MechattMapMainTask &screen) {
+  const D2AnimeTask layout = screen.Layout();
   if (!layout)
     return;
-  const u32 bag = layout.VarBag();
-  VarBagSetFloat(bag, "Map1Alpha", 255.0);
-  VarBagSetFloat(bag, "Map2Alpha", 0.0);
+  AnimeData bag = layout.AnimeData();
+  bag.SetFloat("Map1Alpha", 255.0);
+  bag.SetFloat("Map2Alpha", 0.0);
 }
 
 } // namespace
@@ -766,24 +742,24 @@ void AreaMapTick() {
 
 } // namespace bd::engine
 
-// The hooks stay raw: they call guest code on the hook's own stack, which
+// The hooks stay raw: they call engine code on the hook's own stack, which
 // only ctx carries.
 
-REX_HOOK_RAW(WorldMapScreenTask__vf02_Update) {
-  const u32 screenTask = ctx.r3.u32;
-  if (bd::engine::AreaMap::Get().Update(screenTask))
+REX_HOOK_RAW(MechattMap__MainTask__Update) {
+  const bd::engine::MechattMapMainTask screen(ctx.r3.u32);
+  if (bd::engine::AreaMap::Get().Update(screen))
     return;
-  __imp__WorldMapScreenTask__vf02_Update(ctx, base);
+  __imp__MechattMap__MainTask__Update(ctx, base);
 }
 
-REX_HOOK_RAW(WorldMapScreenTask__vf03) {
-  const u32 screenTask = ctx.r3.u32;
-  __imp__WorldMapScreenTask__vf03(ctx, base);
-  bd::engine::AreaMap::Get().Draw(screenTask);
+REX_HOOK_RAW(MechattMap__MainTask__Draw) {
+  const bd::engine::MechattMapMainTask screen(ctx.r3.u32);
+  __imp__MechattMap__MainTask__Draw(ctx, base);
+  bd::engine::AreaMap::Get().Draw(screen);
 }
 
 REX_HOOK_RAW(WorldMapScreen_ApplyReduceLayout) {
-  const u32 screenTask = ctx.r3.u32;
+  const bd::engine::MechattMapMainTask screen(ctx.r3.u32);
   __imp__WorldMapScreen_ApplyReduceLayout(ctx, base);
-  bd::engine::RestoreMapCrossfade(screenTask);
+  bd::engine::RestoreMapCrossfade(screen);
 }
