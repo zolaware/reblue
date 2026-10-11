@@ -41,7 +41,7 @@ enum class RowUi : int {
   Action,
 };
 
-enum class SettingAction { None, Keybinds };
+enum class SettingAction { None, Keybinds, ResetCheats };
 
 const char *SettingsPageLabel(SettingsPage page);
 

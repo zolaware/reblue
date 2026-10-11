@@ -613,7 +613,8 @@ constexpr SettingRow kCheatSettings[] = {
      .binding = {.get = [] { return engine::Cheats::Get().InfiniteGold() ? 1.0 : 0.0; },
                  .set = [](double v) { return engine::Cheats::Get().SetInfiniteGold(v != 0.0); }},
      .options = kOffOn,
-     .count = OptCount(kOffOn)},    {.label = "settings.cheats.infinite_medals.label",
+     .count = OptCount(kOffOn)},
+    {.label = "settings.cheats.infinite_medals.label",
      .group = "menu.header.cheats_progress",
      .binding = {.get = [] { return engine::Cheats::Get().InfiniteMedals() ? 1.0 : 0.0; },
                  .set = [](double v) { return engine::Cheats::Get().SetInfiniteMedals(v != 0.0); }},
@@ -704,6 +705,13 @@ constexpr SettingRow kCheatSettings[] = {
                  .set = [](double v) { return engine::Cheats::Get().SetResetAchievements(v != 0.0); }},
      .options = kActionOnce,
      .count = OptCount(kActionOnce)},
+
+    // A plain action row: A or a click asks for confirmation, then every cheat
+    // cvar goes back to its default (toggles off, multipliers at 1).
+    {.label = "settings.cheats.reset_all.label",
+     .group = "menu.header.cheats_general",
+     .kind = SettingKind::Action,
+     .action = SettingAction::ResetCheats},
 };
 
 constexpr SettingRow kDisplaySettings[] = {

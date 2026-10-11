@@ -501,6 +501,36 @@ void Cheats::AdoptCvars() {
   AdoptResetAchievements();
 }
 
+void Cheats::ResetAll() {
+  // One name per cheat cvar, mirroring kCheatSettings row for row, so a value
+  // written from the console is cleared along with it. bd_cheat_diag stays
+  // put: it logs this reset rather than being part of it.
+  static constexpr const char *kNames[] = {
+      "bd_cheat_invincible",       "bd_cheat_infinite_mp",
+      "bd_cheat_infinite_gold",    "bd_cheat_status_immune",
+      "bd_cheat_unlock_classes",   "bd_cheat_one_hit_kill",
+      "bd_cheat_attack_mult",      "bd_cheat_magic_attack_mult",
+      "bd_cheat_defence_mult",     "bd_cheat_magic_defence_mult",
+      "bd_cheat_agility_mult",     "bd_cheat_stat_bonus",
+      "bd_cheat_exp_mult",         "bd_cheat_sp_mult",
+      "bd_cheat_gold_mult",        "bd_cheat_medals_mult",
+      "bd_cheat_infinite_medals",  "bd_cheat_infinite_items",
+      "bd_cheat_give_all_items",   "bd_cheat_unlock_achievements",
+      "bd_cheat_reset_achievements", "bd_cheat_give_heal",
+      "bd_cheat_give_usable",      "bd_cheat_give_spellbook",
+      "bd_cheat_give_arm",         "bd_cheat_give_finger",
+      "bd_cheat_give_ear",         "bd_cheat_give_neck",
+      "bd_cheat_give_chest",       "bd_cheat_give_valuable"};
+
+  for (const char *name : kNames)
+    rex::cvar::ResetToDefault(name);
+  // ResetToDefault writes storage without firing the change callbacks, so
+  // re-read what it stored.
+  AdoptCvars();
+  BD_CHEAT_DIAG("[cheat-diag] reset_all: {} cvars back to defaults",
+                std::size(kNames));
+}
+
 void Cheats::Init() {
   AdoptCvars();
 

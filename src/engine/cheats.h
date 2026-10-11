@@ -47,6 +47,12 @@ public:
   // storage without firing a change callback.
   void AdoptCvars();
 
+  // Puts every cheat back to its compile-time default -- toggles off,
+  // multipliers at 1 -- and re-reads them. The config menu's reset-all row
+  // goes through here; bd_cheat_diag is left alone so it can still log the
+  // reset that just happened.
+  void ResetAll();
+
   bool Invincible() const { return invincible_; }
   bool SetInvincible(bool v);
 
