@@ -362,21 +362,23 @@ void Cheats::AdoptInfiniteItems() {
 }
 void Cheats::AdoptGiveAllItems() {
   giveAllItems_ = REXCVAR_GET(bd_cheat_give_all_items);
-  // Armed here, run from Apply: the setting can change at the title, long
-  // before there is any save data to write into.
-  if (giveAllItems_)
-    pendingGiveAll_ = true;
+  // Mirrors the setting rather than only arming on true, so turning it off --
+  // by hand or from ResetAll -- cancels a queued fill. Armed here, run from
+  // Apply: the setting can change at the title, long before there is any save
+  // data to write into.
+  pendingGiveAll_ = giveAllItems_;
 }
 void Cheats::AdoptGrants() {
-  // Armed here, run from Apply, for the same reason GiveAllItems is: the row
-  // can be set at the title with no save data to write into yet.
+  // Mirrors the settings rather than only arming on true, so turning a grant
+  // off -- by hand or from ResetAll -- cancels its queued fill. Armed here, run
+  // from Apply, for the same reason GiveAllItems is: the row can be set at the
+  // title with no save data to write into yet.
+  u32 pending = 0;
   for (u32 i = 0; i < std::size(kGrantEntries); ++i) {
-    bool on = false;
     if (rex::cvar::GetFlagByName(kGrantEntries[i].cvar) == "true")
-      on = true;
-    if (on)
-      pendingGrants_ |= (1u << i);
+      pending |= (1u << i);
   }
+  pendingGrants_ = pending;
 }
 
 bool Cheats::Grant(ItemCategory c) const {
@@ -395,8 +397,8 @@ bool Cheats::SetGrant(ItemCategory c, bool v) {
 
 void Cheats::AdoptUnlockAchievements() {
   unlockAchievements_ = REXCVAR_GET(bd_cheat_unlock_achievements);
-  if (unlockAchievements_)
-    pendingAchievements_ = true;
+  // Mirrors the setting so turning it off cancels a queued award.
+  pendingAchievements_ = unlockAchievements_;
 }
 
 bool Cheats::SetUnlockAchievements(bool v) {
@@ -406,8 +408,8 @@ bool Cheats::SetUnlockAchievements(bool v) {
 
 void Cheats::AdoptResetAchievements() {
   resetAchievements_ = REXCVAR_GET(bd_cheat_reset_achievements);
-  if (resetAchievements_)
-    pendingResetAchv_ = true;
+  // Mirrors the setting so turning it off cancels a queued wipe.
+  pendingResetAchv_ = resetAchievements_;
 }
 
 bool Cheats::SetResetAchievements(bool v) {
@@ -477,58 +479,32 @@ bool Cheats::SetGiveAllItems(bool v) {
 }
 
 void Cheats::AdoptCvars() {
-  AdoptInvincible();
-  AdoptInfiniteMP();
-  AdoptInfiniteGold();
-  AdoptStatusImmune();
-  AdoptUnlockClasses();
-  AdoptOneHitKill();
-  AdoptAttackMult();
-  AdoptMagicAttackMult();
-  AdoptDefenceMult();
-  AdoptMagicDefenceMult();
-  AdoptAgilityMult();
-  AdoptStatBonus();
-  AdoptExpMult();
-  AdoptSpMult();
-  AdoptGoldMult();
-  AdoptMedalsMult();
-  AdoptInfiniteMedals();
-  AdoptInfiniteItems();
-  AdoptGiveAllItems();
+  for (const auto &entry : kCvars)
+    (this->*entry.adopt)();
   AdoptGrants();
-  AdoptUnlockAchievements();
-  AdoptResetAchievements();
 }
 
 void Cheats::ResetAll() {
-  // One name per cheat cvar, mirroring kCheatSettings row for row, so a value
-  // written from the console is cleared along with it. bd_cheat_diag stays
-  // put: it logs this reset rather than being part of it.
-  static constexpr const char *kNames[] = {
-      "bd_cheat_invincible",       "bd_cheat_infinite_mp",
-      "bd_cheat_infinite_gold",    "bd_cheat_status_immune",
-      "bd_cheat_unlock_classes",   "bd_cheat_one_hit_kill",
-      "bd_cheat_attack_mult",      "bd_cheat_magic_attack_mult",
-      "bd_cheat_defence_mult",     "bd_cheat_magic_defence_mult",
-      "bd_cheat_agility_mult",     "bd_cheat_stat_bonus",
-      "bd_cheat_exp_mult",         "bd_cheat_sp_mult",
-      "bd_cheat_gold_mult",        "bd_cheat_medals_mult",
-      "bd_cheat_infinite_medals",  "bd_cheat_infinite_items",
-      "bd_cheat_give_all_items",   "bd_cheat_unlock_achievements",
-      "bd_cheat_reset_achievements", "bd_cheat_give_heal",
-      "bd_cheat_give_usable",      "bd_cheat_give_spellbook",
-      "bd_cheat_give_arm",         "bd_cheat_give_finger",
-      "bd_cheat_give_ear",         "bd_cheat_give_neck",
-      "bd_cheat_give_chest",       "bd_cheat_give_valuable"};
+  // Every cheat cvar back to its default, so a value written from the console
+  // is cleared along with the menu's. bd_cheat_diag stays put: it logs this
+  // reset rather than being part of it. The names come from kCvars and
+  // kGrantEntries -- the same tables Init registers callbacks on.
+  for (const auto &entry : kCvars)
+    rex::cvar::ResetToDefault(entry.name);
+  for (const auto &grant : kGrantEntries)
+    rex::cvar::ResetToDefault(grant.cvar);
 
-  for (const char *name : kNames)
-    rex::cvar::ResetToDefault(name);
+  // A queued one-shot is cancelled with its setting: the Adopt mirror below
+  // clears the pending flags, and a button mid-flash disarms now rather than
+  // finishing it after the reset.
+  litGrants_ = 0;
+  litSteps_ = 0;
+
   // ResetToDefault writes storage without firing the change callbacks, so
   // re-read what it stored.
   AdoptCvars();
   BD_CHEAT_DIAG("[cheat-diag] reset_all: {} cvars back to defaults",
-                std::size(kNames));
+                std::size(kCvars) + std::size(kGrantEntries));
 }
 
 void Cheats::Init() {
@@ -540,36 +516,10 @@ void Cheats::Init() {
           (Cheats::Get().*adopt)();
         });
   };
-  reg("bd_cheat_invincible", &Cheats::AdoptInvincible);
-  reg("bd_cheat_infinite_mp", &Cheats::AdoptInfiniteMP);
-  reg("bd_cheat_infinite_gold", &Cheats::AdoptInfiniteGold);
-  reg("bd_cheat_status_immune", &Cheats::AdoptStatusImmune);
-  reg("bd_cheat_unlock_classes", &Cheats::AdoptUnlockClasses);
-  reg("bd_cheat_one_hit_kill", &Cheats::AdoptOneHitKill);
-  reg("bd_cheat_attack_mult", &Cheats::AdoptAttackMult);
-  reg("bd_cheat_magic_attack_mult", &Cheats::AdoptMagicAttackMult);
-  reg("bd_cheat_defence_mult", &Cheats::AdoptDefenceMult);
-  reg("bd_cheat_magic_defence_mult", &Cheats::AdoptMagicDefenceMult);
-  reg("bd_cheat_agility_mult", &Cheats::AdoptAgilityMult);
-  reg("bd_cheat_stat_bonus", &Cheats::AdoptStatBonus);
-  reg("bd_cheat_exp_mult", &Cheats::AdoptExpMult);
-  reg("bd_cheat_sp_mult", &Cheats::AdoptSpMult);
-  reg("bd_cheat_gold_mult", &Cheats::AdoptGoldMult);
-  reg("bd_cheat_medals_mult", &Cheats::AdoptMedalsMult);
-  reg("bd_cheat_infinite_medals", &Cheats::AdoptInfiniteMedals);
-  reg("bd_cheat_infinite_items", &Cheats::AdoptInfiniteItems);
-  reg("bd_cheat_give_all_items", &Cheats::AdoptGiveAllItems);
-  reg("bd_cheat_unlock_achievements", &Cheats::AdoptUnlockAchievements);
-  reg("bd_cheat_reset_achievements", &Cheats::AdoptResetAchievements);
-  reg("bd_cheat_give_heal", &Cheats::AdoptGrants);
-  reg("bd_cheat_give_usable", &Cheats::AdoptGrants);
-  reg("bd_cheat_give_spellbook", &Cheats::AdoptGrants);
-  reg("bd_cheat_give_arm", &Cheats::AdoptGrants);
-  reg("bd_cheat_give_finger", &Cheats::AdoptGrants);
-  reg("bd_cheat_give_ear", &Cheats::AdoptGrants);
-  reg("bd_cheat_give_neck", &Cheats::AdoptGrants);
-  reg("bd_cheat_give_chest", &Cheats::AdoptGrants);
-  reg("bd_cheat_give_valuable", &Cheats::AdoptGrants);
+  for (const auto &entry : kCvars)
+    reg(entry.name, entry.adopt);
+  for (const auto &grant : kGrantEntries)
+    reg(grant.cvar, &Cheats::AdoptGrants);
 
   // Subscriptions are permanent and callback-scoped, so the handles the bus
   // hands over are not kept: the snapshot holds scalars and character

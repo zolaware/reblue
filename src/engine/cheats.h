@@ -163,6 +163,38 @@ private:
   void AdoptGrants();
   void AdoptUnlockAchievements();
   void AdoptResetAchievements();
+  // Every non-grant cheat cvar this module owns, paired with the Adopt that
+  // re-reads it into member state. One table drives Init's change callbacks,
+  // AdoptCvars' re-read and ResetAll's list, so a new cheat is added here once;
+  // its REXCVAR_DEFINE stays in cheats.cpp where the storage lives. The grant
+  // cvars ride on kGrantEntries with AdoptGrants.
+  struct CvarEntry {
+    const char *name;
+    void (Cheats::*adopt)();
+  };
+  static constexpr CvarEntry kCvars[] = {
+      {"bd_cheat_invincible", &AdoptInvincible},
+      {"bd_cheat_infinite_mp", &AdoptInfiniteMP},
+      {"bd_cheat_infinite_gold", &AdoptInfiniteGold},
+      {"bd_cheat_status_immune", &AdoptStatusImmune},
+      {"bd_cheat_unlock_classes", &AdoptUnlockClasses},
+      {"bd_cheat_one_hit_kill", &AdoptOneHitKill},
+      {"bd_cheat_attack_mult", &AdoptAttackMult},
+      {"bd_cheat_magic_attack_mult", &AdoptMagicAttackMult},
+      {"bd_cheat_defence_mult", &AdoptDefenceMult},
+      {"bd_cheat_magic_defence_mult", &AdoptMagicDefenceMult},
+      {"bd_cheat_agility_mult", &AdoptAgilityMult},
+      {"bd_cheat_stat_bonus", &AdoptStatBonus},
+      {"bd_cheat_exp_mult", &AdoptExpMult},
+      {"bd_cheat_sp_mult", &AdoptSpMult},
+      {"bd_cheat_gold_mult", &AdoptGoldMult},
+      {"bd_cheat_medals_mult", &AdoptMedalsMult},
+      {"bd_cheat_infinite_medals", &AdoptInfiniteMedals},
+      {"bd_cheat_infinite_items", &AdoptInfiniteItems},
+      {"bd_cheat_give_all_items", &AdoptGiveAllItems},
+      {"bd_cheat_unlock_achievements", &AdoptUnlockAchievements},
+      {"bd_cheat_reset_achievements", &AdoptResetAchievements},
+  };
   // kNone fills with everything; any other value restricts to that category.
   void FillInventory(ItemCategory only);
 

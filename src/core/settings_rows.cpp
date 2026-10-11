@@ -707,9 +707,12 @@ constexpr SettingRow kCheatSettings[] = {
      .count = OptCount(kActionOnce)},
 
     // A plain action row: A or a click asks for confirmation, then every cheat
-    // cvar goes back to its default (toggles off, multipliers at 1).
+    // cvar goes back to its default (toggles off, multipliers at 1) and the
+    // change is saved with the config. Effects already written into the save --
+    // stat bonuses, unlocked classes -- stay; the description says so.
     {.label = "settings.cheats.reset_all.label",
      .group = "menu.header.cheats_general",
+     .desc = "settings.cheats.reset_all.desc",
      .kind = SettingKind::Action,
      .action = SettingAction::ResetCheats},
 };
