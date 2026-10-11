@@ -11,6 +11,7 @@
 #include "engine/battle_camera_task.h"
 #include "engine/battle_task.h"
 #include "engine/chara.h"
+#include "engine/cheats.h"
 #include "engine/config.h"
 #include "engine/cutscene_pause.h"
 #include "engine/d2anime/d2anime.h"

@@ -464,6 +464,7 @@ void ConfigMenu::Transition(State next) {
   case State::CONFIRM_DELETE:
   case State::CONFIRM_REBOOT:
   case State::CONFIRM_RESET_BINDS:
+  case State::CONFIRM_RESET_CHEATS:
     confirm_popup_.Kill();
     break;
   default:
@@ -717,6 +718,14 @@ void ConfigMenu::Transition(State next) {
     BD_DEBUG("[config] state -> CONFIRM_RESET_BINDS");
     break;
 
+  case State::CONFIRM_RESET_CHEATS:
+    // No "cannot be undone" line: every cheat can simply be switched back on,
+    // so the question stands alone.
+    confirm_popup_.Create(task_, i18n::Text("menu.confirm.reset_cheats").c_str());
+    ActivateOnly(nullptr);
+    BD_DEBUG("[config] state -> CONFIRM_RESET_CHEATS");
+    break;
+
   case State::CLOSING:
     BD_DEBUG("[config] state -> CLOSING");
     break;
@@ -762,6 +771,7 @@ void ConfigMenu::EnforceActiveFlags() {
   case State::CONFIRM_DELETE:
   case State::CONFIRM_REBOOT:
   case State::CONFIRM_RESET_BINDS:
+  case State::CONFIRM_RESET_CHEATS:
     ActivateOnly(nullptr);
     break;
   default:
@@ -961,6 +971,9 @@ void ConfigMenu::Update(PPCContext &ctx, u8 *base) {
     break;
   case State::CONFIRM_RESET_BINDS:
     HandleConfirmResetBinds();
+    break;
+  case State::CONFIRM_RESET_CHEATS:
+    HandleConfirmResetCheats();
     break;
   default:
     break;
