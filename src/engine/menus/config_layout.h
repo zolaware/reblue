@@ -36,9 +36,9 @@ inline constexpr const char* kSlideConfigTex =
 
 // Sidebar row pitch. AnimeMenu_CalcItemPosition derives the stride from this
 // height and the row count, so it has to track kSectionCount or every row
-// re-spaces. 40 on a 6px gap ends nine rows at 548, clear of the
+// re-spaces. 36 on a 6px gap ends ten rows at 554, clear of the
 // row description line at 568.
-inline constexpr int kSectionRowH = 40;
+inline constexpr int kSectionRowH = 36;
 inline constexpr int kSectionRowGap = 6;
 
 // Sidebar button template (l_modmgr_section.csv). The cell fills the sidebar

@@ -173,27 +173,27 @@ private:
     void (Cheats::*adopt)();
   };
   static constexpr CvarEntry kCvars[] = {
-      {"bd_cheat_invincible", &AdoptInvincible},
-      {"bd_cheat_infinite_mp", &AdoptInfiniteMP},
-      {"bd_cheat_infinite_gold", &AdoptInfiniteGold},
-      {"bd_cheat_status_immune", &AdoptStatusImmune},
-      {"bd_cheat_unlock_classes", &AdoptUnlockClasses},
-      {"bd_cheat_one_hit_kill", &AdoptOneHitKill},
-      {"bd_cheat_attack_mult", &AdoptAttackMult},
-      {"bd_cheat_magic_attack_mult", &AdoptMagicAttackMult},
-      {"bd_cheat_defence_mult", &AdoptDefenceMult},
-      {"bd_cheat_magic_defence_mult", &AdoptMagicDefenceMult},
-      {"bd_cheat_agility_mult", &AdoptAgilityMult},
-      {"bd_cheat_stat_bonus", &AdoptStatBonus},
-      {"bd_cheat_exp_mult", &AdoptExpMult},
-      {"bd_cheat_sp_mult", &AdoptSpMult},
-      {"bd_cheat_gold_mult", &AdoptGoldMult},
-      {"bd_cheat_medals_mult", &AdoptMedalsMult},
-      {"bd_cheat_infinite_medals", &AdoptInfiniteMedals},
-      {"bd_cheat_infinite_items", &AdoptInfiniteItems},
-      {"bd_cheat_give_all_items", &AdoptGiveAllItems},
-      {"bd_cheat_unlock_achievements", &AdoptUnlockAchievements},
-      {"bd_cheat_reset_achievements", &AdoptResetAchievements},
+      {"bd_cheat_invincible", &Cheats::AdoptInvincible},
+      {"bd_cheat_infinite_mp", &Cheats::AdoptInfiniteMP},
+      {"bd_cheat_infinite_gold", &Cheats::AdoptInfiniteGold},
+      {"bd_cheat_status_immune", &Cheats::AdoptStatusImmune},
+      {"bd_cheat_unlock_classes", &Cheats::AdoptUnlockClasses},
+      {"bd_cheat_one_hit_kill", &Cheats::AdoptOneHitKill},
+      {"bd_cheat_attack_mult", &Cheats::AdoptAttackMult},
+      {"bd_cheat_magic_attack_mult", &Cheats::AdoptMagicAttackMult},
+      {"bd_cheat_defence_mult", &Cheats::AdoptDefenceMult},
+      {"bd_cheat_magic_defence_mult", &Cheats::AdoptMagicDefenceMult},
+      {"bd_cheat_agility_mult", &Cheats::AdoptAgilityMult},
+      {"bd_cheat_stat_bonus", &Cheats::AdoptStatBonus},
+      {"bd_cheat_exp_mult", &Cheats::AdoptExpMult},
+      {"bd_cheat_sp_mult", &Cheats::AdoptSpMult},
+      {"bd_cheat_gold_mult", &Cheats::AdoptGoldMult},
+      {"bd_cheat_medals_mult", &Cheats::AdoptMedalsMult},
+      {"bd_cheat_infinite_medals", &Cheats::AdoptInfiniteMedals},
+      {"bd_cheat_infinite_items", &Cheats::AdoptInfiniteItems},
+      {"bd_cheat_give_all_items", &Cheats::AdoptGiveAllItems},
+      {"bd_cheat_unlock_achievements", &Cheats::AdoptUnlockAchievements},
+      {"bd_cheat_reset_achievements", &Cheats::AdoptResetAchievements},
   };
   // kNone fills with everything; any other value restricts to that category.
   void FillInventory(ItemCategory only);
@@ -211,8 +211,9 @@ private:
   void OnBattleStarted();
   void OnBattleEnded();
   // Pays the multiplied remainder on top of what the guest already awarded.
-  // False when it found nothing to pay, which is how the settle window knows
-  // to keep waiting.
+  // Each payment moves its own snapshot, so a value that banks later in the
+  // settle window pays from the updated number rather than twice. False when
+  // it found nothing to pay this step.
   bool AwardRewards();
 
   bool invincible_ = false;
@@ -264,7 +265,8 @@ private:
   // Steps left to keep retrying the award after the battle-end edge. The edge
   // publishes from the battle camera destructor, and whether the guest has
   // banked the rewards by then is not something the hook can know, so a short
-  // window covers both orderings.
+  // window covers both orderings. It always runs out rather than stopping at
+  // the first payment: EXP, SP and gold can bank on different frames.
   u32 settleSteps_ = 0;
 };
 

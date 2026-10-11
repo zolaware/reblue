@@ -363,22 +363,27 @@ void Cheats::AdoptInfiniteItems() {
 void Cheats::AdoptGiveAllItems() {
   giveAllItems_ = REXCVAR_GET(bd_cheat_give_all_items);
   // Mirrors the setting rather than only arming on true, so turning it off --
-  // by hand or from ResetAll -- cancels a queued fill. Armed here, run from
-  // Apply: the setting can change at the title, long before there is any save
-  // data to write into.
-  pendingGiveAll_ = giveAllItems_;
+  // by hand or from ResetAll -- cancels a queued fill. A lit bit means the
+  // fill is already queued or running and its cvar stays on until disarm, so
+  // re-mirroring must not queue it again. Armed here, run from Apply: the
+  // setting can change at the title, long before there is any save data to
+  // write into.
+  pendingGiveAll_ = giveAllItems_ && !(litGrants_ & (1u << 31));
 }
 void Cheats::AdoptGrants() {
   // Mirrors the settings rather than only arming on true, so turning a grant
-  // off -- by hand or from ResetAll -- cancels its queued fill. Armed here, run
-  // from Apply, for the same reason GiveAllItems is: the row can be set at the
-  // title with no save data to write into yet.
+  // off -- by hand or from ResetAll -- cancels its queued fill. A lit bit
+  // means that category already has a fill queued or running and its cvar
+  // stays on until disarm, so re-mirroring it must not queue the fill again:
+  // pressing two rows quickly would otherwise fire the first one twice. Armed
+  // here, run from Apply, for the same reason GiveAllItems is: the row can be
+  // set at the title with no save data to write into yet.
   u32 pending = 0;
   for (u32 i = 0; i < std::size(kGrantEntries); ++i) {
     if (rex::cvar::GetFlagByName(kGrantEntries[i].cvar) == "true")
       pending |= (1u << i);
   }
-  pendingGrants_ = pending;
+  pendingGrants_ = pending & ~litGrants_;
 }
 
 bool Cheats::Grant(ItemCategory c) const {
@@ -397,8 +402,10 @@ bool Cheats::SetGrant(ItemCategory c, bool v) {
 
 void Cheats::AdoptUnlockAchievements() {
   unlockAchievements_ = REXCVAR_GET(bd_cheat_unlock_achievements);
-  // Mirrors the setting so turning it off cancels a queued award.
-  pendingAchievements_ = unlockAchievements_;
+  // Mirrors the setting so turning it off cancels a queued award; a lit bit
+  // means the award is already queued or running and its cvar stays on until
+  // disarm, so re-mirroring must not queue it again.
+  pendingAchievements_ = unlockAchievements_ && !(litGrants_ & (1u << 30));
 }
 
 bool Cheats::SetUnlockAchievements(bool v) {
@@ -408,8 +415,10 @@ bool Cheats::SetUnlockAchievements(bool v) {
 
 void Cheats::AdoptResetAchievements() {
   resetAchievements_ = REXCVAR_GET(bd_cheat_reset_achievements);
-  // Mirrors the setting so turning it off cancels a queued wipe.
-  pendingResetAchv_ = resetAchievements_;
+  // Mirrors the setting so turning it off cancels a queued wipe; a lit bit
+  // means the wipe is already queued or running and its cvar stays on until
+  // disarm, so re-mirroring must not queue it again.
+  pendingResetAchv_ = resetAchievements_ && !(litGrants_ & (1u << 29));
 }
 
 bool Cheats::SetResetAchievements(bool v) {
@@ -547,11 +556,15 @@ void Cheats::Apply() {
     return;
 
   // The settle window runs even with every pin off, because a reward
-  // multiplier is not a pin and owes its remainder regardless.
+  // multiplier is not a pin and owes its remainder regardless. It always runs
+  // out rather than stopping at the first payment: EXP, SP and gold can bank
+  // on different frames, and each payment moves its own snapshot, so a later
+  // one pays from the updated value instead of being missed -- or doubled.
   if (settleSteps_ > 0) {
     --settleSteps_;
-    if (AwardRewards())
-      settleSteps_ = 0;
+    AwardRewards();
+    if (settleSteps_ == 0)
+      armed_ = false;
   }
 
   // Ahead of the AnyPin gate: this is a one-shot action, not a pin, so it must
@@ -604,6 +617,9 @@ void Cheats::Apply() {
       SetUnlockAchievements(false);
     if (litGrants_ & (1u << 29))
       SetResetAchievements(false);
+    // The turn-offs above re-mirror the cvars that are still on; drop any bit
+    // that is lit so a row that just disarmed cannot queue itself again.
+    pendingGrants_ &= ~litGrants_;
     litGrants_ = 0;
   }
 
@@ -877,9 +893,12 @@ void Cheats::OnBattleEnded() {
   if (!armed_)
     return;
   // The award usually lands before this edge, which publishes from the battle
-  // camera destructor. When it has not, the settle window in Apply() retries.
-  if (!AwardRewards())
-    settleSteps_ = kSettleSteps;
+  // camera destructor. Pay what is already banked and open the settle window
+  // either way: EXP, SP and gold can land on different frames, so a payment at
+  // the edge must not close it -- each one moves its own snapshot, so nothing
+  // gets paid twice.
+  AwardRewards();
+  settleSteps_ = kSettleSteps;
 }
 
 bool Cheats::AwardRewards() {
@@ -983,8 +1002,8 @@ bool Cheats::AwardRewards() {
     }
   }
 
-  if (paid)
-    armed_ = false;
+  // armed_ stays set until the settle window runs out in Apply(): a value can
+  // still bank on a later frame, and its snapshot has moved with each payment.
   return paid;
 }
 
