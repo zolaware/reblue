@@ -37,7 +37,7 @@ public:
   void ApplyVarTracks(f32 frame);
 
   // Engine tokens only. User-facing text goes through SetText, which skips the
-  // Shift-JIS widener.
+  // Shift-JIS widener and is drawn exactly as written (see ToMessageText).
   void SetString(const char *name, const char *value);
   void SetTextU16(const char *name, std::u16string_view text);
   void SetText(const char *name, std::string_view utf8);

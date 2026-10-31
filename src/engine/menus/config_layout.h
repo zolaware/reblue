@@ -77,6 +77,10 @@ public:
   }
 };
 
+// Detail panel text font width and line width.
+inline constexpr int kPanelTextFontWidth = 16;
+inline constexpr int kPanelTextWidth = 380;
+
 // DLC detail panel template (l_modmgr_dlcdetail.csv).
 class DlcDetailTemplate : public AnimeLayout {
 public:
@@ -117,7 +121,24 @@ public:
   StringV author{"Author", ""};
   StringV version{"Version", ""};
   StringV created{"Created", ""};
-  StringV desc{"Desc", ""};
+  // Description lines, one message each.
+  StringV descLines[14]{
+      {"Desc0", ""},
+      {"Desc1", ""},
+      {"Desc2", ""},
+      {"Desc3", ""},
+      {"Desc4", ""},
+      {"Desc5", ""},
+      {"Desc6", ""},
+      {"Desc7", ""},
+      {"Desc8", ""},
+      {"Desc9", ""},
+      {"Desc10", ""},
+      {"Desc11", ""},
+      {"Desc12", ""},
+      {"Desc13", ""}};
+  static constexpr int kDescLines =
+      static_cast<int>(std::extent_v<decltype(descLines)>);
 
   ColorV labelColor{"LabelColor", 255, 255, 255, 255};
   ColorV valueColor{"ValueColor", 255, 255, 255, 255};
