@@ -703,6 +703,7 @@
 0x821BD868 = { name = "bdScriptOpFaceTarget", size = 0x4FC }
 0x821BECD8 = { name = "bdLoadEventPack", size = 0xA8 }
 0x821BF050 = { name = "bdScriptOpQuestPatch", size = 0x1B0 }
+0x821BF420 = { name = "MessageText_NextToken", size = 0x148 }
 0x821C2E78 = { name = "bdShopTaskConstruct", size = 0x368 }
 0x821CA0B0 = { name = "Shop__MainTask__UpdateCount" }
 0x821CE1D8 = { name = "gsContentInfoFile__Dtor", size = 0x5C }

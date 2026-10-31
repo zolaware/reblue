@@ -16,6 +16,7 @@
 
 #include "core/encoding.h"
 #include "core/memory_helpers.h"
+#include "engine/d2anime/message_text.h"
 
 REX_IMPORT(__imp__AnimeVarBag_SetStringVar, VarBag_SetString,
            void(u32, u32, u32));
@@ -202,7 +203,7 @@ void AnimeData::SetTextU16(const char *name, std::u16string_view text) {
 }
 
 void AnimeData::SetText(const char *name, std::string_view utf8) {
-  SetTextU16(name, bd::Utf8ToU16(utf8));
+  SetTextU16(name, ToMessageText(bd::Utf8ToU16(utf8)));
 }
 
 void AnimeData::SetColor(const char *name, u32 rgba) {

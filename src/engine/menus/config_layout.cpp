@@ -37,7 +37,7 @@ AnimeMessage PanelLine(int y, const char *var) {
           .posRef = "pos",
           .offsetX = 10,
           .offsetY = y,
-          .fontW = 16,
+          .fontW = kPanelTextFontWidth,
           .fontH = 20,
           .alphaRef = "LabelColor.a",
           .colorR = "LabelColor.r",
@@ -52,7 +52,7 @@ void PanelDivider(CsvBuilder &b, int y) {
                     .posRef = "pos",
                     .offsetX = 10,
                     .offsetY = y,
-                    .w = 380,
+                    .w = kPanelTextWidth,
                     .h = 1,
                     .priority = 3,
                     .alphaRef = "alpha-127"});
@@ -154,13 +154,16 @@ AnimeMessage NodataTemplate::rowLabel() const {
 }
 
 void DetailTemplate::build(CsvBuilder &b) {
-  const StringV *const fields[] = {&author, &version, &created, &desc};
+  const StringV *const fields[] = {&author, &version, &created};
 
   b.comment("variable definitions")
       .vars(start, alpha, hasPreview, previewFile)
       .blank()
-      .vars(author, version, created, desc)
-      .blank()
+      .vars(author, version, created)
+      .blank();
+  for (const auto &line : descLines)
+    b.var(line);
+  b.blank()
       .vars(labelColor, valueColor)
       .blank()
       .comment(kColsPos)
@@ -182,7 +185,10 @@ void DetailTemplate::build(CsvBuilder &b) {
       .comment(kColsMessage);
   for (size_t i = 0; i < std::size(fields); ++i)
     b.message(PanelLine(10 + 25 * static_cast<int>(i), fields[i]->name()));
-  PanelDivider(b, 110);
+  PanelDivider(b, 85);
+  b.blank().comment("description").comment(kColsMessage);
+  for (int i = 0; i < kDescLines; ++i)
+    b.message(PanelLine(95 + 22 * i, descLines[i].name()));
 }
 
 void SettingItemTemplate::declareVars(CsvBuilder &b) {
