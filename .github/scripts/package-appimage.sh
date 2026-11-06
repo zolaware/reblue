@@ -115,4 +115,12 @@ export APPIMAGE_EXTRACT_AND_RUN=1
 
 mkdir -p dist
 ARCH="${APPIMAGE_ARCH}" "${STAGING}/appimagetool" "${APPDIR}" "dist/${OUT_FILE}"
+# RecompLauncher reads a release-local manifest beside the AppImage. Keep the
+# existing standalone asset and also ship a zip with its manifest and guide.
+mkdir -p "${STAGING}/launcher/docs"
+cp "dist/${OUT_FILE}" "${STAGING}/launcher/reblue.AppImage"
+cp recomplauncher.json "${STAGING}/launcher/"
+cp docs/RECOMPLAUNCHER.md "${STAGING}/launcher/docs/"
+(cd "${STAGING}/launcher" && zip -q -r "${STAGING}/launcher.zip" .)
+mv "${STAGING}/launcher.zip" "dist/${OUT_FILE%.AppImage}.zip"
 echo "Packaged dist/${OUT_FILE} ($(du -m "dist/${OUT_FILE}" | cut -f1) MB)"

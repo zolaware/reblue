@@ -56,6 +56,11 @@ Requires all three retail Blue Dragon discs or their disc images. Steam Deck is 
 
 The wizard only needs to run once. If something later goes missing from your install, launching with `--repair` reopens it on your existing install and copies back only what it needs.
 
+RecompLauncher can prepare all three discs without opening the wizard, start the
+game directly and edit common graphics settings. Use the Windows zip, Linux zip
+containing the AppImage, or macOS zip so the included manifest is beside the
+program. See [the integration guide](docs/RECOMPLAUNCHER.md).
+
 ## Features
 
 Everything below is new to re:Blue. All of it is configurable in game, from the title screen or the camp menu.

@@ -214,6 +214,15 @@ foreach(target IN LISTS REBLUE_TARGETS)
             "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/gamecontrollerdb/gamecontrollerdb.txt"
             $<TARGET_FILE_DIR:${target}>
         VERBATIM)
+    add_custom_command(TARGET ${target} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/recomplauncher.json"
+            $<TARGET_FILE_DIR:${target}>
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${target}>/docs"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/docs/RECOMPLAUNCHER.md"
+            "$<TARGET_FILE_DIR:${target}>/docs/RECOMPLAUNCHER.md"
+        VERBATIM)
 endforeach()
 
 foreach(target IN LISTS REBLUE_D3D12_TARGETS)
@@ -288,6 +297,9 @@ set(reblue_program_files
     "$<TARGET_FILE_NAME:reblue>"
     "$<TARGET_FILE_NAME:rex::runtime>"
     "gamecontrollerdb.txt")
+if(WIN32)
+    list(APPEND reblue_program_files recomplauncher.json docs/RECOMPLAUNCHER.md)
+endif()
 if(REBLUE_VULKAN_EXE)
     list(APPEND reblue_program_files "$<TARGET_FILE_NAME:reblue_vk>")
 endif()

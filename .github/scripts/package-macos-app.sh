@@ -252,7 +252,11 @@ codesign "${sign_args[@]}" --entitlements res/macos/reblue.entitlements "${APP_B
 codesign --verify --deep --strict --verbose=2 "${APP_BUNDLE}"
 
 mkdir -p dist
-ditto -c -k --sequesterRsrc --keepParent "${APP_BUNDLE}" "dist/${OUT_FILE}"
+mkdir -p "${STAGING}/launcher/docs"
+cp recomplauncher.json "${STAGING}/launcher/"
+cp docs/RECOMPLAUNCHER.md "${STAGING}/launcher/docs/"
+ditto "${APP_BUNDLE}" "${STAGING}/launcher/reblue.app"
+ditto -c -k --sequesterRsrc "${STAGING}/launcher" "dist/${OUT_FILE}"
 
 DMG_STAGING="${STAGING}/dmg"
 mkdir -p "${DMG_STAGING}"
