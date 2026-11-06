@@ -19,6 +19,7 @@ set(reblue_backend_only
     gpu/shaders/guest_shaders.cpp
     gpu/vertex_declaration.cpp
     platform/crash_handler.cpp
+    launcher/entry_point.cpp
     reblue_app.cpp)
 
 # The runtime DXC shader linker has no Vulkan counterpart.
@@ -29,6 +30,7 @@ set(reblue_d3d12_only
     gpu/shaders/shader_linker.h)
 
 set(reblue_installer_only
+    installer/disc_image.cpp
     installer/disc_install.cpp
     installer/disc_install.h
     installer/installer_wizard.cpp

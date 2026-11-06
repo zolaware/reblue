@@ -180,6 +180,18 @@ foreach(target IN LISTS REBLUE_TARGETS)
 
     rexglue_setup_target(${target})
 
+    # Intercept headless setup before the SDK initializes SDL video. The wrapper
+    # includes the SDK entry point unchanged apart from its main/WinMain names.
+    set(reblue_sdk_entry "${REXGLUE_SHARE_DIR}/windowed_app_main_sdl.cpp")
+    get_target_property(reblue_host_sources ${target} SOURCES)
+    if(NOT reblue_sdk_entry IN_LIST reblue_host_sources)
+        message(FATAL_ERROR "The SDK entry point changed; review the headless startup wrapper")
+    endif()
+    list(REMOVE_ITEM reblue_host_sources "${reblue_sdk_entry}")
+    set_property(TARGET ${target} PROPERTY SOURCES "${reblue_host_sources}")
+    target_compile_definitions(${target} PRIVATE
+        REBLUE_SDK_ENTRYPOINT="${reblue_sdk_entry}")
+
     target_link_libraries(${target} PRIVATE
         reblue_common
         reblue_generated
