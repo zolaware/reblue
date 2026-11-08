@@ -180,6 +180,18 @@ foreach(target IN LISTS REBLUE_TARGETS)
 
     rexglue_setup_target(${target})
 
+    # Intercept headless setup before the SDK initializes SDL video. The wrapper
+    # includes the SDK entry point unchanged apart from its main/WinMain names.
+    set(reblue_sdk_entry "${REXGLUE_SHARE_DIR}/windowed_app_main_sdl.cpp")
+    get_target_property(reblue_host_sources ${target} SOURCES)
+    if(NOT reblue_sdk_entry IN_LIST reblue_host_sources)
+        message(FATAL_ERROR "The SDK entry point changed; review the headless startup wrapper")
+    endif()
+    list(REMOVE_ITEM reblue_host_sources "${reblue_sdk_entry}")
+    set_property(TARGET ${target} PROPERTY SOURCES "${reblue_host_sources}")
+    target_compile_definitions(${target} PRIVATE
+        REBLUE_SDK_ENTRYPOINT="${reblue_sdk_entry}")
+
     target_link_libraries(${target} PRIVATE
         reblue_common
         reblue_generated
@@ -201,6 +213,15 @@ foreach(target IN LISTS REBLUE_TARGETS)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/gamecontrollerdb/gamecontrollerdb.txt"
             $<TARGET_FILE_DIR:${target}>
+        VERBATIM)
+    add_custom_command(TARGET ${target} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/recomplauncher.json"
+            $<TARGET_FILE_DIR:${target}>
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${target}>/docs"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/docs/RECOMPLAUNCHER.md"
+            "$<TARGET_FILE_DIR:${target}>/docs/RECOMPLAUNCHER.md"
         VERBATIM)
 endforeach()
 
@@ -276,6 +297,9 @@ set(reblue_program_files
     "$<TARGET_FILE_NAME:reblue>"
     "$<TARGET_FILE_NAME:rex::runtime>"
     "gamecontrollerdb.txt")
+if(WIN32)
+    list(APPEND reblue_program_files recomplauncher.json docs/RECOMPLAUNCHER.md)
+endif()
 if(REBLUE_VULKAN_EXE)
     list(APPEND reblue_program_files "$<TARGET_FILE_NAME:reblue_vk>")
 endif()

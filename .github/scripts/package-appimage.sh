@@ -105,6 +105,11 @@ DESKTOP
 cp res/reblue.png "${APPDIR}/reblue.png"
 cp res/reblue.png "${APPDIR}/.DirIcon"
 
+# The launcher reads this directly from the type-2 AppImage, even after a rename.
+cp recomplauncher.json "${APPDIR}/recomplauncher.json"
+mkdir -p "${APPDIR}/usr/share/doc/reblue"
+cp docs/RECOMPLAUNCHER.md "${APPDIR}/usr/share/doc/reblue/"
+
 curl -fsSL -o "${STAGING}/appimagetool" \
   "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${APPIMAGE_ARCH}.AppImage"
 chmod +x "${STAGING}/appimagetool"
@@ -114,5 +119,5 @@ chmod +x "${STAGING}/appimagetool"
 export APPIMAGE_EXTRACT_AND_RUN=1
 
 mkdir -p dist
-ARCH="${APPIMAGE_ARCH}" "${STAGING}/appimagetool" "${APPDIR}" "dist/${OUT_FILE}"
+ARCH="${APPIMAGE_ARCH}" "${STAGING}/appimagetool" --mksquashfs-opt=-no-xattrs "${APPDIR}" "dist/${OUT_FILE}"
 echo "Packaged dist/${OUT_FILE} ($(du -m "dist/${OUT_FILE}" | cut -f1) MB)"

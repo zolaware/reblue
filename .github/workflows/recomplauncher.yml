@@ -1,0 +1,46 @@
+name: RecompLauncher integration
+
+on:
+  push:
+    paths: ['src/launcher/**', 'src/installer/**', 'tests/launcher/**', 'recomplauncher.json', 'CMakeLists.txt', 'src/CMakeLists.txt', 'cmake/embed*', '.github/workflows/recomplauncher.yml']
+  pull_request:
+    paths: ['src/launcher/**', 'src/installer/**', 'tests/launcher/**', 'recomplauncher.json', 'CMakeLists.txt', 'src/CMakeLists.txt', 'cmake/embed*', '.github/workflows/recomplauncher.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      SDK_TAG: nightly-20261002-bd833a2a
+    steps:
+      - uses: actions/checkout@v6
+      - name: Fetch public SDK for native adapter checks
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          case "$RUNNER_OS" in
+            Windows) slice=win-amd64 ;;
+            Linux) slice=linux-amd64 ;;
+            macOS)
+              if [ "$(uname -m)" = arm64 ]; then slice=mac-arm64; else slice=mac-amd64; fi ;;
+          esac
+          mkdir -p out/sdk-download
+          gh release download "$SDK_TAG" --repo rexglue/rexglue-sdk --pattern "*${slice}.zip" --dir out/sdk-download
+          python -c "import pathlib,zipfile; zipfile.ZipFile(next(pathlib.Path('out/sdk-download').glob('*.zip'))).extractall('out/sdk')"
+          echo "SDK_SLICE=$slice" >> "$GITHUB_ENV"
+      - name: Configure integration and SDK adapter tests
+        shell: bash
+        run: cmake -S tests/launcher -B out/launcher-tests -DCMAKE_BUILD_TYPE=Release -DREBLUE_TEST_WITH_SDK=ON -DCMAKE_PREFIX_PATH="$PWD/out/sdk/$SDK_SLICE"
+      - name: Build
+        run: cmake --build out/launcher-tests --config Release
+      - name: Test
+        run: ctest --test-dir out/launcher-tests -C Release --output-on-failure
+      - name: Check release packaging
+        run: python -m unittest discover -s tests/launcher -p package_test.py
