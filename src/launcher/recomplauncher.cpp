@@ -10,6 +10,7 @@
 #include <string_view>
 #include <thread>
 
+#ifdef REBLUE_BUILD_INSTALLER
 #include <rex/cvar.h>
 #include <rex/logging.h>
 #include <rex/filesystem/entry.h>
@@ -17,6 +18,8 @@
 #include "core/xcontent.h"
 #include "installer/disc_install.h"
 #include "platform/reboot.h"
+#include "vfs/dlc_catalog.h"
+#endif
 
 #ifdef _WIN32
 #include "core/windows_lean.h"
@@ -102,20 +105,36 @@ std::optional<int> Configure(std::vector<std::string> &args) {
   AttachStandardStreams();
   const bool prepare = args[1] == "--prepare-content";
   fs::path source, install;
+  Sources discs{};
+  std::vector<fs::path> dlc;
   try {
     for (size_t i = 2; i < args.size(); ++i) {
       const auto &flag = args[i];
-      if (flag == "--install-dir" && install.empty() && i + 1 < args.size())
+      const bool path_flag = flag == "--install-dir" || (prepare &&
+          (flag == "--game-dir" || flag == "--disc1" || flag == "--disc2" || flag == "--disc3"));
+      if (path_flag && (i + 1 == args.size() || args[i + 1].empty() || args[i + 1].starts_with("--"))) {
+        std::cerr << "Missing path for: " << flag << std::endl;
+        return 2;
+      }
+      if (prepare && flag.starts_with("--dlc=") && flag.size() > 6)
+        dlc.push_back(FromUtf8(flag.substr(6)));
+      else if (flag == "--install-dir" && install.empty() && i + 1 < args.size())
         install = FromUtf8(args[++i]);
       else if (prepare && flag == "--game-dir" && source.empty() && i + 1 < args.size())
         source = FromUtf8(args[++i]);
+      else if (prepare && (flag == "--disc1" || flag == "--disc2" || flag == "--disc3") &&
+               discs[flag.back() - '1'].empty() && i + 1 < args.size())
+        discs[flag.back() - '1'] = FromUtf8(args[++i]);
       else {
         std::cerr << "Invalid or duplicate argument: " << flag << std::endl;
         return 2;
       }
     }
-    if (install.empty() || (prepare && source.empty())) {
-      std::cerr << "Expected --install-dir <folder>" << (prepare ? " and --game-dir <disc image or folder>." : ".") << std::endl;
+    const bool any_disc = std::any_of(discs.begin(), discs.end(), [](const auto &p) { return !p.empty(); });
+    const bool all_discs = std::all_of(discs.begin(), discs.end(), [](const auto &p) { return !p.empty(); });
+    if (install.empty() || (prepare && ((source.empty() && !all_discs) || (!source.empty() && any_disc)))) {
+      std::cerr << "Expected --install-dir <folder>" << (prepare ?
+          " and either --game-dir <image or folder> or all of --disc1, --disc2 and --disc3 <ISO>." : ".") << std::endl;
       return 2;
     }
     if (prepare) {
@@ -127,7 +146,42 @@ std::optional<int> Configure(std::vector<std::string> &args) {
       rex::InitLoggingEarly();
       if (!platform::AcquireInstanceLock())
         throw std::runtime_error("re:Blue is already running. Close it before preparing content.");
-      Prepare(source, install, InspectDiscSource, Extract, Report);
+      // Validate every selected DLC before the disc transaction changes anything.
+      // Keep package sources outside the managed installation, as with disc ISOs.
+      const auto packages = ValidateDLC(dlc, install, [](const fs::path &path) {
+        const auto validation = vfs::DLCCatalog::Validate(path);
+        if (!validation.ok)
+          throw std::runtime_error("Invalid DLC '" + Utf8(path) + "': " + validation.error);
+        return validation.display_name;
+      });
+      const auto progress = [&](double amount, const std::string &message) {
+        Report(dlc.empty() ? amount : amount * 0.9,
+               !dlc.empty() && amount == 1 ? "Game files ready" : message);
+      };
+      if (any_disc)
+        Prepare(discs, install, InspectDiscSource, Extract, progress);
+      else
+        Prepare(source, install, InspectDiscSource, Extract, progress);
+      if (!dlc.empty()) {
+        // A local catalog avoids initializing VFS or binding profile enable state.
+        vfs::DLCCatalog catalog;
+        catalog.Init(fs::absolute(install) / "dlc");
+        catalog.Reload();
+        for (size_t i = 0; i < dlc.size(); ++i) {
+          bool installed = false;
+          for (size_t j = 0; j < catalog.Count(); ++j) {
+            const auto &pack = catalog.At(j);
+            installed |= pack.display_name == packages[i].name &&
+                fs::is_regular_file(pack.download_dir / "DL_Param.ipk") &&
+                fs::is_regular_file(pack.root.parent_path() / ".headers" / (pack.name + ".header"));
+          }
+          Report(0.9 + 0.1 * i / dlc.size(), "Installing DLC: " + packages[i].name);
+          if (!installed && !catalog.Install(packages[i].path))
+            throw std::runtime_error("Could not install DLC: " + packages[i].name +
+                                     ". Game files and previously installed packs were kept; retry setup.");
+        }
+        Report(1, "Ready to play");
+      }
       return 0;
 #else
       throw std::runtime_error("This build does not include the disc installer.");

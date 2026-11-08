@@ -84,6 +84,22 @@ Sources FindDiscs(const fs::path &input, const Inspector &inspect) {
   return sources;
 }
 
+Sources ValidateDiscs(const Sources &input, const Inspector &inspect) {
+  Sources sources{};
+  for (size_t i = 0; i < input.size(); ++i) {
+    if (input[i].empty() || !fs::is_regular_file(input[i]))
+      throw std::runtime_error("Choose an ISO file for Blue Dragon DVD " + std::to_string(i + 1) + ".");
+    sources[i] = fs::canonical(input[i]);
+    for (size_t j = 0; j < i; ++j)
+      if (fs::equivalent(sources[i], sources[j]))
+        throw std::runtime_error("The same image was selected for more than one DVD.");
+    const auto discs = inspect(sources[i]);
+    if (!discs[i] || std::count(discs.begin(), discs.end(), true) != 1)
+      throw std::runtime_error("The selected image must contain only Blue Dragon DVD " + std::to_string(i + 1) + ".");
+  }
+  return sources;
+}
+
 bool Owned(const fs::path &game) {
   std::ifstream marker(game / kOwner);
   std::string line;
@@ -99,18 +115,11 @@ fs::path PreparedGame(const fs::path &install) {
   return game;
 }
 
-void Prepare(const fs::path &input, const fs::path &install,
-             const Inspector &inspect, const Extractor &extract,
-             const Progress &progress) {
-  const auto root = fs::weakly_canonical(fs::absolute(install));
-  const auto source = fs::canonical(input);
-  const auto source_dir = fs::is_directory(source) ? source : source.parent_path();
-  if (Overlaps(root, source_dir))
-    throw std::runtime_error("Choose an installation folder separate from your disc-image folder.");
+namespace {
+void PrepareSources(const Sources &sources, const fs::path &root,
+                    const Extractor &extract, const Progress &progress) {
   const auto game = root / "game";
   CheckDestination(game);
-  progress(0, "Checking all three Blue Dragon discs");
-  const auto sources = FindDiscs(source, inspect);
   for (const auto &disc : sources)
     if (Overlaps(root, disc))
       throw std::runtime_error("The disc images and installation must be in separate folders.");
@@ -157,5 +166,53 @@ void Prepare(const fs::path &input, const fs::path &install,
   std::error_code ignored;
   fs::remove_all(transaction, ignored);
   progress(1, "Ready to play");
+}
+} // namespace
+
+std::vector<DLCSource> ValidateDLC(const std::vector<fs::path> &input,
+                                   const fs::path &install, const DLCValidator &validate) {
+  std::vector<DLCSource> sources;
+  const auto root = fs::weakly_canonical(fs::absolute(install));
+  for (const auto &path : input) {
+    if (!fs::is_regular_file(path))
+      throw std::runtime_error("DLC package not found: " + path.string());
+    const auto source = fs::canonical(path);
+    if (Overlaps(root, source.parent_path()))
+      throw std::runtime_error("Choose an installation folder separate from your DLC packages.");
+    const auto name = validate(source);
+    for (const auto &previous : sources)
+      if (fs::equivalent(source, previous.path) || name == previous.name)
+        throw std::runtime_error("The same DLC pack was selected more than once.");
+    sources.push_back({source, name});
+  }
+  return sources;
+}
+
+void Prepare(const fs::path &input, const fs::path &install,
+             const Inspector &inspect, const Extractor &extract,
+             const Progress &progress) {
+  const auto root = fs::weakly_canonical(fs::absolute(install));
+  const auto source = fs::canonical(input);
+  const auto source_dir = fs::is_directory(source) ? source : source.parent_path();
+  if (Overlaps(root, source_dir))
+    throw std::runtime_error("Choose an installation folder separate from your disc-image folder.");
+  const auto game = root / "game";
+  CheckDestination(game);
+  progress(0, "Checking all three Blue Dragon discs");
+  const auto sources = FindDiscs(source, inspect);
+  PrepareSources(sources, root, extract, progress);
+}
+
+void Prepare(const Sources &input, const fs::path &install,
+             const Inspector &inspect, const Extractor &extract,
+             const Progress &progress) {
+  const auto root = fs::weakly_canonical(fs::absolute(install));
+  CheckDestination(root / "game");
+  progress(0, "Checking all three Blue Dragon discs");
+  const auto sources = ValidateDiscs(input, inspect);
+  for (const auto &disc : sources)
+    if (Overlaps(root, disc.parent_path()))
+      throw std::runtime_error("Choose an installation folder separate from your disc-image folders.");
+  PrepareSources(sources, root, extract, progress);
 }
 } // namespace bd::launcher
