@@ -123,7 +123,5 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: reblue-linux-${{ matrix.arch }}
-          path: |
-            dist/*.AppImage
-            dist/*.zip
+          path: dist/*.AppImage
           if-no-files-found: error
