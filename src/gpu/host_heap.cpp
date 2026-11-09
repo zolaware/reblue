@@ -99,7 +99,8 @@ bool HostHeap::Init() {
 
   // The physical 64K heap is vA0000000 with host_address_offset 0.
   auto allocator = rex::runtime::GuestAllocator::Create(
-      *memory, kHeapSize, kPageSize64K, /*physical=*/true, kPageSize64K, 0);
+      *memory, kHeapSize, kPageSize64K, /*physical=*/true, kPageSize64K, 0,
+      rex::runtime::GuestPool::kHeap);
   if (!allocator) {
     REXLOG_ERROR(bd, "HostHeap::Init: failed to reserve {} bytes in vA0000000: {}",
                  kHeapSize, allocator.error().GetDescription());

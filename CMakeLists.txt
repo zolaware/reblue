@@ -37,6 +37,11 @@ if(WIN32)
     enable_language(RC)
 endif()
 
+# Match the SDK's x86-64 baseline in every target, the recompiled code included.
+if(NOT MSVC AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
+    add_compile_options(-march=x86-64-v2)
+endif()
+
 set(REBLUE_GEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
 set(REBLUE_SHADER_COMMON_H
     "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/XenosRecomp/XenosRecomp/shader_common.h")

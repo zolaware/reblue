@@ -562,7 +562,7 @@ void Video::ForgetPromoted(GuestTexture *tex) {
 }
 
 void Video::ApplyHostScaleChange() {
-  static u32 applied = Output::Generation();
+  static u32 applied = ~0u;
   const u32 generation = Output::Generation();
   if (generation == applied)
     return;
@@ -578,13 +578,22 @@ void Video::ApplyHostScaleChange() {
     promoted.assign(g_promoted.begin(), g_promoted.end());
   }
   u32 textures = 0;
+  u32 cpu_written = 0;
   for (GuestTexture *tex : promoted) {
-    if (!tex->texture || tex->scaleExempt || tex->cpuWritten ||
+    if (!tex->texture || tex->scaleExempt || tex->registered ||
         (tex->scaleX == kx && tex->scaleY == ky))
       continue;
+    if (tex->cpuWritten) {
+      ++cpu_written;
+      continue;
+    }
     tex->scaleX = kx;
     tex->scaleY = ky;
     RecreateTexture(tex);
+    // A reflection texture is seeded opaque when created, since it can be
+    // sampled before it is ever rendered.
+    if (tex->reflection && !IsDepthFormat(tex->format))
+      ClearTexture(tex, kOpaqueBlackArgb);
     ++textures;
   }
   const u32 surfaces = SurfaceRegistry::Rescale(kx, ky);
@@ -595,8 +604,10 @@ void Video::ApplyHostScaleChange() {
     s.draw_framebuffer_bound = false;
     s.dirtyStates.viewport = true;
   }
-  REXLOG_INFO(bd, "host scale -> {:.3f}x{:.3f}: {} texture(s), {} surface(s)",
-              kx, ky, textures, surfaces);
+  REXLOG_INFO(bd,
+              "host scale -> {:.3f}x{:.3f}: {} texture(s), {} surface(s), {} "
+              "cpu-written left at the old scale",
+              kx, ky, textures, surfaces, cpu_written);
 }
 
 void Video::PromoteForGPUWrite(GuestTexture *tex) {

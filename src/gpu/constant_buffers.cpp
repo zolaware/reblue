@@ -8,6 +8,7 @@
 #include "gpu/constant_buffers.h"
 
 #include <algorithm>
+#include <bit>
 #include <cstddef>
 #include <cstring>
 #include <memory>
@@ -73,8 +74,17 @@ struct SamplerSlotCache {
   bool valid = false;
 };
 
+// Byte-swapped copy of one guest constant block, so a flush swaps only the
+// groups the engine flagged and then copies the whole block to the upload.
+struct ConstantShadow {
+  alignas(16) u8 bytes[kConstantBlockBytes];
+  bool valid = false;
+};
+
 struct UploadState {
   FrameUpload frames[kNumFrames];
+  ConstantShadow vsShadow;
+  ConstantShadow psShadow;
   u32 cursor = 0;
   SharedConstants shared{};
   SharedConstants lastUploaded{};
@@ -266,31 +276,48 @@ void PinScreenUVScaleReg(u8 *block) {
   }
 }
 
-ConstantAllocation UploadVertexShaderConstants(u32 device_guest) {
+// The pending masks hold one bit per 4-register group, c0 to c3 in the top bit.
+constexpr u32 kGroupBytes = 4 * 16;
+
+void RefreshShadow(ConstantShadow &shadow, u32 block_guest, u64 groups) {
+  if (!shadow.valid) {
+    CopyByteSwap32FlushNaN(shadow.bytes, block_guest, kConstantBlockBytes);
+    shadow.valid = true;
+    return;
+  }
+  while (groups) {
+    const u32 group = static_cast<u32>(std::countl_zero(groups));
+    CopyByteSwap32FlushNaN(shadow.bytes + group * kGroupBytes,
+                           block_guest + group * kGroupBytes, kGroupBytes);
+    groups &= ~(1ull << (63 - group));
+  }
+}
+
+ConstantAllocation UploadVertexShaderConstants(u32 device_guest, u64 groups) {
   REX_PROFILE_SCOPE("UploadVSConstants");
   auto &s = upload_state();
   if (!device_guest)
     return {};
+  RefreshShadow(s.vsShadow,
+                device_guest + offsetof(D3DDevice, vsFloatConstants), groups);
   auto alloc = Allocate(s, kConstantBlockBytes, kCBVAlignment);
   if (!alloc.memory)
     return {};
-  CopyByteSwap32FlushNaN(alloc.memory,
-                         device_guest + offsetof(D3DDevice, vsFloatConstants),
-                         kConstantBlockBytes);
+  std::memcpy(alloc.memory, s.vsShadow.bytes, kConstantBlockBytes);
   return alloc;
 }
 
-ConstantAllocation UploadPixelShaderConstants(u32 device_guest) {
+ConstantAllocation UploadPixelShaderConstants(u32 device_guest, u64 groups) {
   REX_PROFILE_SCOPE("UploadPSConstants");
   auto &s = upload_state();
   if (!device_guest)
     return {};
+  RefreshShadow(s.psShadow,
+                device_guest + offsetof(D3DDevice, psFloatConstants), groups);
   auto alloc = Allocate(s, kConstantBlockBytes, kCBVAlignment);
   if (!alloc.memory)
     return {};
-  CopyByteSwap32FlushNaN(alloc.memory,
-                         device_guest + offsetof(D3DDevice, psFloatConstants),
-                         kConstantBlockBytes);
+  std::memcpy(alloc.memory, s.psShadow.bytes, kConstantBlockBytes);
   PinScreenUVScaleReg(alloc.memory);
   return alloc;
 }
@@ -465,17 +492,8 @@ ConstantAllocation UploadSharedConstants(u32 device_guest) {
   return alloc;
 }
 
-ConstantAllocation UploadGuestBytesByteSwap32(u32 guest_va, u32 size,
-                                              u32 alignment) {
-  REX_PROFILE_SCOPE("UploadGuestBytesByteSwap32");
-  auto &s = upload_state();
-  if (!s.ready || !guest_va || !size)
-    return {};
-  auto alloc = Allocate(s, size, alignment);
-  if (!alloc.memory)
-    return {};
-  CopyByteSwap32(alloc.memory, guest_va, size);
-  return alloc;
+void ByteSwap32ToHost(u8 *dst, u32 guest_va, u32 size) {
+  CopyByteSwap32(dst, guest_va, size);
 }
 
 ConstantAllocation UploadGuestBytes(u32 guest_va, u32 size, u32 alignment) {

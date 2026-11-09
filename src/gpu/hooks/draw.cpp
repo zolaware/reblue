@@ -16,6 +16,7 @@
 #include <mutex>
 #include <optional>
 #include <string_view>
+#include <vector>
 
 #include <rex/memory.h>
 #include <rex/xenos/xenos.h>
@@ -204,17 +205,22 @@ bool UploadAndBindUpVertices(u32 primitiveType, u32 pVertexData,
   if (!pVertexData || !vertexCount || !vertexStride)
     return false;
   const u32 totalSize = vertexCount * vertexStride;
-  auto alloc = bd::gpu::UploadGuestBytesByteSwap32(pVertexData, totalSize,
-                                                   /*alignment=*/4);
-  if (!alloc.memory)
-    return false;
+  // The fit and the inset read the vertices back, so they run on a host copy
+  // rather than on the write-combined upload.
+  thread_local std::vector<u8> t_verts;
+  t_verts.resize(totalSize);
+  bd::gpu::ByteSwap32ToHost(t_verts.data(), pVertexData, totalSize);
   const bool text_batch = pVertexData == kTextQuadBatchEA;
-  FitDesignCanvasVertices(alloc.memory, primitiveType, vertexCount,
+  FitDesignCanvasVertices(t_verts.data(), primitiveType, vertexCount,
                           vertexStride, text_batch || g_debugOverlayDraw);
   if (text_batch)
-    InsetQuadUVs(alloc.memory, vertexCount, vertexStride, UVEdges::All);
+    InsetQuadUVs(t_verts.data(), vertexCount, vertexStride, UVEdges::All);
   else if (IsScreenSpriteQuad(primitiveType, vertexCount, vertexStride))
-    InsetQuadUVs(alloc.memory, vertexCount, vertexStride, UVEdges::CellSeam);
+    InsetQuadUVs(t_verts.data(), vertexCount, vertexStride, UVEdges::CellSeam);
+  auto alloc = bd::gpu::UploadHostBytes(t_verts.data(), totalSize,
+                                        /*alignment=*/4);
+  if (!alloc.memory)
+    return false;
   bd::gpu::Video::SetVertexStream(0, alloc.ref, alloc.size, vertexStride);
   return true;
 }

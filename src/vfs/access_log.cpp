@@ -51,6 +51,8 @@ const char *FileSourceStr(FileSource s) {
   return "unknown";
 }
 
+constexpr auto kFlushInterval = std::chrono::seconds(10);
+
 std::string NowLocalTimestamp() {
   auto tt =
       std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
@@ -87,6 +89,27 @@ void AccessLog::Init(const std::filesystem::path &disc_root) {
 
   PruneOldDetailLogsLocked();
   LoadSummaryLocked();
+
+  if (!writer_.joinable())
+    writer_ = std::jthread([this](std::stop_token stop) { WriterLoop(stop); });
+}
+
+void AccessLog::Shutdown() {
+  if (writer_.joinable()) {
+    writer_.request_stop();
+    writer_.join();
+  }
+  Flush();
+}
+
+void AccessLog::WriterLoop(std::stop_token stop) {
+  std::unique_lock lock(mutex_);
+  while (!wake_.wait_for(lock, stop, kFlushInterval, [] { return false; }) &&
+         !stop.stop_requested()) {
+    lock.unlock();
+    Flush();
+    lock.lock();
+  }
 }
 
 // Restore cumulative counts from previous sessions.
@@ -134,31 +157,24 @@ void AccessLog::Record(const std::string &key, FileSource source) {
   if (!Settings::Get().ModLog())
     return;
 
-  bool should_flush = false;
-  {
-    std::lock_guard lock(mutex_);
+  auto [pack, inner] = SplitPackPath(key);
+  auto datetime = NowLocalTimestamp();
+  std::lock_guard lock(mutex_);
 
-    auto [pack, inner] = SplitPackPath(key);
-
-    auto &entry = entries_[key];
-    if (entry.access_count == 0) {
-      entry.pack = pack;
-      entry.inner_path = inner;
-    }
-    entry.access_count++;
-    if (source == FileSource::Mod)
-      entry.override_count++;
-    if (source == FileSource::Missing)
-      entry.miss_count++;
-
-    pending_detail_.push_back(
-        {NowLocalTimestamp(), std::move(pack), std::move(inner), source});
-
-    should_flush = (pending_detail_.size() % 100 == 0);
+  auto &entry = entries_[key];
+  if (entry.access_count == 0) {
+    entry.pack = pack;
+    entry.inner_path = inner;
   }
+  entry.access_count++;
+  if (source == FileSource::Mod)
+    entry.override_count++;
+  if (source == FileSource::Missing)
+    entry.miss_count++;
+  summary_dirty_ = true;
 
-  if (should_flush)
-    Flush();
+  pending_detail_.push_back(
+      {std::move(datetime), std::move(pack), std::move(inner), source});
 }
 
 void AccessLog::RecordEngineHit(const std::string &key) {
@@ -230,23 +246,43 @@ void AccessLog::PrepareDetailPathLocked() {
 }
 
 void AccessLog::Flush() {
-  std::lock_guard lock(mutex_);
+  std::lock_guard write_lock(write_mutex_);
 
-  if (entries_.empty() && pending_detail_.empty())
-    return;
+  // Copied out under the lock so recording never waits on the file writes.
+  std::vector<FileAccessEntry> summary;
+  std::vector<DetailEntry> detail;
+  std::filesystem::path detail_path;
+  {
+    std::lock_guard lock(mutex_);
+    if (!summary_dirty_ && pending_detail_.empty())
+      return;
+    if (summary_dirty_) {
+      summary.reserve(entries_.size());
+      for (const auto &[key, entry] : entries_)
+        summary.push_back(entry);
+      summary_dirty_ = false;
+    }
+    detail.swap(pending_detail_);
+    if (!detail.empty()) {
+      PrepareDetailPathLocked();
+      if (!session_detail_capped_)
+        detail_path = session_detail_path_;
+    }
+  }
 
   std::error_code dir_ec;
   std::filesystem::create_directories(log_dir_, dir_ec);
   if (dir_ec) {
     REXLOG_ERROR(bd, "mods failed to create log dir {}: {}", log_dir_.string(),
              dir_ec.message());
+    std::lock_guard lock(mutex_);
     session_detail_capped_ = true; // unwritable: don't accumulate in RAM
     pending_detail_.clear();
     return;
   }
 
   // Summary CSV: truncate + rewrite with cumulative totals.
-  if (!entries_.empty()) {
+  if (!summary.empty()) {
     auto summary_path = log_dir_ / "file_access_summary.csv";
     std::ofstream ofs(summary_path, std::ios::trunc);
     if (!ofs) {
@@ -254,37 +290,26 @@ void AccessLog::Flush() {
     } else {
       ofs << "pack,inner_path,total_accesses,total_overrides,total_misses\n";
 
-      std::vector<const FileAccessEntry *> sorted;
-      sorted.reserve(entries_.size());
-      for (const auto &[key, entry] : entries_)
-        sorted.push_back(&entry);
-      std::sort(sorted.begin(), sorted.end(), [](auto *a, auto *b) {
-        if (a->pack != b->pack)
-          return a->pack < b->pack;
-        return a->inner_path < b->inner_path;
+      std::sort(summary.begin(), summary.end(), [](const auto &a, const auto &b) {
+        if (a.pack != b.pack)
+          return a.pack < b.pack;
+        return a.inner_path < b.inner_path;
       });
 
-      for (const auto *e : sorted) {
-        ofs << e->pack << "," << e->inner_path << "," << e->access_count << ","
-            << e->override_count << "," << e->miss_count << "\n";
+      for (const auto &e : summary) {
+        ofs << e.pack << "," << e.inner_path << "," << e.access_count << ","
+            << e.override_count << "," << e.miss_count << "\n";
       }
 
-      REXLOG_TRACE(bd, "mods wrote summary ({} entries) to {}", sorted.size(),
+      REXLOG_TRACE(bd, "mods wrote summary ({} entries) to {}", summary.size(),
                summary_path.string());
     }
   }
 
-  // Detail CSV: append-only with timestamps, one file per session.
-  if (pending_detail_.empty())
+  // Detail CSV: append-only with timestamps, one file per session. Rows that
+  // reach a capped or unwritable log are dropped rather than retained.
+  if (detail.empty() || detail_path.empty())
     return;
-
-  PrepareDetailPathLocked();
-  if (session_detail_capped_ || session_detail_path_.empty()) {
-    pending_detail_.clear(); // capped or unwritable: don't accumulate in RAM
-    return;
-  }
-
-  const auto &detail_path = session_detail_path_;
 
   // Per-session size guard turns the count-based retention ceiling hard: worst
   // case on disk is (bd_mod_log_keep + 1) * bd_mod_log_max_mb (the retained
@@ -299,6 +324,7 @@ void AccessLog::Flush() {
       REXLOG_WARN(bd, "mods detail log hit {} MB cap, stopping detail capture for "
               "this session ({})",
               max_mb, detail_path.string());
+      std::lock_guard lock(mutex_);
       session_detail_capped_ = true;
       pending_detail_.clear();
       return;
@@ -312,20 +338,18 @@ void AccessLog::Flush() {
   std::ofstream ofs(detail_path, std::ios::app);
   if (!ofs) {
     REXLOG_ERROR(bd, "mods failed to write detail log to {}", detail_path.string());
-    pending_detail_.clear(); // drop rather than retain unboundedly
     return;
   }
 
   if (needs_header)
     ofs << "datetime,pack,inner_path,source\n";
-  for (const auto &d : pending_detail_) {
+  for (const auto &d : detail) {
     ofs << d.datetime << "," << d.pack << "," << d.inner_path << ","
         << FileSourceStr(d.source) << "\n";
   }
 
-  REXLOG_TRACE(bd, "mods appended {} detail entries to {}", pending_detail_.size(),
+  REXLOG_TRACE(bd, "mods appended {} detail entries to {}", detail.size(),
            detail_path.string());
-  pending_detail_.clear();
 }
 
 } // namespace bd::vfs

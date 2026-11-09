@@ -15,6 +15,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <cstring>
 #include <map>
 #include <mutex>
 #include <string_view>
@@ -334,7 +335,18 @@ void LerpElements(const float *a, const float *b, float t, float *out,
     out[i] = a[i] + (b[i] - a[i]) * t;
 }
 
-void LerpMatrix(const float a[16], const float b[16], float t, float out[16]) {
+// The parts of a matrix blend that depend only on its endpoints, so a pair
+// blended on many frames decomposes once.
+struct MatrixBlend {
+  bool affine = false;
+  float qa[4] = {};
+  float qb[4] = {};
+  float stretchA[3][3] = {};
+  float stretchB[3][3] = {};
+};
+
+MatrixBlend PrepareMatrixBlend(const float a[16], const float b[16]) {
+  MatrixBlend p;
   bool turning = false;
   for (int i = 0; i < 3 && !turning; ++i)
     for (int j = 0; j < 3; ++j)
@@ -342,23 +354,28 @@ void LerpMatrix(const float a[16], const float b[16], float t, float out[16]) {
         turning = true;
         break;
       }
-  if (!turning) {
+  if (!turning || !DecomposeAffine(a, p.qa, p.stretchA) ||
+      !DecomposeAffine(b, p.qb, p.stretchB))
+    return p;
+  const float dot = p.qa[0] * p.qb[0] + p.qa[1] * p.qb[1] +
+                    p.qa[2] * p.qb[2] + p.qa[3] * p.qb[3];
+  if (dot < 0.0f)
+    for (float &v : p.qb)
+      v = -v;
+  p.affine = true;
+  return p;
+}
+
+void ApplyMatrixBlend(const MatrixBlend &p, const float a[16],
+                      const float b[16], float t, float out[16]) {
+  if (!p.affine) {
     LerpElements(a, b, t, out, 16);
     return;
   }
-  float qa[4], qb[4];
-  float stretchA[3][3], stretchB[3][3];
-  if (!DecomposeAffine(a, qa, stretchA) || !DecomposeAffine(b, qb, stretchB)) {
-    LerpElements(a, b, t, out, 16);
-    return;
-  }
-  const float dot =
-      qa[0] * qb[0] + qa[1] * qb[1] + qa[2] * qb[2] + qa[3] * qb[3];
-  const float sign = dot < 0.0f ? -1.0f : 1.0f;
   float q[4];
   float len = 0.0f;
   for (int i = 0; i < 4; ++i) {
-    q[i] = qa[i] + (sign * qb[i] - qa[i]) * t;
+    q[i] = p.qa[i] + (p.qb[i] - p.qa[i]) * t;
     len += q[i] * q[i];
   }
   len = std::sqrt(len);
@@ -371,11 +388,16 @@ void LerpMatrix(const float a[16], const float b[16], float t, float out[16]) {
   float stretch[3][3];
   for (int i = 0; i < 3; ++i)
     for (int j = 0; j < 3; ++j)
-      stretch[i][j] = stretchA[i][j] + (stretchB[i][j] - stretchA[i][j]) * t;
+      stretch[i][j] =
+          p.stretchA[i][j] + (p.stretchB[i][j] - p.stretchA[i][j]) * t;
   ComposeAffine(q, stretch, out);
   static constexpr int kPassthrough[] = {3, 7, 11, 12, 13, 14, 15};
   for (const int i : kPassthrough)
     out[i] = a[i] + (b[i] - a[i]) * t;
+}
+
+void LerpMatrix(const float a[16], const float b[16], float t, float out[16]) {
+  ApplyMatrixBlend(PrepareMatrixBlend(a, b), a, b, t, out);
 }
 
 void EyeFromView(const float v[16], float eye[3]) {
@@ -632,10 +654,20 @@ constexpr u32 BoneHolder(u32 vo) {
   return vo + offsetof(bd::engine::VisualObject_t, boneBuffer);
 }
 
+struct BoneBlend {
+  bool snap = false;
+  MatrixBlend matrix;
+};
+
 struct BoneArray {
   std::vector<float> prevPose;
   std::vector<float> tickTarget;
-  std::vector<float> lastLive;
+  // Raw big-endian words, so the per-acquire check is one memcmp.
+  std::vector<u32> lastLive;
+  std::vector<BoneBlend> blends;
+  bool blendsStale = true;
+  // The camera pass that last found the live bones unchanged.
+  u64 verifiedPass = 0;
   u64 blendTick = ~0ull;
   u32 count = 0;
   u32 currEA = 0;
@@ -651,6 +683,15 @@ std::map<u32, u32> g_boneRanges;
 
 thread_local bool t_inCameraRender = false;
 thread_local bool t_boneWriter = false;
+
+// A pass id unique across threads, renewed when a nested bdCameraRender
+// returns, since the nested pass may have written bones.
+std::atomic<u64> g_cameraPassSeq{0};
+thread_local u64 t_cameraPass = 0;
+
+u64 NextCameraPass() {
+  return g_cameraPassSeq.fetch_add(1, std::memory_order_relaxed) + 1;
+}
 
 void UnmapBoneRange(u32 &slot) {
   if (slot)
@@ -3403,10 +3444,12 @@ REX_DETOUR(bdDrawRecordListReplay, void, ()) {
 REX_DETOUR(bdCameraRender, void, (u32 visualObject)) {
   const bool outer = !t_inCameraRender;
   t_inCameraRender = true;
+  t_cameraPass = NextCameraPass();
   RegisterBoneArray(visualObject);
   original(visualObject);
   if (outer)
     t_inCameraRender = false;
+  t_cameraPass = outer ? 0 : NextCameraPass();
 }
 
 REX_DETOUR(bdFrameSubmitAndDebugHUD, void, (u32 arg0)) {
@@ -3438,13 +3481,19 @@ u32 ServeBones(BoneArray &e, double now) {
     if (CutThisTick()) {
       e.blended = 0;
       e.prevPose = e.tickTarget;
+      e.blendsStale = true;
       return 0;
     }
-    auto *live = bd::mem::try_at<be_f32>(e.currEA);
-    if (live && e.lastLive.size() == size_t(e.count) * 16)
-      for (size_t i = 0; i < e.lastLive.size(); ++i)
-        if (float(live[i]) != e.lastLive[i])
-          return 0;
+    // A pass draws an object's nodes back to back, so one check per pass
+    // still catches a writer between passes.
+    if (t_cameraPass != 0 && e.verifiedPass == t_cameraPass)
+      return e.blended;
+    auto *live = bd::mem::try_at<const u32>(e.currEA);
+    if (live && e.lastLive.size() == size_t(e.count) * 16 &&
+        std::memcmp(live, e.lastLive.data(),
+                    e.lastLive.size() * sizeof(u32)) != 0)
+      return 0;
+    e.verifiedPass = t_cameraPass;
     return e.blended;
   }
   e.blendTime = now;
@@ -3473,29 +3522,46 @@ u32 ServeBones(BoneArray &e, double now) {
     ReadFloats(cur, e.tickTarget.data(), floats);
     e.prevPose = e.tickTarget;
     e.blendTick = tick;
+    e.blendsStale = true;
   } else if (e.blendTick != tick) {
     e.prevPose = e.tickTarget;
     ReadFloats(cur, e.tickTarget.data(), floats);
     e.blendTick = tick;
+    e.blendsStale = true;
   }
-  e.lastLive.resize(size_t(floats));
-  ReadFloats(cur, e.lastLive.data(), floats);
+  const auto *raw = reinterpret_cast<const u32 *>(cur);
+  e.lastLive.assign(raw, raw + floats);
   if (CutThisTick()) {
     e.prevPose = e.tickTarget;
+    e.blendsStale = true;
     return 0;
+  }
+  if (e.blendsStale || e.blends.size() != count) {
+    e.blends.resize(count);
+    for (u32 b = 0; b < count; ++b) {
+      const float *prvM = &e.prevPose[size_t(b) * 16];
+      const float *tgtM = &e.tickTarget[size_t(b) * 16];
+      BoneBlend &blend = e.blends[b];
+      blend.snap = ClassifyBone(tgtM, prvM) == BoneStep::Snap;
+      blend.matrix =
+          blend.snap ? MatrixBlend{} : PrepareMatrixBlend(prvM, tgtM);
+    }
+    e.blendsStale = false;
   }
   const float a = bd::engine::Alpha();
   float outM[16];
   for (int i = 0; i < floats; i += 16) {
     const float *prvM = &e.prevPose[size_t(i)];
     const float *tgtM = &e.tickTarget[size_t(i)];
-    if (ClassifyBone(tgtM, prvM) == BoneStep::Snap)
+    const BoneBlend &blend = e.blends[size_t(i / 16)];
+    if (blend.snap)
       std::copy_n(tgtM, 16, outM);
     else
-      LerpMatrix(prvM, tgtM, a, outM);
+      ApplyMatrixBlend(blend.matrix, prvM, tgtM, a, outM);
     WriteFloats(dst + i, outM, 16);
   }
   e.blended = e.scratch;
+  e.verifiedPass = t_cameraPass;
   return e.scratch;
 }
 
@@ -3510,7 +3576,8 @@ REX_DETOUR(bdDoubleBufferAcquire, u32, (u32 holder)) {
   if (it == g_boneArrays.end())
     return result;
   BoneArray &e = it->second;
-  MapBoneRange(e.currEA, result, e.count);
+  if (e.currEA != result)
+    MapBoneRange(e.currEA, result, e.count);
   if (t_boneWriter || (!t_inCameraRender && !bd::engine::IsRenderThread()) ||
       ParticleModelPoolVO(holder - BoneHolder(0)))
     return result;

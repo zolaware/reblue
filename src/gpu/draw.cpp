@@ -153,12 +153,14 @@ void FlushDirtyConstantMasks(VideoState &s, u32 device_guest) {
   auto *dev = bd::mem::at<D3DDevice>(device_guest);
   if (!dev)
     return;
-  if (u64(dev->m_Mask[0]) != 0) {
+  if (const u64 vs = u64(dev->m_Mask[0])) {
     s.dirtyStates.vertexShaderConstants = true;
+    s.vsConstantGroups |= vs;
     dev->m_Mask[0] = 0;
   }
-  if (u64(dev->m_Mask[1]) != 0) {
+  if (const u64 ps = u64(dev->m_Mask[1])) {
     s.dirtyStates.pixelShaderConstants = true;
+    s.psConstantGroups |= ps;
     dev->m_Mask[1] = 0;
   }
 }
@@ -273,7 +275,9 @@ bool Video::FlushRenderStateLocked(u32 device_guest) {
   if (device_guest) {
     FlushDirtyConstantMasks(s, device_guest);
     if (s.dirtyStates.vertexShaderConstants) {
-      auto vs_alloc = UploadVertexShaderConstants(device_guest);
+      auto vs_alloc =
+          UploadVertexShaderConstants(device_guest, s.vsConstantGroups);
+      s.vsConstantGroups = 0;
       if (vs_alloc.size) {
 #if defined(REBLUE_D3D12)
         s.command_list->setGraphicsRootDescriptor(vs_alloc.ref, 0);
@@ -285,7 +289,9 @@ bool Video::FlushRenderStateLocked(u32 device_guest) {
     }
 
     if (s.dirtyStates.pixelShaderConstants) {
-      auto ps_alloc = UploadPixelShaderConstants(device_guest);
+      auto ps_alloc =
+          UploadPixelShaderConstants(device_guest, s.psConstantGroups);
+      s.psConstantGroups = 0;
       if (ps_alloc.size) {
 #if defined(REBLUE_D3D12)
         s.command_list->setGraphicsRootDescriptor(ps_alloc.ref, 1);

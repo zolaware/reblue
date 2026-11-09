@@ -140,7 +140,12 @@ void RecreateSurface(GuestTexture *surface, float scale_x, float scale_y) {
   surface->scaleX = scale_x;
   surface->scaleY = scale_y;
   Video::RecreateTexture(surface);
-  if (!surface->texture || IsDepthFormat(surface->format))
+  if (!surface->texture) {
+    REXLOG_ERROR(bd, "surface rescale failed for {:08X}",
+                 HostResourceHeap::ToGuest(surface));
+    return;
+  }
+  if (IsDepthFormat(surface->format))
     return;
   plume::RenderTextureViewDesc view_desc;
   view_desc.format = surface->format;

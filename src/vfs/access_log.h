@@ -10,9 +10,11 @@
 
 #include <rex/types.h>
 
+#include <condition_variable>
 #include <filesystem>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
@@ -44,10 +46,16 @@ struct DetailEntry {
 // append-only file per session. Recording is off unless bd_mod_log is set, but
 // the summary is loaded regardless so enabling it mid-session cannot overwrite
 // earlier totals with this session's counts alone.
+//
+// Recording runs on the engine's IO path, the main thread included, so it only
+// appends in memory. A writer thread flushes on an interval.
 class AccessLog {
 public:
   // disc_root decides Disk vs IPK for engine-served rows.
   void Init(const std::filesystem::path &disc_root);
+
+  // Stops the writer and flushes what is left.
+  void Shutdown();
 
   void Record(const std::string &key, FileSource source);
 
@@ -61,15 +69,21 @@ private:
   void LoadSummaryLocked();
   void PrepareDetailPathLocked();
   void PruneOldDetailLogsLocked();
+  void WriterLoop(std::stop_token stop);
 
   std::filesystem::path disc_root_;
   std::filesystem::path log_dir_;
 
-  std::mutex mutex_; // guards entries_ + pending_detail_
+  std::mutex write_mutex_; // serializes flushes, taken before mutex_
+  std::mutex mutex_;       // guards entries_ + pending_detail_
   std::unordered_map<std::string, FileAccessEntry> entries_;
   std::vector<DetailEntry> pending_detail_;
+  bool summary_dirty_ = false;                // entries_ changed since a flush
   std::filesystem::path session_detail_path_; // this run's detail file
   bool session_detail_capped_ = false;        // size cap hit this session
+
+  std::condition_variable_any wake_;
+  std::jthread writer_;
 };
 
 } // namespace bd::vfs

@@ -22,6 +22,7 @@
 #include <rex/api.h>
 #include <rex/apu.h>
 #include <rex/app.h>
+#include <rex/build_stamp.h>
 #include <rex/cvar.h>
 #include <rex/dbg.h>
 #include <rex/hid.h>
@@ -195,8 +196,7 @@ rex::Result<void> ReblueApp::OnInit(rex::Config &config, rex::API &api) {
           REBLUE_GIT_DIRTY ? " (local modifications)" : "",
           kOfficialBuild ? "" : " (development build)");
   REXLOG_INFO(bd, "  built:   " REBLUE_BUILD_TIMESTAMP " with " REBLUE_BUILD_COMPILER);
-  REXLOG_INFO(bd, "  sdk:     rexglue-v" REXGLUE_VERSION_STRING
-          " " REXGLUE_BUILD_PLATFORM " @" REXGLUE_BUILD_TIMESTAMP);
+  REXLOG_INFO(bd, "  sdk:     {}", rex::GetBuildStamp());
 
   // bd_profiler predates perf.profiler and is read from the config file, which
   // loads after OnConfigure could have mapped it.
@@ -558,14 +558,15 @@ void ReblueApp::RunHandoff() {
 }
 
 bool ReblueApp::BeginPreTitleUI() {
-  if (!bd::gpu::Video::CreateHostDevice(GetWindow())) {
+  rex::ui::IWindow *window = GetWindow();
+  if (!window || !bd::gpu::Video::CreateHostDevice(*window)) {
     bd::platform::ShowFatal("reblue - renderer init failed",
                             "Failed to initialize the renderer.");
     rex::RequestShutdown(1);
     return false;
   }
   InstallOverlayDrawHook();
-  GetWindow().Raise();
+  window->Raise();
   return true;
 }
 
@@ -710,11 +711,12 @@ rex::Result<void> ReblueApp::OnTitleLaunch(rex::Runtime &rt) {
   // that the guest does not route through its single "download" IPK slot.
   bd::vfs::VFS::Get().DLC().MountArchives();
 
-  if (!bd::gpu::Video::CreateHostDevice(GetWindow()))
+  rex::ui::IWindow *window = GetWindow();
+  if (!window || !bd::gpu::Video::CreateHostDevice(*window))
     return rex::Err<void>(rex::ErrorCategory::kRuntime,
                           "native renderer initialization failed");
   InstallOverlayDrawHook();
-  GetWindow().Raise();
+  window->Raise();
   return rex::Ok();
 }
 
@@ -864,6 +866,7 @@ void ReblueApp::OnShutdown() {
   if (cvars_)
     bd::engine::Bindings::Get().Unregister();
   bd::vfs::VFS::Get().Prefetch().Shutdown();
+  bd::vfs::VFS::Get().Log().Shutdown();
   bd::gpu::Video::BeginShutdown();
   bd::gpu::FlushPSOCapture();
   bd::gpu::StopPSOPrecache();

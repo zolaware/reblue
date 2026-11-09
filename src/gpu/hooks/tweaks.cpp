@@ -36,7 +36,6 @@
 namespace {
 constexpr u32 kScreenUVScaleReg = 50;
 constexpr u32 kSsScatterBlurEA = 0x82DF4344;
-constexpr u32 kOpaqueBlackArgb = 0xFF000000u;
 
 constexpr u32 kBloomPoolSlotDims[] = {0x30A8, 0x30F4};
 constexpr u32 kDOFPoolSlotDims[] = {0x268, 0x318};
@@ -188,7 +187,7 @@ REX_MIDASM_HOOK(bdReflectionTextureSeedHook, (PPCRegister &r3)) {
   if (!texture)
     return;
   texture->reflection = true;
-  bd::gpu::Video::ClearTexture(texture, kOpaqueBlackArgb);
+  bd::gpu::Video::ClearTexture(texture, bd::gpu::kOpaqueBlackArgb);
 }
 REX_MIDASM_AT(bdReflectionTextureSeedHook, 0x82177CCC, after, r3);
 REX_MIDASM_AT(bdReflectionTextureSeedHook, 0x821786D0, after, r3);

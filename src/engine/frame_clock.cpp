@@ -8,6 +8,7 @@
 #include "engine/frame_clock.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 
 #include "engine/cutscene_pause.h"
@@ -40,6 +41,8 @@ double g_deltaRing[kDeltaWindow] = {};
 int g_deltaCount = 0;
 int g_deltaNext = 0;
 
+std::atomic<bool> g_interpActive{false};
+
 double DeltaMean() {
   double sum = 0.0;
   for (int i = 0; i < g_deltaCount; ++i)
@@ -68,11 +71,13 @@ double NowSeconds() {
 } // namespace
 
 bool InterpolationActive() {
-  const i32 fps = Settings::Get().FPSLimit();
-  return (fps == 0 || fps > 30) && !SofdecPlayer::Playing();
+  return g_interpActive.load(std::memory_order_relaxed);
 }
 
 void Advance() {
+  const i32 fps = Settings::Get().FPSLimit();
+  g_interpActive.store((fps == 0 || fps > 30) && !SofdecPlayer::Playing(),
+                       std::memory_order_relaxed);
   const double now = NowSeconds();
   if (CutscenePause::Get().Frozen()) {
     g_lastTime = now;

@@ -35,7 +35,7 @@ std::filesystem::path g_app_root_override;
 
 bool IsPackagedApplication() {
 #if !defined(_WIN32)
-  if (rex::platform::env::get("APPIMAGE"))
+  if (rex::platform::GetEnvironmentValue("APPIMAGE"))
     return true;
 #if defined(__APPLE__)
   return IsMacAppBundle();
@@ -46,10 +46,10 @@ bool IsPackagedApplication() {
 
 std::filesystem::path UserConfigFolder() {
 #if !defined(_WIN32)
-  if (auto xdg = rex::platform::env::get("XDG_CONFIG_HOME");
+  if (auto xdg = rex::platform::GetEnvironmentValue("XDG_CONFIG_HOME");
       xdg && !xdg->empty())
     return std::filesystem::path(*xdg) / "reblue";
-  if (auto home = rex::platform::env::get("HOME"); home && !home->empty())
+  if (auto home = rex::platform::GetEnvironmentValue("HOME"); home && !home->empty())
     return std::filesystem::path(*home) / ".config" / "reblue";
 #endif
   return {};
@@ -72,13 +72,13 @@ std::filesystem::path AppRootFolder() {
 #if !defined(_WIN32)
   // An AppImage mount is a read-only FUSE, so nothing can be written beside the
   // executable. Everything else keeps the exe dir layout.
-  if (rex::platform::env::get("APPIMAGE")) {
+  if (rex::platform::GetEnvironmentValue("APPIMAGE")) {
     if (auto config = UserConfigFolder(); !config.empty())
       return config;
   }
 #if defined(__APPLE__)
   if (IsMacAppBundle()) {
-    if (auto home = rex::platform::env::get("HOME"); home && !home->empty())
+    if (auto home = rex::platform::GetEnvironmentValue("HOME"); home && !home->empty())
       return std::filesystem::path(*home) / "Library" / "Application Support" /
              "reblue";
   }

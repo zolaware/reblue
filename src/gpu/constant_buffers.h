@@ -82,10 +82,11 @@ bool TryInit();
 // (DrainSlot), never while in flight.
 void ResetFrame(u32 slot);
 
-// Byte-swap VS/PS float constants from guest device+0x700 / device+0x1700 into
-// the upload heap.
-ConstantAllocation UploadVertexShaderConstants(u32 device_guest);
-ConstantAllocation UploadPixelShaderConstants(u32 device_guest);
+// Uploads VS/PS float constants from guest device+0x700 / device+0x1700. Only
+// the 4-register groups set in 'groups' are swapped again from the guest, so
+// every write the engine makes has to reach its pending mask.
+ConstantAllocation UploadVertexShaderConstants(u32 device_guest, u64 groups);
+ConstantAllocation UploadPixelShaderConstants(u32 device_guest, u64 groups);
 
 // Rebuilt from live guest state every draw: sampler fetch constants and bool
 // constants come from unhooked recompiled code, so there is no dirty signal.
@@ -97,10 +98,9 @@ ConstantAllocation UploadSharedConstants(u32 device_guest);
 // bound' reuse gate. Call on every command list reset.
 void InvalidateSharedBinding();
 
-// alignment defaults to 4 (the upload buffer is WRITE_COMBINE), and CBV callers
-// pass 256.
-ConstantAllocation UploadGuestBytesByteSwap32(u32 guest_va, u32 size,
-                                              u32 alignment = 4);
+// Into host memory, for data adjusted before it is uploaded. Adjusting the
+// uploaded copy would read back WRITE_COMBINE memory, which is uncached.
+void ByteSwap32ToHost(u8 *dst, u32 guest_va, u32 size);
 
 // Verbatim, no swap, for texture pixel data.
 ConstantAllocation UploadGuestBytes(u32 guest_va, u32 size, u32 alignment = 4);

@@ -15,6 +15,7 @@ namespace bd::engine {
 
 void Advance();
 
+// Latched once per frame by Advance, since the hooks ask on every draw.
 bool InterpolationActive();
 
 bool TickDue();

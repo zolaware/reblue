@@ -32,6 +32,8 @@ class IWindow;
 
 namespace bd::gpu {
 
+inline constexpr u32 kOpaqueBlackArgb = 0xFF000000u;
+
 class Video {
 public:
   template <typename T>
@@ -399,6 +401,10 @@ struct VideoState {
   bool design_canvas_drain = false;
   PipelineState pipelineState{};
   DirtyStates dirtyStates{true};
+  // The engine's pending masks folded since the last VS and PS upload, one bit
+  // per 4-register group, c0 to c3 in the top bit.
+  u64 vsConstantGroups = 0;
+  u64 psConstantGroups = 0;
   // Last PSO bound to the open list, so FlushRenderState can skip lookup +
   // setPipeline when pipelineState is clean. Reset in BeginCommandList (list
   // begin drops the bound pipeline).

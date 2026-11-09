@@ -54,7 +54,7 @@ std::filesystem::path RunningBundle() {
 
 #if !defined(_WIN32) && !defined(__APPLE__)
 std::filesystem::path RunningAppImage() {
-  const auto value = rex::platform::env::get("APPIMAGE");
+  const auto value = rex::platform::GetEnvironmentValue("APPIMAGE");
   if (!value || value->empty())
     return {};
   const std::filesystem::path appimage(*value);
