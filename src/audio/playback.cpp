@@ -6,9 +6,9 @@
  */
 #include "audio/playback.h"
 
-#include <rex/runtime.h>
+#include <rex/kernel/title_runtime.h>
 
-#include <rex/ui/title_app.h>
+#include "platform/host_ui.h"
 
 namespace bd::audio {
 
@@ -18,9 +18,12 @@ Playback &Playback::Get() {
 }
 
 void Playback::SetPaused(bool paused) {
-  rex::ui::InvokeFunction([paused] {
-    if (auto *runtime = rex::GetProcessRuntime())
-      runtime->SetAudioPaused(paused);
+  rex::ui::IUISystem *ui = bd::platform::UI();
+  if (!ui)
+    return;
+  ui->PostTask([this, paused] {
+    if (rex::kernel::TitleRuntime *title = title_.load())
+      title->SetAudioPaused(paused);
   });
 }
 

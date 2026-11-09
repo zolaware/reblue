@@ -9,8 +9,7 @@
 #include <algorithm>
 #include <cmath>
 
-#include <rex/hook.h>
-#include <rex/ppc/detour.h>
+#include <rex/ppc/hook.h>
 #include <rex/types.h>
 
 #include "engine/d2anime/anime_hittest.h"
@@ -289,7 +288,7 @@ int MenuMouse::SelectableNear(u32 va, int index, int lo, int hi) const {
 // click before the drag had claimed it.
 void MenuMouse::ScrollbarDrag(u32 va) {
   const bool down =
-      platform::HID().IsButtonDown(rex::hid::MouseButton::kLeft) &&
+      platform::HID().IsButtonDown(rex::MouseButton::kLeft) &&
       !HostOverlayOwnsPointer();
   const bool pressed = down && !buttonWasDown_;
   buttonWasDown_ = down;

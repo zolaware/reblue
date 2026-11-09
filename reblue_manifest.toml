@@ -20,4 +20,6 @@ xer_as_local = true
 cr_as_local = true
 reserved_as_local = true
 non_volatile_as_local = true
+non_argument_as_local = true
+forward_stack_stores = true
 

@@ -1,6 +1,6 @@
 /**
  * @file    gpu/imgui_overlay_drawer.h
- * @brief   Plume/D3D12-backed IOverlayDrawer for detached overlay rendering.
+ * @brief   Plume-backed IOverlayRenderer for the overlays and dialogs.
  *
  * @copyright Copyright (c) 2026 Tom Clay <tomc@tctechstuff.com>
  *            All rights reserved.
@@ -10,11 +10,13 @@
 #pragma once
 
 #include <memory>
-#include <span>
 #include <rex/result.h>
 #include <rex/types.h>
 
-#include <rex/gpu/overlay.h>
+#include <rex/overlay_renderer.h>
+
+struct ImDrawData;
+struct ImTextureData;
 
 // Plume declares these as 'struct'. Match the tag or clang-cl flags a mismatch.
 namespace plume {
@@ -29,60 +31,45 @@ struct RenderShader;
 
 namespace bd::gpu {
 
-class ReblueUIDrawContext final : public rex::gpu::OverlayDrawContext {
+class PlumeImmediateTexture final {
 public:
-  ReblueUIDrawContext(u32 rt_w, u32 rt_h, plume::RenderCommandList *cmd,
-                      plume::RenderFramebuffer *fb)
-      : rex::gpu::OverlayDrawContext(nullptr, rt_w, rt_h), cmd_(cmd), fb_(fb) {}
-
-  plume::RenderCommandList *command_list() const { return cmd_; }
-  plume::RenderFramebuffer *framebuffer() const { return fb_; }
-
-private:
-  plume::RenderCommandList *cmd_;
-  plume::RenderFramebuffer *fb_;
-};
-
-class PlumeImmediateTexture final : public rex::gpu::OverlayTexture {
-public:
-  PlumeImmediateTexture(u32 w, u32 h, u32 tex_slot, u32 sampler_slot,
+  PlumeImmediateTexture(u32 tex_slot,
                         std::unique_ptr<plume::RenderTexture> texture,
                         std::unique_ptr<plume::RenderTextureView> view);
-  ~PlumeImmediateTexture() override;
+  ~PlumeImmediateTexture();
 
   u32 tex_slot() const { return tex_slot_; }
-  u32 sampler_slot() const { return sampler_slot_; }
+
+  // Parks the image, view and slot without taking the video state lock. Only
+  // for the overlay pass, where Present is parked holding it. The destructor
+  // does the same through the locking path when Retire never ran.
+  void Retire();
 
 private:
   u32 tex_slot_;
-  u32 sampler_slot_;
   std::unique_ptr<plume::RenderTexture> texture_;
   std::unique_ptr<plume::RenderTextureView> view_;
 };
 
-// Detached drawer (config.graphics == nullptr): binds the device lazily because
-// it exists before reblue's device.
-class ImGuiOverlayDrawer final : public rex::gpu::IOverlayDrawer {
+// Binds the device lazily because it exists before reblue's device.
+class ImGuiOverlayDrawer final : public rex::IOverlayRenderer {
 public:
   ImGuiOverlayDrawer();
   ~ImGuiOverlayDrawer() override;
 
-  [[nodiscard]] rex::Result<std::unique_ptr<rex::gpu::OverlayTexture>>
-  CreateTexture(u32 width, u32 height, rex::gpu::OverlayTextureFilter filter,
-                bool repeat, std::span<const u8> rgba8) override;
-  void Begin(rex::gpu::OverlayDrawContext &context, float width,
-             float height) override;
-  void BeginBatch(const rex::gpu::OverlayBatch &batch) override;
-  void Draw(const rex::gpu::OverlayDraw &draw) override;
-  void EndBatch() override;
-  void End() override;
+  // The command list and framebuffer the next RenderOverlays draws into.
+  void SetTarget(plume::RenderCommandList *cmd, plume::RenderFramebuffer *fb,
+                 u32 width, u32 height);
+
+  void RenderOverlays(ImDrawData &draw_data) override;
 
 private:
   bool TryInitDeviceResources(); // lazy GPU init, false if device not ready
 
-  // Clamps the draw scissor to the render target. False when it is empty.
-  bool Scissor(const rex::gpu::OverlayDraw &draw, rex::u32 &l, rex::u32 &t,
-               rex::u32 &w, rex::u32 &h) const;
+  void UpdateTexture(ImTextureData &texture);
+
+  // Only valid inside the overlay pass, see PlumeImmediateTexture::Retire.
+  void RetireTexture(ImTextureData &texture);
 
   // Requires an open Present command list.
   bool UploadRGBA8Texture(u32 w, u32 h, const u8 *rgba,
@@ -91,12 +78,10 @@ private:
                           u32 &out_slot);
 
   bool resources_ready_ = false;
-  bool batch_open_ = false;
-  float coord_w_ = 0.0f;
-  float coord_h_ = 0.0f;
-  rex::u32 rt_w_ = 0;
-  rex::u32 rt_h_ = 0;
-  plume::RenderCommandList *cmd_ = nullptr; // valid only between Begin/End
+  u32 rt_w_ = 0;
+  u32 rt_h_ = 0;
+  plume::RenderCommandList *cmd_ = nullptr;
+  plume::RenderFramebuffer *fb_ = nullptr;
 
   std::unique_ptr<plume::RenderPipelineLayout> layout_;
   std::unique_ptr<plume::RenderPipeline> pipeline_;

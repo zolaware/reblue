@@ -8,7 +8,7 @@
  */
 #pragma once
 
-#include <rex/hook.h>
+#include <rex/ppc/hook.h>
 #include <rex/types.h>
 
 // ReXGlue numbers GPR ordinals over integer parameters only, so every register

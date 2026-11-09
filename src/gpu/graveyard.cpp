@@ -16,9 +16,9 @@
 #include <mutex>
 
 #include <plume_render_interface.h>
-#include <rex/dbg.h>
+#include <rex/platform/perf.h>
 #include <rex/memory.h>
-#include <rex/runtime.h>
+#include <rex/kernel/title_runtime.h>
 
 
 #include "core/logging.h"
@@ -48,7 +48,7 @@ void DetachMirrorsLocked(VideoState &s, GuestTexture *dead) {
       slot = nullptr;
   }
   if (dead->mappedMemory) {
-    bd::mem::memory()->SystemHeapFree(dead->mappedMemory);
+    bd::mem::SystemFree(dead->mappedMemory);
     dead->mappedMemory = 0;
   }
   s.draw_framebuffer_bound = false;
@@ -64,7 +64,7 @@ bool DrainResolveLinksLocked(VideoState &s, GuestTexture *tex,
         static std::atomic<u32> s_lost{0};
         const u32 n = s_lost.fetch_add(1, std::memory_order_relaxed);
         if (n < 8) {
-          REXLOG_WARN(bd, "#{} unmaterialized resolve link into {}x{} fmt={} dropped "
+          REXBD_WARN("#{} unmaterialized resolve link into {}x{} fmt={} dropped "
                   "(content lost)",
                   n, dst->width, dst->height, u32(dst->format));
         }
@@ -95,8 +95,7 @@ void ParkTextureGPUObjects(GuestTexture *tex) {
 }
 
 void DestroyResourceNow(u32 guest_va, ResourceType type) {
-  auto *memory = bd::mem::memory();
-  void *host = memory->TranslateVirtual<void *>(guest_va);
+  void *host = bd::mem::at<u8>(guest_va);
   switch (type) {
   case ResourceType::Texture:
   case ResourceType::VolumeTexture:
@@ -117,7 +116,7 @@ void DestroyResourceNow(u32 guest_va, ResourceType type) {
       Video::ParkBufferUntilFence(std::move(buf->buffer));
     }
     if (buf->ownsMirror && buf->guestMirrorVa) {
-      memory->SystemHeapFree(buf->guestMirrorVa);
+      bd::mem::SystemFree(buf->guestMirrorVa);
     }
     HostResourceHeap::Free(buf);
     break;
@@ -146,6 +145,23 @@ void Video::ParkTextureUntilFence(
     return;
   auto &s = state();
   std::lock_guard lock(s.mutex);
+  s.texture_view_graveyard[Video::RetireSlot("texture view")].push_back(
+      std::move(view));
+}
+
+void Video::ParkTextureUntilFenceLocked(
+    std::unique_ptr<plume::RenderTexture> tex) {
+  if (!tex)
+    return;
+  auto &s = state();
+  s.texture_graveyard[Video::RetireSlot("texture")].push_back(std::move(tex));
+}
+
+void Video::ParkTextureUntilFenceLocked(
+    std::unique_ptr<plume::RenderTextureView> view) {
+  if (!view)
+    return;
+  auto &s = state();
   s.texture_view_graveyard[Video::RetireSlot("texture view")].push_back(
       std::move(view));
 }

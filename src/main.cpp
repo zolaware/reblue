@@ -7,23 +7,22 @@
  * @license   BSD 3-Clause License
  *            See LICENSE file in the project root for full license text.
  */
-#include <rex/ui/title_app.h>
-
-#include "generated/reblue_init.h"
+#include <rex/app/title_app.h>
+#include <rex/app/app.h>
 
 #include "reblue_app.h"
 
 namespace {
 
 rex::i32 ReblueMain(ReblueApp &app, const rex::CLIArgList &args) {
-  if (app.Init(args, PPCImageConfig) && !rex::IsShutdownRequested() &&
-      app.CreateTitleWindow()) {
+  app.SetCommandLine(args);
+  if (app.Init(args) && !rex::app::IsShutdownRequested()) {
     if (app.PrepareSetup()) {
       while (app.SetupActive() && app.RunFrame()) {
         app.PresentSetupFrame();
       }
     }
-    if (!rex::IsShutdownRequested() && app.LaunchTitle()) {
+    if (!rex::app::IsShutdownRequested() && app.LaunchTitle()) {
       app.Run();
     }
   }
@@ -34,4 +33,4 @@ rex::i32 ReblueMain(ReblueApp &app, const rex::CLIArgList &args) {
 
 } // namespace
 
-REX_APP_MAIN(ReblueApp, ReblueMain)
+REX_TITLE_APP_MAIN(ReblueApp, ReblueMain)

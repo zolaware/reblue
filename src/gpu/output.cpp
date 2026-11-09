@@ -14,9 +14,6 @@
 #include <atomic>
 #include <cmath>
 
-#include <rex/ui/resolution_preset.h>
-#include <rex/ui/user_interface.h>
-#include <rex/ui/video_mode.h>
 
 #include "core/cvar_table.h"
 #include "core/logging.h"
@@ -33,7 +30,7 @@ std::atomic<u32> g_generation{0};
 bool ConfiguredResolution(u32 &w, u32 &h) {
   i32 cfg_w = 0;
   i32 cfg_h = 0;
-  if (!rex::ui::TryGetResolutionPresetFromCvar(bd::Cvars(), cfg_w, cfg_h))
+  if (!bd::CvarResolution(cfg_w, cfg_h))
     return false;
   w = std::clamp<u32>(static_cast<u32>(cfg_w), 320u, 16384u);
   h = std::clamp<u32>(static_cast<u32>(cfg_h), 240u, 16384u);
@@ -52,12 +49,12 @@ u64 FitInside(u32 sw, u32 sh) {
 
 } // namespace
 
-void Output::Init(rex::ui::IWindow &window) {
+void Output::Init(u32 window_w, u32 window_h) {
   u32 sw = 0;
   u32 sh = 0;
   if (!ConfiguredResolution(sw, sh)) {
-    sw = window.GetWidth();
-    sh = window.GetHeight();
+    sw = window_w;
+    sh = window_h;
   }
   g_render_size.store(FitInside(sw, sh), std::memory_order_relaxed);
 }
@@ -78,7 +75,7 @@ bool Output::Recompute() {
     return false;
   g_render_size.store(next, std::memory_order_relaxed);
   g_generation.fetch_add(1, std::memory_order_release);
-  REXLOG_INFO(bd, "output-res render rect -> {}x{}", u32(next >> 32), u32(next));
+  REXBD_INFO("output-res render rect -> {}x{}", u32(next >> 32), u32(next));
   return true;
 }
 
@@ -126,23 +123,23 @@ double Output::ConfiguredAspect() {
   return 16.0 / 9.0;
 }
 
-rex::ui::AspectRatio Output::ConfiguredAspectRatio() {
+const char *Output::ConfiguredWindowAspect() {
   switch (static_cast<AspectMode>(Settings::Get().AspectRatio())) {
   case AspectMode::Standard:
-    return rex::ui::AspectRatio::k4x3;
+    return "4:3";
   case AspectMode::Wide:
-    return rex::ui::AspectRatio::k16x10;
+    return "16:10";
   case AspectMode::Ultrawide:
-    return rex::ui::AspectRatio::k21x9;
+    return "21:9";
   case AspectMode::SuperUltrawide:
-    return rex::ui::AspectRatio::k32x9;
+    return "32:9";
   case AspectMode::Auto:
   case AspectMode::Stretch:
-    return rex::ui::AspectRatio::kStretch;
+    return "stretch";
   case AspectMode::Original:
     break;
   }
-  return rex::ui::AspectRatio::k16x9;
+  return "16:9";
 }
 
 bool Output::StretchToFill() {

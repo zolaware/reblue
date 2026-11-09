@@ -7,24 +7,22 @@
  */
 #pragma once
 
-#include <rex/hid.h>
+#include <rex/input_keys.h>
+#include <rex/hid/input_system.h>
 #include <rex/types.h>
-#include <rex/ui/ui_event.h>
 
 namespace bd::platform {
 
-inline constexpr u8 kModShift = static_cast<u8>(rex::hid::KeyModifiers::kShift);
-inline constexpr u8 kModCtrl = static_cast<u8>(rex::hid::KeyModifiers::kCtrl);
-inline constexpr u8 kModAlt = static_cast<u8>(rex::hid::KeyModifiers::kAlt);
+inline constexpr u8 kModShift = static_cast<u8>(rex::KeyModifiers::kShift);
+inline constexpr u8 kModCtrl = static_cast<u8>(rex::KeyModifiers::kCtrl);
+inline constexpr u8 kModAlt = static_cast<u8>(rex::KeyModifiers::kAlt);
 
-// The hid module's backend. Set in OnInit before any reader runs.
-rex::hid::IHIDBackend &HID();
-void SetHID(rex::hid::IHIDBackend *backend);
+// The app's input system. Set in OnInit before any reader runs.
+rex::hid::IInputSystem &HID();
+void SetInput(rex::hid::IInputSystem *input);
 
 // The game draws its own pointer, and mouse look holds it. Look wins.
 void SetGameCursorActive(bool active);
 void SetLookActive(bool active);
-
-rex::hid::MouseButton ToHIDButton(rex::ui::MouseEvent::Button button);
 
 } // namespace bd::platform

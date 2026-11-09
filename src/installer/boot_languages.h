@@ -16,7 +16,7 @@
 #include <vector>
 
 namespace rex::filesystem {
-class Container;
+class IContainerImage;
 struct ContainerNode;
 } // namespace rex::filesystem
 
@@ -26,7 +26,7 @@ class BootLanguages {
 public:
   static BootLanguages FromIni(std::string_view text);
   static BootLanguages FromFile(const std::filesystem::path &file);
-  static BootLanguages FromDisc(const rex::filesystem::Container &container,
+  static BootLanguages FromDisc(const rex::filesystem::IContainerImage &container,
                                 const rex::filesystem::ContainerNode &root);
 
   const std::vector<std::string> &Text() const { return text_; }

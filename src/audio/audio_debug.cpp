@@ -6,17 +6,16 @@
  */
 #include "audio/audio_debug.h"
 
-#include "audio/settings.h"
+#include "core/cvar_table.h"
 #include "core/logging.h"
 #include "core/memory_helpers.h"
 
 #include <mutex>
 #include <unordered_map>
 
-#include <rex/hook.h>
-#include <rex/ppc.h>
-#include <rex/ppc/detour.h>
-#include <rex/runtime/guest_global.h>
+#include <rex/ppc/hook.h>
+#include <rex/logging/log_category.h>
+#include <rex/kernel/memory_view.h>
 #include <rex/types.h>
 
 namespace bd::audio {
@@ -40,11 +39,11 @@ REX_GUEST_GLOBAL(SoundDebugGlobals_t, kSoundDebugGlobals, 0x82DC9820);
 
 void ApplyAudioDebugPokes() {
   const auto view = mem::view();
-  auto *g = view ? kSoundDebugGlobals.TryGet(*view) : nullptr;
+  auto *g = view ? kSoundDebugGlobals.TryGetHost(*view) : nullptr;
   if (!g)
     return;
-  const i32 peak = Settings::Get().PeakMeter();
-  g->cue_monitor_mode = static_cast<u32>(Settings::Get().CueMonitor());
+  const i32 peak = bd::cvars::Get().audio_peak.Get();
+  g->cue_monitor_mode = static_cast<u32>(bd::cvars::Get().audio_debug.Get());
   g->peak_meter = peak >= 1 ? 1u : 0u;
   g->peak_meter_db = peak >= 2 ? 1u : 0u;
 }
@@ -58,8 +57,8 @@ REX_DETOUR(bdSoundBankPlayCue, u32,
            (u32 bank, u32 cueIndex, u32 mode, u32 param, u32 callback)) {
   const u32 cue_index = cueIndex & 0xFFFF;
   const u32 handle = original(bank, cueIndex, mode, param, callback);
-  if (bd::audio::Settings::Get().Log())
-    REXLOG_INFO(bd, "PlayCue bank={:08X} idx={} mode={} handle={:08X}", bank, cue_index,
+  if (bd::cvars::Get().audio_log.Get())
+    REXBD_INFO("PlayCue bank={:08X} idx={} mode={} handle={:08X}", bank, cue_index,
             mode, handle);
   return handle;
 }
@@ -69,7 +68,7 @@ REX_DETOUR(bdSoundBankPlayCue, u32,
 // artifact.
 REX_DETOUR(CSourceStream_SetFrequencyScale, u32, (u32 self, f32 scale)) {
   const u32 result = original(self, scale);
-  if (!bd::audio::Settings::Get().Log())
+  if (!bd::cvars::Get().audio_log.Get())
     return result;
 
   // Voices hold a steady ratio for long stretches, so log only the transitions.
@@ -81,6 +80,6 @@ REX_DETOUR(CSourceStream_SetFrequencyScale, u32, (u32 self, f32 scale)) {
     return result;
   it->second = scale;
   if (scale != 1.0f)
-    REXLOG_INFO(bd, "FreqScale voice={:08X} scale={:.5f}", self, scale);
+    REXBD_INFO("FreqScale voice={:08X} scale={:.5f}", self, scale);
   return result;
 }

@@ -7,7 +7,6 @@
  */
 #include "ui/pause_overlay.h"
 
-#include <rex/ui/overlay.h>
 
 #include <algorithm>
 #include <cfloat>
@@ -15,8 +14,7 @@
 
 #include <imgui.h>
 #include <rex/types.h>
-#include <rex/color.h>
-#include <rex/ui/color.h>
+#include <rex/ui/style.h>
 
 #include "core/i18n.h"
 #include "embedded.h"
@@ -35,16 +33,16 @@ constexpr float kEdgeWidth = 2.0f;
 constexpr float kFrameInset = 4.0f;
 constexpr float kFrameWidth = 1.0f;
 
-constexpr rex::Color kWindow = rex::Color::FromRGBA8(0, 0, 0, 192);
-constexpr rex::Color kEdge = rex::Color::FromRGBA8(192, 192, 192);
-constexpr rex::Color kFrame = rex::Color::FromRGBA8(240, 240, 240);
-constexpr rex::Color kText = rex::colors::kWhite;
+constexpr rex::ui::Color kWindow = rex::ui::Color::FromRGBA8(0, 0, 0, 192);
+constexpr rex::ui::Color kEdge = rex::ui::Color::FromRGBA8(192, 192, 192);
+constexpr rex::ui::Color kFrame = rex::ui::Color::FromRGBA8(240, 240, 240);
+constexpr rex::ui::Color kText = rex::ui::colors::kWhite;
 
 ImFont *g_font = nullptr;
 
 } // namespace
 
-PauseOverlay::PauseOverlay(const rex::ui::OverlayContext &) {}
+PauseOverlay::PauseOverlay(rex::ui::IUISystem &) {}
 
 PauseOverlay::~PauseOverlay() = default;
 
@@ -57,9 +55,9 @@ void PauseOverlay::InitFonts(ImFontAtlas *atlas) {
                                        &cfg);
 }
 
-void PauseOverlay::OnDraw(ImGuiIO &io) {
+bool PauseOverlay::Draw(ImGuiIO &io) {
   if (!bd::engine::CutscenePause::Get().Active())
-    return;
+    return true;
 
   const float scale =
       std::min(io.DisplaySize.x / kCanvasW, io.DisplaySize.y / kCanvasH);
@@ -85,6 +83,7 @@ void PauseOverlay::OnDraw(ImGuiIO &io) {
               ImVec2(min.x + (size.x - extent.x) * 0.5f,
                      min.y + (size.y - extent.y) * 0.5f),
               rex::ui::ToImU32(kText), text.c_str());
+  return true;
 }
 
 } // namespace bd::ui

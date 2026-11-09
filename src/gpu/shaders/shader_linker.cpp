@@ -36,7 +36,7 @@ const std::vector<u8> *SpecConstantLib(u32 value) {
 
   auto inserted = g_spec_lib_dxil.emplace(value, CompileSpecConstantLib(value));
   if (inserted.first->second.empty()) {
-    REXLOG_ERROR(bd, "shader_linker: g_SpecConstants({}) library compile failed",
+    REXBD_ERROR("shader_linker: g_SpecConstants({}) library compile failed",
              value);
     return nullptr;
   }
@@ -55,7 +55,7 @@ std::vector<u8> LinkSpecConstant(const u8 *libraryDxil, u32 libraryDxilSize,
       libraryDxil, libraryDxilSize, specLib->data(), specLib->size(),
       isPixelShader ? L"ps_6_0" : L"vs_6_0");
   if (linked.empty()) {
-    REXLOG_ERROR(bd, "shader_linker: link failed (specConstants={})", specConstants);
+    REXBD_ERROR("shader_linker: link failed (specConstants={})", specConstants);
   }
   return linked;
 }

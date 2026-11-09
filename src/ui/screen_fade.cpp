@@ -7,12 +7,11 @@
  */
 #include "ui/screen_fade.h"
 
-#include <rex/ui/overlay.h>
 
 #include <algorithm>
 
 #include <imgui.h>
-#include <rex/ui/color.h>
+#include <rex/ui/style.h>
 
 namespace bd::ui {
 
@@ -49,17 +48,18 @@ f32 ScreenFade::Step(f32 dt) {
   return level_;
 }
 
-FadeOverlay::FadeOverlay(const rex::ui::OverlayContext &) {}
+FadeOverlay::FadeOverlay(rex::ui::IUISystem &) {}
 
 FadeOverlay::~FadeOverlay() = default;
 
-void FadeOverlay::OnDraw(ImGuiIO &io) {
+bool FadeOverlay::Draw(ImGuiIO &io) {
   const f32 level = ScreenFade::Get().Step(io.DeltaTime);
   if (level <= 0.0f)
-    return;
+    return true;
   ImGui::GetForegroundDrawList()->AddRectFilled(
       ImVec2(0.0f, 0.0f), io.DisplaySize,
-      rex::ui::ToImU32(rex::colors::kBlack.WithAlpha(level)));
+      rex::ui::ToImU32(rex::ui::colors::kBlack.WithAlpha(level)));
+  return true;
 }
 
 } // namespace bd::ui

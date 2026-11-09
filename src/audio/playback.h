@@ -6,13 +6,25 @@
  */
 #pragma once
 
+#include <atomic>
+
+namespace rex {
+class TitleRuntime;
+}
+
 namespace bd::audio {
 
 class Playback {
 public:
   static Playback &Get();
 
+  void Bind(rex::kernel::TitleRuntime *title) { title_.store(title); }
+
+  // Posts to the UI thread, which is the one the runtime pauses audio on.
   void SetPaused(bool paused);
+
+private:
+  std::atomic<rex::kernel::TitleRuntime *> title_{nullptr};
 };
 
 } // namespace bd::audio

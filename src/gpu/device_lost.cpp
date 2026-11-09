@@ -21,7 +21,7 @@
 #endif
 
 #include "core/logging.h"
-#include <rex/app.h>
+#include <rex/app/app.h>
 #include "gpu/dred.h"
 #include "platform/platform.h"
 
@@ -64,7 +64,7 @@ bool ReportDeviceLost(const char *context, const char *reason, u32 code) {
     return true;
   }
 
-  REXLOG_CRITICAL(bd, "graphics device removed (at {}): {:#010x} ({})",
+  REXBD_CRITICAL("graphics device removed (at {}): {:#010x} ({})",
               context ? context : "?", code, reason);
   // Before the dialog: this is the only window in which the runtime still holds
   // the breadcrumb and page fault data for the dead device.
@@ -75,7 +75,7 @@ bool ReportDeviceLost(const char *context, const char *reason, u32 code) {
       std::format("The graphics device was lost, so reblue has to close.\n\n"
                   "Reason: {} ({:#010x})",
                   reason, code));
-  rex::RequestShutdown(1);
+  rex::app::RequestShutdown(1);
   return true;
 }
 

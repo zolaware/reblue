@@ -12,9 +12,7 @@
 #include <cstddef>
 #include <mutex>
 
-#include <rex/cvar.h>
-#include <rex/hook.h>
-#include <rex/ppc/detour.h>
+#include <rex/ppc/hook.h>
 #include <rex/types.h>
 
 #include "core/cvar_table.h"

@@ -9,11 +9,9 @@
 
 #include <vector>
 
-#include <rex/api.h>
-#include <rex/cvar.h>
-#include <rex/hook.h>
-#include <rex/ppc/detour.h>
-#include <rex/runtime.h>
+#include <rex/ppc/hook.h>
+#include <rex/kernel/memory_view.h>
+#include <rex/kernel/title_runtime.h>
 
 #include "core/logging.h"
 #include "core/guest_global.h"
@@ -25,6 +23,7 @@
 #include "engine/save/save_types.h"
 #include "engine/visual_render.h"
 #include "platform/platform.h"
+#include "platform/host_ui.h"
 
 REX_IMPORT(__imp__bdSoundStartWithVolume, SoundStartWithVolume, u32(u32, f64));
 
@@ -58,7 +57,7 @@ REX_GUEST_GLOBAL(be_f32, kSeMixLevel, 0x827744DC);
 
 namespace {
 
-std::vector<rex::cvar::CallbackHandle> g_callbacks;
+bd::SettingWatches g_callbacks;
 
 constexpr i32 kCtlTypeA = 0;
 
@@ -69,22 +68,22 @@ constexpr f64 kVoiceBusScale = 0.65;
 constexpr f64 kScreenPosXScale = 100.0;
 constexpr f64 kScreenPosYScale = -100.0;
 
-template <u32 Address> i32 LoadInt(rex::GuestGlobal<be_i32, Address> global) {
+template <u32 Address> i32 LoadInt(rex::kernel::GuestGlobal<be_i32, Address> global) {
   return bd::mem::global_load(global);
 }
 
 template <u32 Address>
-bool StoreInt(rex::GuestGlobal<be_i32, Address> global, i32 value) {
+bool StoreInt(rex::kernel::GuestGlobal<be_i32, Address> global, i32 value) {
   return LoadInt(global) != value && bd::mem::global_store(global, value);
 }
 
 template <u32 Address>
-f64 LoadFloat(rex::GuestGlobal<be_f32, Address> global) {
+f64 LoadFloat(rex::kernel::GuestGlobal<be_f32, Address> global) {
   return static_cast<f64>(bd::mem::global_load(global));
 }
 
 template <u32 Address>
-bool StoreFloat(rex::GuestGlobal<be_f32, Address> global, f64 value) {
+bool StoreFloat(rex::kernel::GuestGlobal<be_f32, Address> global, f64 value) {
   const auto next = static_cast<f32>(value);
   return bd::mem::global_load(global) != next &&
          bd::mem::global_store(global, next);
@@ -117,8 +116,8 @@ u32 ReadBlockBase() {
 
 // A volume global is inert until its bus is restarted with the level.
 void ApplyMixer() {
-  const f64 music = REXCVAR_GET(bd::cvars::opt_music_volume);
-  const f64 se = REXCVAR_GET(bd::cvars::opt_se_volume);
+  const f64 music = bd::cvars::Get().opt_music_volume.Get();
+  const f64 se = bd::cvars::Get().opt_se_volume.Get();
   SoundStartWithVolume(bd::mem::global_load(addr::kSoundBusMusic),
                        music + 1.0);
   SoundStartWithVolume(bd::mem::global_load(addr::kSoundBusDefault),
@@ -131,44 +130,44 @@ void ApplyMixer() {
 
 // These copies are what gets read back, never the globals.
 void ApplyMirrors() {
-  Config::Get().SetCamRollInv(static_cast<u32>(REXCVAR_GET(bd::cvars::opt_camera)));
+  Config::Get().SetCamRollInv(static_cast<u32>(bd::cvars::Get().opt_camera.Get()));
 
   VisualRender render = VisualRender::Get();
   if (!render)
     return;
 
-  const auto brightness = static_cast<f32>(REXCVAR_GET(bd::cvars::opt_brightness));
+  const auto brightness = static_cast<f32>(bd::cvars::Get().opt_brightness.Get());
   for (u32 i = 0; i < VisualRender::kBrightnessChannels; ++i)
     render.SetBrightness(i, brightness);
   render.SetScreenPosX(
-      static_cast<f32>(REXCVAR_GET(bd::cvars::opt_screen_pos_x) * kScreenPosXScale));
+      static_cast<f32>(bd::cvars::Get().opt_screen_pos_x.Get() * kScreenPosXScale));
   render.SetScreenPosY(
-      static_cast<f32>(REXCVAR_GET(bd::cvars::opt_screen_pos_y) * kScreenPosYScale));
+      static_cast<f32>(bd::cvars::Get().opt_screen_pos_y.Get() * kScreenPosYScale));
 }
 
 // Pushes the global set into the engine globals. A no-op before the address
 // space exists.
 void AdoptCvars() {
-  StoreInt(addr::kMsgSpeed, REXCVAR_GET(bd::cvars::opt_msg_speed));
-  StoreInt(addr::kMsgSize, REXCVAR_GET(bd::cvars::opt_msg_size));
-  StoreInt(globals::kVoiceType, REXCVAR_GET(bd::cvars::opt_voice_type));
-  StoreInt(addr::kRuby, REXCVAR_GET(bd::cvars::opt_ruby));
-  StoreInt(addr::kSubtitles, REXCVAR_GET(bd::cvars::opt_subtitles));
-  StoreInt(addr::kAudioHints, REXCVAR_GET(bd::cvars::opt_audio_hints));
-  StoreInt(addr::kBattleHints, REXCVAR_GET(bd::cvars::opt_battle_hints));
-  StoreInt(addr::kSkipEvents, REXCVAR_GET(bd::cvars::opt_skip_events));
-  StoreInt(addr::kCamera, REXCVAR_GET(bd::cvars::opt_camera));
-  StoreInt(addr::kTargetFirst, REXCVAR_GET(bd::cvars::opt_target_first));
+  StoreInt(addr::kMsgSpeed, bd::cvars::Get().opt_msg_speed.Get());
+  StoreInt(addr::kMsgSize, bd::cvars::Get().opt_msg_size.Get());
+  StoreInt(globals::kVoiceType, bd::cvars::Get().opt_voice_type.Get());
+  StoreInt(addr::kRuby, bd::cvars::Get().opt_ruby.Get());
+  StoreInt(addr::kSubtitles, bd::cvars::Get().opt_subtitles.Get());
+  StoreInt(addr::kAudioHints, bd::cvars::Get().opt_audio_hints.Get());
+  StoreInt(addr::kBattleHints, bd::cvars::Get().opt_battle_hints.Get());
+  StoreInt(addr::kSkipEvents, bd::cvars::Get().opt_skip_events.Get());
+  StoreInt(addr::kCamera, bd::cvars::Get().opt_camera.Get());
+  StoreInt(addr::kTargetFirst, bd::cvars::Get().opt_target_first.Get());
   StoreInt(addr::kCtlNormalType, kCtlTypeA);
   StoreInt(addr::kCtlMechattType, kCtlTypeA);
 
-  const f64 se = REXCVAR_GET(bd::cvars::opt_se_volume);
-  StoreFloat(addr::kMusicVolume, REXCVAR_GET(bd::cvars::opt_music_volume));
+  const f64 se = bd::cvars::Get().opt_se_volume.Get();
+  StoreFloat(addr::kMusicVolume, bd::cvars::Get().opt_music_volume.Get());
   StoreFloat(addr::kSeVolume, se);
   StoreFloat(addr::kVoiceVolume, se);
-  StoreFloat(addr::kBrightness, REXCVAR_GET(bd::cvars::opt_brightness));
-  StoreFloat(addr::kScreenPosX, REXCVAR_GET(bd::cvars::opt_screen_pos_x));
-  StoreFloat(addr::kScreenPosY, REXCVAR_GET(bd::cvars::opt_screen_pos_y));
+  StoreFloat(addr::kBrightness, bd::cvars::Get().opt_brightness.Get());
+  StoreFloat(addr::kScreenPosX, bd::cvars::Get().opt_screen_pos_x.Get());
+  StoreFloat(addr::kScreenPosY, bd::cvars::Get().opt_screen_pos_y.Get());
 }
 
 constexpr const char *kOptionCvars[] = {
@@ -181,8 +180,8 @@ constexpr const char *kOptionCvars[] = {
 } // namespace
 
 bool GameOptionsResolved() {
-  const rex::Runtime *runtime = rex::GetProcessRuntime();
-  return runtime && runtime->IsTitleLaunched();
+  const rex::kernel::TitleRuntime *title = bd::platform::Title();
+  return title && title->IsRunning();
 }
 
 GameOptions &GameOptions::Get() {
@@ -203,31 +202,31 @@ void GameOptions::WriteBlock() {
     return;
   SaveConfigBlock_t *cfg = &block->config;
 
-  cfg->msgSpeed = REXCVAR_GET(bd::cvars::opt_msg_speed);
-  cfg->msgSize = REXCVAR_GET(bd::cvars::opt_msg_size);
-  cfg->ruby = REXCVAR_GET(bd::cvars::opt_ruby);
-  cfg->subtitles = REXCVAR_GET(bd::cvars::opt_subtitles);
-  cfg->battleHints = REXCVAR_GET(bd::cvars::opt_battle_hints);
-  cfg->skipEvents = REXCVAR_GET(bd::cvars::opt_skip_events);
-  cfg->targetFirst = REXCVAR_GET(bd::cvars::opt_target_first);
-  cfg->camera = REXCVAR_GET(bd::cvars::opt_camera);
+  cfg->msgSpeed = bd::cvars::Get().opt_msg_speed.Get();
+  cfg->msgSize = bd::cvars::Get().opt_msg_size.Get();
+  cfg->ruby = bd::cvars::Get().opt_ruby.Get();
+  cfg->subtitles = bd::cvars::Get().opt_subtitles.Get();
+  cfg->battleHints = bd::cvars::Get().opt_battle_hints.Get();
+  cfg->skipEvents = bd::cvars::Get().opt_skip_events.Get();
+  cfg->targetFirst = bd::cvars::Get().opt_target_first.Get();
+  cfg->camera = bd::cvars::Get().opt_camera.Get();
 
-  const auto se = static_cast<f32>(REXCVAR_GET(bd::cvars::opt_se_volume));
-  cfg->musicVolume = static_cast<f32>(REXCVAR_GET(bd::cvars::opt_music_volume));
+  const auto se = static_cast<f32>(bd::cvars::Get().opt_se_volume.Get());
+  cfg->musicVolume = static_cast<f32>(bd::cvars::Get().opt_music_volume.Get());
   cfg->seVolume = se;
   cfg->voiceVolume = se;
-  cfg->brightness = static_cast<f32>(REXCVAR_GET(bd::cvars::opt_brightness));
-  cfg->screenPosX = static_cast<f32>(REXCVAR_GET(bd::cvars::opt_screen_pos_x));
-  cfg->screenPosY = static_cast<f32>(REXCVAR_GET(bd::cvars::opt_screen_pos_y));
+  cfg->brightness = static_cast<f32>(bd::cvars::Get().opt_brightness.Get());
+  cfg->screenPosX = static_cast<f32>(bd::cvars::Get().opt_screen_pos_x.Get());
+  cfg->screenPosY = static_cast<f32>(bd::cvars::Get().opt_screen_pos_y.Get());
 
   block->ctlNormalType = kCtlTypeA;
   block->ctlMechattType = kCtlTypeA;
-  block->fltVoice = REXCVAR_GET(bd::cvars::opt_audio_hints);
+  block->fltVoice = bd::cvars::Get().opt_audio_hints.Get();
 }
 
 void GameOptions::AdoptVoiceType() {
   const i32 voice = VoiceType();
-  if (voice != REXCVAR_GET(bd::cvars::opt_voice_type))
+  if (voice != bd::cvars::Get().opt_voice_type.Get())
     dirty_ |= WriteCvar("bd.opt_voice_type", voice);
 }
 
@@ -252,8 +251,8 @@ void GameOptions::Apply() {
 void GameOptions::Flush() {
   if (!dirty_)
     return;
-  if (auto saved = rex::SaveConfigFile(bd::Cvars(), bd::platform::ConfigFilePath()); !saved)
-    REXLOG_WARN(bd, "config save failed: {}", saved.error().message);
+  if (auto saved = bd::SaveConfig(bd::platform::ConfigFilePath()); !saved)
+    REXBD_WARN("config save failed: {}", saved.error().message);
   dirty_ = false;
 }
 

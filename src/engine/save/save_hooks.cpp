@@ -9,12 +9,12 @@
  * @license   BSD 3-Clause License
  *            See LICENSE file in the project root for full license text.
  */
-#include <rex/hook.h>
+#include <rex/ppc/hook.h>
 #include <rex/memory.h>
-#include <rex/runtime.h>
-#include <rex/runtime/content_manager.h>
-#include <rex/runtime/xcontent_data.h>
-#include <rex/runtime/xtypes.h>
+#include <rex/kernel/title_runtime.h>
+#include <rex/kernel/types/content.h>
+#include <rex/kernel/types/status.h>
+#include <rex/logging/log_category.h>
 #include <rex/types.h>
 #include <rex/ppc/midasm.h>
 
@@ -28,11 +28,11 @@
 #include "engine/save/save_types.h"
 #include "engine/settings.h"
 
-using rex::X_RESULT;
-using rex::X_ERROR_ALREADY_EXISTS;
-using rex::X_ERROR_INVALID_PARAMETER;
-using rex::X_ERROR_PATH_NOT_FOUND;
-using rex::X_ERROR_SUCCESS;
+using rex::kernel::X_RESULT;
+using rex::kernel::X_ERROR_ALREADY_EXISTS;
+using rex::kernel::X_ERROR_INVALID_PARAMETER;
+using rex::kernel::X_ERROR_PATH_NOT_FOUND;
+using rex::kernel::X_ERROR_SUCCESS;
 
 namespace {
 
@@ -67,7 +67,7 @@ u32 rex_XContentCreateWrapper_hook(u32 userIndex, u32 rootName, u32 contentData,
                                    u32 licenseMaskOut, u32 cacheSize,
                                    u64 contentSize, u32 overlapped) {
   const auto *root = bd::mem::at<const char>(rootName);
-  const auto *content = bd::mem::at<const rex::runtime::XCONTENT_DATA>(contentData);
+  const auto *content = bd::mem::at<const rex::kernel::XCONTENT_DATA>(contentData);
   auto *disposition = bd::mem::at<be_u32>(dispositionOut);
 
   if (!root || std::strncmp(root, "save", 5) != 0 || !content) {
@@ -115,7 +115,7 @@ u32 rex_XContentCreateWrapper_hook(u32 userIndex, u32 rootName, u32 contentData,
     }
     break;
   default:
-    REXLOG_WARN(bd, "savehook unexpected disposition {} for slot '{}'", requested,
+    REXBD_WARN("savehook unexpected disposition {} for slot '{}'", requested,
             slot);
     break;
   }
@@ -147,10 +147,10 @@ u32 ContentTask__OnDeviceSelected_hook(u32 task) {
   for (const std::string &slot : slots) {
     if (count >= kContentTaskMaxSlots)
       break;
-    rex::runtime::XCONTENT_DATA &entry = ct->entries[count];
+    rex::kernel::XCONTENT_DATA &entry = ct->entries[count];
     std::memset(&entry, 0, sizeof(entry));
     entry.device_id = device_id;
-    entry.content_type = rex::runtime::XContentType::kSavedGame;
+    entry.content_type = rex::kernel::XContentType::kSavedGame;
     entry.SetFileName(slot);
     ++count;
   }

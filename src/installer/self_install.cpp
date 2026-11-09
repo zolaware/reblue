@@ -36,7 +36,7 @@ bool CopyProgramTo(const fs::path &install, std::string &error) {
       return false;
     }
   }
-  REXLOG_INFO(bd, "Copied {} program files into {}", std::size(kProgramFiles),
+  REXBD_INFO("Copied {} program files into {}", std::size(kProgramFiles),
           install.string());
   return true;
 }

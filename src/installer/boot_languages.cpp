@@ -7,9 +7,9 @@
  */
 #include "installer/boot_languages.h"
 
-#include <rex/filesystem/container.h>
+#include <rex/filesystem/stfs.h>
 #include <rex/platform/file.h>
-#include <rex/string/utf8.h>
+#include <rex/string/text.h>
 
 #include <algorithm>
 #include <array>
@@ -56,7 +56,7 @@ std::vector<std::string> SplitLangCodes(std::string_view rest) {
            !std::isspace(static_cast<unsigned char>(rest[q])))
       ++q;
     if (q > p) {
-      std::string token = rex::utf8_lower_ascii(rest.substr(p, q - p));
+      std::string token = rex::string::utf8_lower_ascii(rest.substr(p, q - p));
       if (IsKnownLang(token))
         out.push_back(std::move(token));
     }
@@ -173,7 +173,7 @@ BootLanguages BootLanguages::FromFile(const fs::path &file) {
 }
 
 BootLanguages
-BootLanguages::FromDisc(const rex::filesystem::Container &container,
+BootLanguages::FromDisc(const rex::filesystem::IContainerImage &container,
                         const rex::filesystem::ContainerNode &root) {
   const auto *entry = bd::FindEntry(container, root, "bd_boot.ini");
   if (entry == nullptr)

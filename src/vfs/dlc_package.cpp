@@ -16,19 +16,29 @@
 #include <fstream>
 #include <system_error>
 
-#include <rex/filesystem/container.h>
-#include <rex/filesystem/xcontent_layout.h>
-#include <rex/string.h>
-#include <rex/runtime/xcontent_data.h>
+#include <rex/filesystem/file_system.h>
+#include <rex/filesystem/file_system_factory.h>
+#include <rex/filesystem/stfs.h>
+#include <rex/module.h>
+#include <rex/string/text.h>
+#include <rex/kernel/types/content.h>
 #include <rex/types.h>
-#include <rex/string/utf8.h>
 
-using rex::filesystem::ReadSTFSHeader;
-using rex::runtime::XLanguage;
+using rex::kernel::XLanguage;
 
 namespace bd::vfs {
 
 namespace {
+
+rex::Result<rex::filesystem::XContentPackageHeader>
+ReadSTFSHeader(const std::filesystem::path &package) {
+  auto *files = rex::AppInterfaces::Get<rex::filesystem::IFileSystemFactory>();
+  if (!files) {
+    return rex::Err<rex::filesystem::XContentPackageHeader>(
+        rex::ErrorCategory::kModule, "the file system module is not running");
+  }
+  return files->ReadPackageHeader(package);
+}
 
 using ContentId = std::array<u8, 0x14>;
 
@@ -71,9 +81,9 @@ std::string SanitizeFolderName(const std::string &name) {
 bool WriteHeaderSidecar(const std::filesystem::path &sidecar_dir,
                         const std::string &folder,
                         const rex::filesystem::XContentPackageHeader &stfs) {
-  rex::runtime::XCONTENT_AGGREGATE_DATA data{};
+  rex::kernel::XCONTENT_AGGREGATE_DATA data{};
   data.device_id = 1;
-  data.content_type = rex::runtime::XContentType::kMarketplaceContent;
+  data.content_type = rex::kernel::XContentType::kMarketplaceContent;
   data.title_id = stfs.metadata.execution_info.title_id;
   data.xuid = 0;
   data.SetDisplayName(stfs.metadata.GetDisplayName(XLanguage::kEnglish));
@@ -116,48 +126,48 @@ DLCValidation DLCCatalog::Validate(const std::filesystem::path &package) {
 
   const u32 title_id = header->metadata.execution_info.title_id;
   if (title_id != kBlueDragonTitleId) {
-    REXLOG_ERROR(bd, "dlc rejecting '{}': title {:08X} is not Blue Dragon ({:08X})",
+    REXBD_ERROR("dlc rejecting '{}': title {:08X} is not Blue Dragon ({:08X})",
              package.string(), title_id, kBlueDragonTitleId);
     result.error = "This package is not Blue Dragon content.";
     return result;
   }
 
-  if (static_cast<rex::runtime::XContentType>(header->metadata.content_type) !=
-      rex::runtime::XContentType::kMarketplaceContent) {
+  if (static_cast<rex::kernel::XContentType>(header->metadata.content_type) !=
+      rex::kernel::XContentType::kMarketplaceContent) {
     result.error = "This package is not downloadable content (DLC).";
     return result;
   }
 
   if (!IsSupportedContent(header->header.content_id)) {
-    REXLOG_ERROR(bd, "dlc rejecting '{}': not a supported pack", package.string());
+    REXBD_ERROR("dlc rejecting '{}': not a supported pack", package.string());
     result.error = "This package is not a supported Blue Dragon DLC.";
     return result;
   }
 
   result.ok = true;
   result.display_name =
-      rex::ToUTF8(header->metadata.GetDisplayName(XLanguage::kEnglish));
+      rex::string::ToUTF8(header->metadata.GetDisplayName(XLanguage::kEnglish));
   return result;
 }
 
 bool DLCCatalog::Install(const std::filesystem::path &package) {
   auto validation = Validate(package);
   if (!validation.ok) {
-    REXLOG_ERROR(bd, "dlc rejected '{}': {}", package.string(), validation.error);
+    REXBD_ERROR("dlc rejected '{}': {}", package.string(), validation.error);
     return false;
   }
 
   auto header = ReadSTFSHeader(package);
   if (!header) {
-    REXLOG_ERROR(bd, "dlc failed to read package header: {}", package.string());
+    REXBD_ERROR("dlc failed to read package header: {}", package.string());
     return false;
   }
 
   std::string display_name =
-      rex::ToUTF8(header->metadata.GetDisplayName(XLanguage::kEnglish));
+      rex::string::ToUTF8(header->metadata.GetDisplayName(XLanguage::kEnglish));
   std::string description =
-      rex::ToUTF8(header->metadata.GetDescription(XLanguage::kEnglish));
-  std::string publisher = rex::ToUTF8(header->metadata.GetPublisher());
+      rex::string::ToUTF8(header->metadata.GetDescription(XLanguage::kEnglish));
+  std::string publisher = rex::string::ToUTF8(header->metadata.GetPublisher());
 
   std::string folder = SanitizeFolderName(display_name);
   if (folder.empty())
@@ -170,37 +180,43 @@ bool DLCCatalog::Install(const std::filesystem::path &package) {
 
   auto dest = root_ / folder;
   if (std::filesystem::exists(dest)) {
-    REXLOG_WARN(bd, "dlc already installed: {}", folder);
+    REXBD_WARN("dlc already installed: {}", folder);
     return false;
   }
 
-  REXLOG_INFO(bd, "dlc installing '{}' from {}", display_name, package.string());
+  REXBD_INFO("dlc installing '{}' from {}", display_name, package.string());
 
-  auto container = rex::filesystem::Container::Open(package);
+  auto *files = rex::AppInterfaces::Get<rex::filesystem::IFileSystemFactory>();
+  if (!files) {
+    REXBD_ERROR("dlc cannot open {}: the file system module is not running",
+                 package.string());
+    return false;
+  }
+  auto container = files->OpenContainer(package);
   if (!container) {
-    REXLOG_ERROR(bd, "dlc failed to open STFS package: {}: {}", package.string(),
+    REXBD_ERROR("dlc failed to open STFS package: {}: {}", package.string(),
              container.error().message);
     return false;
   }
 
   std::error_code ec;
-  const bool ok = container->Extract(dest).has_value();
+  const bool ok = (*container)->Extract(dest).has_value();
   if (!ok) {
-    REXLOG_ERROR(bd, "dlc extraction failed: {}", package.string());
+    REXBD_ERROR("dlc extraction failed: {}", package.string());
     std::filesystem::remove_all(dest, ec);
     return false;
   }
 
   if (!std::filesystem::exists(dest / "Download" / "DL_Param.ipk") &&
       !std::filesystem::exists(dest / "data" / "Download" / "DL_Param.ipk")) {
-    REXLOG_ERROR(bd, 
+    REXBD_ERROR(
         "dlc package has no Download\\DL_Param.ipk, not Blue Dragon DLC");
     std::filesystem::remove_all(dest, ec);
     return false;
   }
 
   if (!WriteHeaderSidecar(root_ / ".headers", folder, *header)) {
-    REXLOG_ERROR(bd, "dlc failed to write header sidecar for '{}'", folder);
+    REXBD_ERROR("dlc failed to write header sidecar for '{}'", folder);
     std::filesystem::remove_all(dest, ec);
     return false;
   }
@@ -218,7 +234,7 @@ bool DLCCatalog::Install(const std::filesystem::path &package) {
   }
   SaveMetadataLocked();
 
-  REXLOG_INFO(bd, "dlc installed successfully: {} ({})", display_name, folder);
+  REXBD_INFO("dlc installed successfully: {} ({})", display_name, folder);
   return true;
 }
 

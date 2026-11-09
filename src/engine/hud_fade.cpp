@@ -11,7 +11,7 @@
 #include <chrono>
 #include <utility>
 
-#include <rex/ppc.h>
+#include <rex/ppc/context.h>
 #include <rex/types.h>
 #include <rex/ppc/midasm.h>
 

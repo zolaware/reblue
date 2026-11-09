@@ -8,14 +8,13 @@
 
 #include <vector>
 
-#include <rex/cvar.h>
 
 #include "core/cvar_table.h"
 
 namespace bd::vfs {
 namespace {
 
-std::vector<rex::cvar::CallbackHandle> g_callbacks;
+bd::SettingWatches g_callbacks;
 
 std::string FormatCvar(i32 v) { return std::to_string(v); }
 std::string FormatCvar(bool v) { return v ? "true" : "false"; }
@@ -27,24 +26,16 @@ Settings &Settings::Get() {
   return s;
 }
 
-void Settings::AdoptModLog() { modLog_ = REXCVAR_GET(bd::cvars::mod_log); }
+void Settings::AdoptModLog() { modLog_ = bd::cvars::Get().mod_log.Get(); }
 
-void Settings::AdoptModLogKeep() { modLogKeep_ = REXCVAR_GET(bd::cvars::mod_log_keep); }
+void Settings::AdoptModLogKeep() { modLogKeep_ = bd::cvars::Get().mod_log_keep.Get(); }
 
 void Settings::AdoptModLogMaxMB() {
-  modLogMaxMB_ = REXCVAR_GET(bd::cvars::mod_log_max_mb);
+  modLogMaxMB_ = bd::cvars::Get().mod_log_max_mb.Get();
 }
 
 void Settings::AdoptDiscPrefetch() {
-  discPrefetch_ = REXCVAR_GET(bd::cvars::disc_prefetch);
-}
-
-bool Settings::SetModLog(bool v) {
-  return bd::CvarSet("bd.mod_log", FormatCvar(v));
-}
-
-bool Settings::SetDiscPrefetch(bool v) {
-  return bd::CvarSet("bd.disc_prefetch", FormatCvar(v));
+  discPrefetch_ = bd::cvars::Get().disc_prefetch.Get();
 }
 
 void Settings::AdoptCvars() {

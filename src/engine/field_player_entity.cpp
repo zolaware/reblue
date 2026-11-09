@@ -11,8 +11,7 @@
 #include <iterator>
 #include <vector>
 
-#include <rex/hook.h>
-#include <rex/ppc/detour.h>
+#include <rex/ppc/hook.h>
 
 #include "engine/chara.h"
 #include "engine/events.h"

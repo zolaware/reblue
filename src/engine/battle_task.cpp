@@ -11,11 +11,10 @@
 #include <cstddef>
 #include <vector>
 
-#include <rex/hook.h>
-#include <rex/ppc.h>
-#include <rex/ppc/detour.h>
+#include <rex/ppc/hook.h>
+#include <rex/kernel/types/memory.h>
+#include <rex/ppc/context.h>
 #include <rex/ppc/midasm.h>
-#include <rex/runtime/xtypes.h>
 
 #include "core/memory_helpers.h"
 #include "engine/chara.h"
@@ -38,14 +37,14 @@ static_assert(sizeof(BattleMember_t) == 0x20);
 
 struct BattleGroup_t {
   /* 0x00 */ u8 _pad00[0x04];
-  /* 0x04 */ rex::be_vector<BattleMember_t> members;
+  /* 0x04 */ rex::kernel::GuestVector<BattleMember_t> members;
 };
 static_assert(offsetof(BattleGroup_t, members) == 0x04);
 static_assert(sizeof(BattleGroup_t) == 0x10);
 
 struct BattleCommand_t {
   /* 0x00 */ u8 _pad00[0x04];
-  /* 0x04 */ rex::be_vector<BattleGroup_t> groups;
+  /* 0x04 */ rex::kernel::GuestVector<BattleGroup_t> groups;
   /* 0x10 */ u8 _pad10[0x7C - 0x10];
 };
 static_assert(offsetof(BattleCommand_t, groups) == 0x04);
@@ -79,7 +78,7 @@ struct BattleTask_t {
   /* 0x094 */ be_u32 phase;
   /* 0x098 */ be_u32 subPhase;
   /* 0x09C */ u8 _pad09C[0x11C - 0x09C];
-  /* 0x11C */ rex::be_vector<BattleCommand_t> commands;
+  /* 0x11C */ rex::kernel::GuestVector<BattleCommand_t> commands;
   /* 0x128 */ u8 _pad128[0x1C0 - 0x128];
   /* 0x1C0 */ u8 selection[0x1C];
   /* 0x1DC */ u8 _pad1DC[0x1F8 - 0x1DC];

@@ -10,7 +10,7 @@
 #include <string>
 
 #include <imgui.h>
-#include <rex/ui/color.h>
+#include <rex/ui/style.h>
 
 #include "core/i18n.h"
 #include "engine/engine.h"
@@ -51,19 +51,20 @@ UpdateStatusOverlay::~UpdateStatusOverlay() = default;
 
 bool UpdateStatusOverlay::Finished() { return CurrentLine().empty(); }
 
-void UpdateStatusOverlay::OnDraw(ImGuiIO &io) {
+bool UpdateStatusOverlay::Draw(ImGuiIO &io) {
   const std::string line = CurrentLine();
   if (line.empty())
-    return;
+    return true;
 
   constexpr float kPad = 10.0f;
-  constexpr rex::Color kText = rex::Color::FromRGBA8(255, 255, 255, 140);
-  constexpr rex::Color kShadow = rex::Color::FromRGBA8(0, 0, 0, 128);
+  constexpr rex::ui::Color kText = rex::ui::Color::FromRGBA8(255, 255, 255, 140);
+  constexpr rex::ui::Color kShadow = rex::ui::Color::FromRGBA8(0, 0, 0, 128);
 
   ImDrawList *dl = ImGui::GetForegroundDrawList();
   const ImVec2 pos(kPad, io.DisplaySize.y - kPad - ImGui::GetTextLineHeight());
   dl->AddText(ImVec2(pos.x + 1.0f, pos.y + 1.0f), rex::ui::ToImU32(kShadow), line.c_str());
   dl->AddText(pos, rex::ui::ToImU32(kText), line.c_str());
+  return true;
 }
 
 } // namespace bd::ui

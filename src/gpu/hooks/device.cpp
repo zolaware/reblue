@@ -13,10 +13,10 @@
  */
 #include <cstring>
 
-#include <rex/hook.h>
+#include <rex/ppc/hook.h>
 #include <rex/memory.h>
-#include <rex/ppc.h>
-#include <rex/runtime.h>
+#include <rex/memory/mapped_ptr.h>
+#include <rex/kernel/title_runtime.h>
 #include <rex/types.h>
 
 #include "core/logging.h"
@@ -82,7 +82,7 @@ u32 D3DQuery_Issue_hook(u32 /*pThis*/, u32 dwIssueFlags) {
   return 0;
 }
 
-u32 D3DQuery_GetData_hook(u32 /*pThis*/, rex::MappedPtr<u8> pData, u32 size,
+u32 D3DQuery_GetData_hook(u32 /*pThis*/, rex::memory::MappedPtr<u8> pData, u32 size,
                           u32 /*flags*/) {
   // Sun OCCLUSION query: the consumer (mcl__helper_3DE8) builds a 64-bit count
   // from dword[0] (low) + dword[3] (high), /16384.0 (128x128 test quad) -> 0..1
@@ -143,9 +143,8 @@ void SeedDeviceRenderState(u32 device_guest) {
 u32 Direct3D_CreateDevice_hook(u32 /*adapter*/, u32 /*deviceType*/,
                                u32 /*focusWindow*/, u32 /*behaviorFlags*/,
                                u32 /*presentParams*/, MappedU32 outDevice) {
-  auto *memory = bd::mem::memory();
-  const u32 device_guest = memory->SystemHeapAlloc(kGuestDeviceSize, 0x100);
-  memory->Zero(device_guest, kGuestDeviceSize);
+  const u32 device_guest = bd::mem::SystemAlloc(kGuestDeviceSize, 0x100);
+  bd::mem::Zero(device_guest, kGuestDeviceSize);
   CopyDispatchTable(device_guest, kRenderStateTableGuestAddr,
                     kRenderStateTableEntries, kRenderStateDispatchOffset,
                     kRenderStateDefaultOffset);
@@ -176,7 +175,7 @@ constexpr u32 kPresentParamsConfigDword = 17;
 // D3D::InitializePresentationParameters writes into the device struct so
 // downstream code sees a populated device, but skip
 // the PM4 path + surface allocations (Plume owns the swapchain).
-u32 D3DDevice_SetResolution_hook(rex::MappedPtr<bd::gpu::D3DDevice> device,
+u32 D3DDevice_SetResolution_hook(rex::memory::MappedPtr<bd::gpu::D3DDevice> device,
                                  MappedU32 params) {
   if (!device || !params)
     return 0;

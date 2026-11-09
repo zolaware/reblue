@@ -9,26 +9,24 @@
  */
 #pragma once
 
-#include <rex/ui/imgui_dialog.h>
+#include <rex/ui/ui_system.h>
 
 struct ImFontAtlas;
 struct ImGuiIO;
 
 namespace rex::ui {
-struct OverlayContext;
 } // namespace rex::ui
 
 namespace bd::ui {
 
-class PauseOverlay final : public rex::ui::ImGuiDialog {
+class PauseOverlay final : public rex::ui::DialogBase {
 public:
-  explicit PauseOverlay(const rex::ui::OverlayContext &context);
+  explicit PauseOverlay(rex::ui::IUISystem &ui);
   ~PauseOverlay();
 
   static void InitFonts(ImFontAtlas *atlas);
 
-protected:
-  void OnDraw(ImGuiIO &io) override;
+  bool Draw(ImGuiIO &io) override;
 };
 
 } // namespace bd::ui

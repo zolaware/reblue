@@ -13,9 +13,8 @@
 #include <thread>
 #include <vector>
 
-#include <rex/cvar.h>
 #include <rex/platform/file.h>
-#include <rex/platform/env.h>
+#include <rex/platform/process.h>
 #include <rex/types.h>
 
 #include "core/app_root.h"
@@ -83,16 +82,14 @@ void Updates::Init(std::filesystem::path install_root) {
   const std::filesystem::path target =
       appimage.empty() ? std::filesystem::path{} : appimage.parent_path();
 #endif
-  can_apply_ = !target.empty() && bd::DirectoryWritable(target);
+  can_apply_ = !target.empty() && rex::platform::IsDirectoryWritable(target);
   if (!can_apply_)
-    REXLOG_INFO(bd, "Updates cannot be applied here, none will be offered");
+    REXBD_INFO("Updates cannot be applied here, none will be offered");
 
   // Settings registered its own callback at OnInit and callbacks
   // run in registration order, so the URL below is already the new channel's.
-  if (auto handle = bd::Cvars().OnChange(
-          "bd.update_channel",
-          [this](std::string_view, std::string_view) { BeginCheck(); }))
-    channelWatch_ = std::move(*handle);
+  bd::CvarWatch(channelWatch_, "bd.update_channel",
+                [this](std::string_view, std::string_view) { BeginCheck(); });
 }
 
 bool Updates::CanApply() const { return can_apply_; }
@@ -103,7 +100,7 @@ void Updates::BeginCheck() {
     return;
   const std::string url = settings.UpdateUrl();
   if (url.empty()) {
-    REXLOG_INFO(bd, "No update endpoint, skipping the update and content checks");
+    REXBD_INFO("No update endpoint, skipping the update and content checks");
     return;
   }
   // A download already running was accepted against the answer this replaces.
@@ -147,7 +144,7 @@ void Updates::Check(const std::string &url) {
   std::string error;
   auto manifest = AppManifest::Fetch(url, error);
   if (!manifest) {
-    REXLOG_WARN(bd, "Manifest fetch from {} failed: {}", url, error);
+    REXBD_WARN("Manifest fetch from {} failed: {}", url, error);
     generation_.fetch_add(1);
     stage_.store(Stage::kDone);
     return;
@@ -162,12 +159,12 @@ void Updates::Check(const std::string &url) {
     std::lock_guard lock(mutex_);
     manifest_ = std::move(manifest);
     if (!newer) {
-      REXLOG_INFO(bd, "v" REBLUE_VERSION_STRING " is current");
+      REXBD_INFO("v" REBLUE_VERSION_STRING " is current");
     } else if (artifact == nullptr) {
-      REXLOG_INFO(bd, "v{} is available but names no build for {}",
+      REXBD_INFO("v{} is available but names no build for {}",
               manifest_->app_version, AppManifest::PlatformKey());
     } else {
-      REXLOG_INFO(bd, "Update available: v{} (this build is v" REBLUE_VERSION_STRING
+      REXBD_INFO("Update available: v{} (this build is v" REBLUE_VERSION_STRING
               ")",
               manifest_->app_version);
       newer_ = Release{manifest_->app_version, manifest_->notes_url};
@@ -220,7 +217,7 @@ Updates::ApplyResult Updates::Apply() {
     return ApplyResult::kNoUpdate;
   const Artifact *artifact = manifest->ArtifactForThisPlatform();
   if (artifact == nullptr) {
-    REXLOG_WARN(bd, "Manifest names no build for {}", AppManifest::PlatformKey());
+    REXBD_WARN("Manifest names no build for {}", AppManifest::PlatformKey());
     return ApplyResult::kNoUpdate;
   }
   apply_total_.store(artifact->size, std::memory_order_relaxed);
@@ -229,13 +226,13 @@ Updates::ApplyResult Updates::Apply() {
 #if !defined(_WIN32) && !defined(__APPLE__)
   const fs::path appimage = RunningAppImage();
   if (appimage.empty()) {
-    REXLOG_ERROR(bd, "Update apply needs a running Type 2 AppImage");
+    REXBD_ERROR("Update apply needs a running Type 2 AppImage");
     return ApplyResult::kNoUpdate;
   }
 
   fs::path incoming = appimage;
   incoming += ".incoming";
-  REXLOG_INFO(bd, "Downloading v{} AppImage ({} bytes)", manifest->app_version,
+  REXBD_INFO("Downloading v{} AppImage ({} bytes)", manifest->app_version,
           artifact->size);
   switch (Package::FetchVerified(artifact->url, artifact->sha256, incoming,
                                  progress)) {
@@ -253,14 +250,14 @@ Updates::ApplyResult Updates::Apply() {
   // Warm reboot exits back to Steam instead of spawning in Game Mode, so the
   // pathname has to hold the new image before the reboot is requested.
   if (!ReplaceAppImage(appimage, incoming, error)) {
-    REXLOG_ERROR(bd, "Could not install the downloaded AppImage: {}", error);
+    REXBD_ERROR("Could not install the downloaded AppImage: {}", error);
     std::error_code ec;
     fs::remove(incoming, ec);
     return ApplyResult::kInstallFailed;
   }
 
   apply_done_.store(artifact->size, std::memory_order_relaxed);
-  REXLOG_INFO(bd, "Installed v{} over {}, it takes effect after restart",
+  REXBD_INFO("Installed v{} over {}, it takes effect after restart",
           manifest->app_version, appimage.string());
   return ApplyResult::kStaged;
 #else
@@ -272,12 +269,12 @@ Updates::ApplyResult Updates::Apply() {
   // Nothing to swap the download into, so this fails before spending the
   // bandwidth rather than after.
   if (RunningBundle().empty()) {
-    REXLOG_ERROR(bd, "Update apply needs a bundled build, this one is not in a .app");
+    REXBD_ERROR("Update apply needs a bundled build, this one is not in a .app");
     return ApplyResult::kNoUpdate;
   }
 #endif
 
-  REXLOG_INFO(bd, "Downloading v{} ({} bytes)", manifest->app_version, artifact->size);
+  REXBD_INFO("Downloading v{} ({} bytes)", manifest->app_version, artifact->size);
   switch (
       Package::Fetch(artifact->url, artifact->sha256, zip, staging, progress)) {
   case Package::Result::kOk:
@@ -296,13 +293,13 @@ Updates::ApplyResult Updates::Apply() {
   // both the "did it unpack" check and the "is it the mac artifact" check.
   if (!fs::exists(staging / "reblue.app" / "Contents" / "MacOS" / "reblue",
                   ec)) {
-    REXLOG_ERROR(bd, "Update archive holds no reblue.app");
+    REXBD_ERROR("Update archive holds no reblue.app");
     fs::remove_all(staging, ec);
     return ApplyResult::kUnpackFailed;
   }
 #else
   if (!fs::exists(staging / "reblue.exe", ec)) {
-    REXLOG_ERROR(bd, "Update archive holds no reblue.exe");
+    REXBD_ERROR("Update archive holds no reblue.exe");
     fs::remove_all(staging, ec);
     return ApplyResult::kUnpackFailed;
   }
@@ -312,12 +309,12 @@ Updates::ApplyResult Updates::Apply() {
   ready << manifest->app_version;
   ready.close();
   if (!ready) {
-    REXLOG_ERROR(bd, "Could not mark the staged update ready");
+    REXBD_ERROR("Could not mark the staged update ready");
     fs::remove_all(staging, ec);
     return ApplyResult::kUnpackFailed;
   }
   fs::remove_all(zip.parent_path(), ec);
-  REXLOG_INFO(bd, "v{} staged, installs on the next launch", manifest->app_version);
+  REXBD_INFO("v{} staged, installs on the next launch", manifest->app_version);
   return ApplyResult::kStaged;
 #endif
 }
@@ -400,7 +397,7 @@ void RetireFiles(const fs::path &install_root,
     fs::remove(aside, ec);
     fs::rename(dst, aside, ec);
     if (ec) {
-      REXLOG_WARN(bd, "Could not retire {}: {}", rel, ec.message());
+      REXBD_WARN("Could not retire {}: {}", rel, ec.message());
       continue;
     }
     if (std::find(replaced.begin(), replaced.end(), rel) == replaced.end())
@@ -418,7 +415,7 @@ bool InstallStagedUpdate(const fs::path &install_root) {
 
   const auto files = StagedFiles(staging, ec);
   if (ec || files.empty()) {
-    REXLOG_ERROR(bd, "Staged update is unreadable, discarding it");
+    REXBD_ERROR("Staged update is unreadable, discarding it");
     fs::remove_all(staging, ec);
     return false;
   }
@@ -431,7 +428,7 @@ bool InstallStagedUpdate(const fs::path &install_root) {
     fs::copy_file(staging / rel, incoming, fs::copy_options::overwrite_existing,
                   ec);
     if (ec) {
-      REXLOG_ERROR(bd, "Update install could not write {}: {}", rel.string(),
+      REXBD_ERROR("Update install could not write {}: {}", rel.string(),
                ec.message());
       RemoveIncoming(install_root, files);
       return false;
@@ -464,7 +461,7 @@ bool InstallStagedUpdate(const fs::path &install_root) {
       fs::remove(aside, ec);
       fs::rename(dst, aside, ec);
       if (ec) {
-        REXLOG_ERROR(bd, "Update install could not move {} aside: {}", rel.string(),
+        REXBD_ERROR("Update install could not move {} aside: {}", rel.string(),
                  ec.message());
         roll_back();
         return false;
@@ -472,7 +469,7 @@ bool InstallStagedUpdate(const fs::path &install_root) {
     }
     fs::rename(dst.native() + kIncomingSuffix, dst, ec);
     if (ec) {
-      REXLOG_ERROR(bd, "Update install could not swap in {}: {}", rel.string(),
+      REXBD_ERROR("Update install could not swap in {}: {}", rel.string(),
                ec.message());
       if (had_old)
         fs::rename(aside, dst, ec);
@@ -493,7 +490,7 @@ bool InstallStagedUpdate(const fs::path &install_root) {
   RetireFiles(install_root, kProgramFiles, staged_names, replaced);
   WriteReplacedList(install_root / kReplacedList, replaced);
   fs::remove_all(staging, ec);
-  REXLOG_INFO(bd, "Installed the staged update into {}", install_root.string());
+  REXBD_INFO("Installed the staged update into {}", install_root.string());
   return true;
 }
 
@@ -581,7 +578,7 @@ bool InstallStagedUpdate(const fs::path &install_root) {
   const auto bundle = RunningBundle();
   const auto staged = staging / "reblue.app";
   if (bundle.empty() || !fs::exists(staged, ec)) {
-    REXLOG_ERROR(bd, "Staged update has nothing to install into, discarding it");
+    REXBD_ERROR("Staged update has nothing to install into, discarding it");
     fs::remove_all(staging, ec);
     return false;
   }
@@ -593,18 +590,18 @@ bool InstallStagedUpdate(const fs::path &install_root) {
   fs::remove_all(aside, ec);
   fs::rename(bundle, aside, ec);
   if (ec) {
-    REXLOG_ERROR(bd, "Update install could not move {} aside: {}", bundle.string(),
+    REXBD_ERROR("Update install could not move {} aside: {}", bundle.string(),
              ec.message());
     return false;
   }
 
   if (!MoveTree(staged, bundle, ec)) {
-    REXLOG_ERROR(bd, "Update install could not swap in {}: {}", bundle.string(),
+    REXBD_ERROR("Update install could not swap in {}: {}", bundle.string(),
              ec.message());
     std::error_code back;
     fs::rename(aside, bundle, back);
     if (back)
-      REXLOG_ERROR(bd, "...and could not put {} back: {}", bundle.string(),
+      REXBD_ERROR("...and could not put {} back: {}", bundle.string(),
                back.message());
     fs::remove(staging / kReadyMarker, ec);
     return false;
@@ -617,7 +614,7 @@ bool InstallStagedUpdate(const fs::path &install_root) {
   WriteReplacedList(install_root / kReplacedBundles, replaced);
 
   fs::remove_all(staging, ec);
-  REXLOG_INFO(bd, "Installed the staged update into {}", bundle.string());
+  REXBD_INFO("Installed the staged update into {}", bundle.string());
   return true;
 }
 
@@ -650,7 +647,7 @@ void ClearReplacedFiles(const std::filesystem::path &install_root) {
     return;
   std::string error;
   if (!ClearReplacedAppImage(appimage, error))
-    REXLOG_WARN(bd, "Could not clear the previous AppImage: {}", error);
+    REXBD_WARN("Could not clear the previous AppImage: {}", error);
 }
 #endif
 

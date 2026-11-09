@@ -8,7 +8,6 @@
 
 #include <vector>
 
-#include <rex/cvar.h>
 
 #include "core/cvar_table.h"
 #include "core/settings.h"
@@ -18,7 +17,7 @@
 namespace bd::engine {
 namespace {
 
-std::vector<rex::cvar::CallbackHandle> g_callbacks;
+bd::SettingWatches g_callbacks;
 
 constexpr i32 kHudModeLast = static_cast<i32>(engine::HudMode::Hidden);
 
@@ -29,52 +28,55 @@ Settings &Settings::Get() {
   return s;
 }
 
-void Settings::AdoptFPSLimit() { fpsLimit_ = REXCVAR_GET(bd::cvars::fps_limit); }
+void Settings::AdoptFPSLimit() { fpsLimit_ = static_cast<i32>(bd::CvarDouble("gpu.frame_limit", 0.0)); }
 
 void Settings::AdoptSaveAnywhere() {
-  saveAnywhere_ = REXCVAR_GET(bd::cvars::save_anywhere);
+  saveAnywhere_ = bd::cvars::Get().save_anywhere.Get();
 }
 
 void Settings::AdoptDisableTutorials() {
-  disableTutorials_ = REXCVAR_GET(bd::cvars::disable_tutorials);
+  disableTutorials_ = bd::cvars::Get().disable_tutorials.Get();
 }
 
 void Settings::AdoptMapGimmickMarkers() {
-  mapGimmickMarkers_ = REXCVAR_GET(bd::cvars::map_gimmick_markers);
+  mapGimmickMarkers_ = bd::cvars::Get().map_gimmick_markers.Get();
 }
 
 void Settings::AdoptHudMode() {
-  const i32 v = REXCVAR_GET(bd::cvars::hud_mode);
+  const i32 v = bd::cvars::Get().hud_mode.Get();
   hudMode_ = v >= 0 && v <= kHudModeLast ? static_cast<engine::HudMode>(v)
                                          : engine::HudMode::Always;
 }
 
 void Settings::AdoptHudFadeDelay() {
-  hudFadeDelay_ = std::max(0.0, REXCVAR_GET(bd::cvars::hud_fade_delay));
+  hudFadeDelay_ = std::max(0.0, bd::cvars::Get().hud_fade_delay.Get());
 }
 
 void Settings::AdoptMouseInput() {
-  mouseInput_ = REXCVAR_GET(bd::cvars::mouse_input);
+  mouseInput_ = bd::cvars::Get().mouse_input.Get();
 }
 
 void Settings::AdoptMouseCursorSFX() {
-  mouseCursorSFX_ = REXCVAR_GET(bd::cvars::mouse_cursor_sfx);
+  mouseCursorSFX_ = bd::cvars::Get().mouse_cursor_sfx.Get();
 }
 
 void Settings::AdoptGlyphSetMode() {
-  glyphSetMode_ = std::clamp(REXCVAR_GET(bd::cvars::glyph_set), 0,
+  glyphSetMode_ = std::clamp(bd::cvars::Get().glyph_set.Get(), 0,
                              static_cast<i32>(GlyphSet::Keyboard));
 }
 
 void Settings::AdoptPadGlyphSet() {
   padGlyphSet_ =
-      std::clamp(REXCVAR_GET(bd::cvars::glyph_pad), kPadSetFirst, kPadSetLast);
+      std::clamp(bd::cvars::Get().glyph_pad.Get(), kPadSetFirst, kPadSetLast);
 }
 
-void Settings::AdoptVibration() { vibration_ = REXCVAR_GET(bd::cvars::vibration); }
+void Settings::AdoptVibration() {
+  const std::string v = bd::CvarGet("hid.vibration");
+  vibration_ = !(v == "false" || v == "0");
+}
 
 void Settings::AdoptCameraSpeed() {
-  cameraSpeed_ = std::clamp(REXCVAR_GET(bd::cvars::camera_speed), kCameraSpeedMin,
+  cameraSpeed_ = std::clamp(bd::cvars::Get().camera_speed.Get(), kCameraSpeedMin,
                             kCameraSpeedMax);
   ApplyCameraSpeed();
 }
@@ -85,12 +87,12 @@ void Settings::ApplyCameraSpeed() const {
 
 void Settings::AdoptMouseCursorOpacity() {
   mouseCursorOpacity_ =
-      std::clamp(REXCVAR_GET(bd::cvars::mouse_cursor_opacity), kMouseCursorOpacityMin,
+      std::clamp(bd::cvars::Get().mouse_cursor_opacity.Get(), kMouseCursorOpacityMin,
                  kMouseCursorOpacityMax);
 }
 
 bool Settings::SetFPSLimit(i32 v) {
-  return bd::CvarSet("bd.fps_limit", FormatCvar(v));
+  return bd::CvarSet("gpu.frame_limit", FormatCvar(v));
 }
 
 bool Settings::SetSaveAnywhere(bool v) {
@@ -130,7 +132,7 @@ bool Settings::SetMouseInput(bool v) {
 }
 
 bool Settings::SetVibration(bool v) {
-  return bd::CvarSet("bd.vibration", FormatCvar(v));
+  return bd::CvarSet("hid.vibration", FormatCvar(v));
 }
 
 bool Settings::SetCameraSpeed(f64 v) {
@@ -162,7 +164,7 @@ void Settings::Init() {
                     (Settings::Get().*adopt)();
                   });
   };
-  reg("bd.fps_limit", &Settings::AdoptFPSLimit);
+  reg("gpu.frame_limit", &Settings::AdoptFPSLimit);
   reg("bd.save_anywhere", &Settings::AdoptSaveAnywhere);
   reg("bd.disable_tutorials", &Settings::AdoptDisableTutorials);
   reg("bd.map_gimmick_markers", &Settings::AdoptMapGimmickMarkers);
@@ -173,7 +175,7 @@ void Settings::Init() {
   reg("bd.mouse_cursor_opacity", &Settings::AdoptMouseCursorOpacity);
   reg("bd.glyph_set", &Settings::AdoptGlyphSetMode);
   reg("bd.glyph_pad", &Settings::AdoptPadGlyphSet);
-  reg("bd.vibration", &Settings::AdoptVibration);
+  reg("hid.vibration", &Settings::AdoptVibration);
   reg("bd.camera_speed", &Settings::AdoptCameraSpeed);
 }
 

@@ -16,11 +16,12 @@
 #include <vector>
 
 #include <rex/math.h>
-#include <rex/xenos/texture_conversion.h>
-#include <rex/xenos/texture_layout.h>
-#include <rex/xenos/xenos.h>
-#include <rex/ppc.h>
-#include <rex/string/utf8.h>
+#include <rex/xenos/texture.h>
+#include <rex/logging/log_category.h>
+#include <rex/ppc/context.h>
+#include <rex/xenos/fetch.h>
+#include <rex/xenos/format.h>
+#include <rex/string/text.h>
 #include <rex/ppc/midasm.h>
 
 #include "core/logging.h"
@@ -58,7 +59,7 @@ std::string NormalizeTextureName(std::string_view raw) {
   const size_t dot = raw.rfind('.');
   if (dot != std::string_view::npos)
     raw = raw.substr(0, dot);
-  return rex::utf8_lower_ascii(raw);
+  return rex::string::utf8_lower_ascii(raw);
 }
 
 // Evicted (guest thread) but not yet freed. Held per slot until the post-fence
@@ -203,7 +204,7 @@ GuestTexture *BuildVolumeMirror(const MirrorLayout &L, const u8 *src,
       L.width, L.height, L.depth, u32(L.format), staging.data(), staging.size(),
       L.staging_row_bytes, L.row_width_texels);
   if (!tex) {
-    REXLOG_WARN(bd, "native texture va=0x{:08X}: volume mirror build failed "
+    REXBD_WARN("native texture va=0x{:08X}: volume mirror build failed "
             "({}x{}x{} fmt=0x{:X})",
             guest_va, L.width, L.height, L.depth, u32(L.format));
     return nullptr;
@@ -217,7 +218,7 @@ GuestTexture *BuildVolumeMirror(const MirrorLayout &L, const u8 *src,
   if (slice0) {
     tex->companion2D.reset(slice0);
   } else {
-    REXLOG_WARN(bd, "native texture va=0x{:08X}: slice-0 2D companion build failed "
+    REXBD_WARN("native texture va=0x{:08X}: slice-0 2D companion build failed "
             "({}x{} fmt=0x{:X}), 3D-as-2D fetch will read null",
             guest_va, L.width, L.height, u32(L.format));
   }
@@ -245,7 +246,7 @@ GuestTexture *BuildCubeMirror(const MirrorLayout &L, const u8 *src,
       L.width, L.height, u32(L.format), face_ptrs, face_size,
       L.staging_row_bytes, L.row_width_texels);
   if (!tex) {
-    REXLOG_WARN(bd, "native texture va=0x{:08X}: cube mirror build failed "
+    REXBD_WARN("native texture va=0x{:08X}: cube mirror build failed "
             "({}x{} fmt=0x{:X})",
             guest_va, L.width, L.height, u32(L.format));
   }
@@ -355,7 +356,7 @@ void AttachCubeAtlasCompanion(const MirrorLayout &L, GuestTexture *tex,
   if (cube) {
     tex->companionCube.reset(cube);
   } else {
-    REXLOG_WARN(bd, "native texture va=0x{:08X}: cube_* atlas companion build failed "
+    REXBD_WARN("native texture va=0x{:08X}: cube_* atlas companion build failed "
             "({}x{} fmt=0x{:X}), water/glass cube fetch reads null",
             guest_va, L.height, L.height, u32(L.format));
   }
@@ -374,7 +375,7 @@ GuestTexture *Build2DMirror(const MirrorLayout &L, const u8 *src,
                                       L.staging_row_bytes, L.row_width_texels);
   }
   if (!tex) {
-    REXLOG_WARN(bd, "native texture va=0x{:08X}: 2D mirror build failed "
+    REXBD_WARN("native texture va=0x{:08X}: 2D mirror build failed "
             "({}x{} fmt=0x{:X})",
             guest_va, L.width, L.height, u32(L.format));
     return nullptr;
@@ -410,7 +411,7 @@ GuestTexture *GetOrCreateNativeMirror(u32 guest_va, u32 name_va) {
 
   xe::TextureFetch fetch;
   if (!ReadFetch(guest_va, fetch)) {
-    REXLOG_WARN(bd, "native texture: guest VA 0x{:08X} does not translate", guest_va);
+    REXBD_WARN("native texture: guest VA 0x{:08X} does not translate", guest_va);
     return nullptr;
   }
 
@@ -429,7 +430,7 @@ GuestTexture *GetOrCreateNativeMirror(u32 guest_va, u32 name_va) {
   // Non-tiled is rejected: the deswizzlers only handle tiled data.
   if (fetch.type != xe::FetchConstantType::kTexture || !supported_dim ||
       !(dxt || rgba8) || !endian_ok || !fetch.tiled) {
-    REXLOG_WARN(bd, "native texture rejected name='{}' va=0x{:08X} type={} dim={} "
+    REXBD_WARN("native texture rejected name='{}' va=0x{:08X} type={} dim={} "
             "fmt=0x{:X} endian={} tiled={} {}x{}x{}",
             TextureName(name_va), guest_va, u32(fetch.type),
             u32(fetch.dimension), u32(fetch.format), u32(fetch.endianness),
@@ -442,7 +443,7 @@ GuestTexture *GetOrCreateNativeMirror(u32 guest_va, u32 name_va) {
   // accessor matches how the data was written.
   const auto *src = bd::mem::at<const u8>(fetch.base_address << 12);
   if (!src) {
-    REXLOG_WARN(bd, "native texture va=0x{:08X}: base address 0x{:08X} does not "
+    REXBD_WARN("native texture va=0x{:08X}: base address 0x{:08X} does not "
             "translate",
             guest_va, fetch.base_address << 12);
     return nullptr;
@@ -612,7 +613,7 @@ bool NativeTextureReplace(u32 guest_va, const u8 *blob, size_t size) {
   if (blobFetch.format != fetch.format || blobFc[2] != fc[2] ||
       blobFetch.pitch != fetch.pitch || !fetch.tiled ||
       fetch.dimension != xe::DataDimension::k2DOrStacked || fetch.mip_address) {
-    REXLOG_WARN(bd, "native texture replace refused va=0x{:08X}: geometry mismatch",
+    REXBD_WARN("native texture replace refused va=0x{:08X}: geometry mismatch",
             guest_va);
     return false;
   }
@@ -623,7 +624,7 @@ bool NativeTextureReplace(u32 guest_va, const u8 *blob, size_t size) {
   const u32 blobPayload = (u32(blob[0]) << 24) | (u32(blob[1]) << 16) |
                           (u32(blob[2]) << 8) | u32(blob[3]);
   if (blobPayload != payload || size < 2048u + payload) {
-    REXLOG_WARN(bd, "native texture replace refused va=0x{:08X}: payload {} vs {}",
+    REXBD_WARN("native texture replace refused va=0x{:08X}: payload {} vs {}",
             guest_va, blobPayload, payload);
     return false;
   }

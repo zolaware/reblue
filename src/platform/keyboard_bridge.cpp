@@ -6,8 +6,8 @@
 
 #include <atomic>
 
-#include <rex/runtime.h>
-#include <rex/hid/virtual_key.h>
+#include <rex/kernel/title_runtime.h>
+#include <rex/input_keys.h>
 
 #include "core/memory_helpers.h"
 #include "engine/engine.h"
@@ -15,7 +15,7 @@
 
 namespace bd::platform {
 
-using VK = rex::hid::VirtualKey;
+using VK = rex::VirtualKey;
 
 inline constexpr VK kPolledKeys[] = {
     VK::kReturn,  VK::kEscape,  VK::kTab,     VK::kBack,    VK::kUp,
@@ -94,7 +94,7 @@ void PollKeyboardToGuest() {
     return;
 
   const auto view = bd::mem::view();
-  auto *entry = view ? kGuestKeyBuffer.TryGet(*view) : nullptr;
+  auto *entry = view ? kGuestKeyBuffer.TryGetHost(*view) : nullptr;
   if (!entry)
     return;
 

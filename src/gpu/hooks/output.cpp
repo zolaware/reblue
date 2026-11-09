@@ -12,9 +12,8 @@
 
 #include <cmath>
 
-#include <rex/hook.h>
-#include <rex/ppc/detour.h>
-#include <rex/ppc.h>
+#include <rex/ppc/hook.h>
+#include <rex/ppc/context.h>
 #include <rex/types.h>
 #include <rex/ppc/midasm.h>
 

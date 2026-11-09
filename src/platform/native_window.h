@@ -10,13 +10,15 @@
 #pragma once
 
 #include <plume_render_interface.h>
+#include <rex/platform/native_window.h>
 
 namespace rex::ui {
-class IWindow;
+struct NativeWindow;
 }
 
 namespace bd::platform {
 
-bool GetNativeRenderWindow(rex::ui::IWindow &window, plume::RenderWindow &out);
+bool GetNativeRenderWindow(const rex::NativeWindow &native,
+                           plume::RenderWindow &out);
 
 } // namespace bd::platform

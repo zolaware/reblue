@@ -106,7 +106,7 @@ if(REBLUE_PCH)
             algorithm atomic chrono cstddef cstdint cstdio cstdlib cstring
             filesystem format functional memory mutex optional string
             string_view unordered_map unordered_set utility vector
-            rex/cvar.h rex/hook.h rex/ppc.h rex/runtime.h rex/types.h)
+            rex/ppc/hook.h rex/types.h)
         list(APPEND pch_headers "$<$<COMPILE_LANGUAGE:CXX>:<${header}$<ANGLE-R>>")
     endforeach()
     foreach(header IN ITEMS core/logging.h core/memory_helpers.h)
@@ -154,7 +154,6 @@ foreach(target IN LISTS REBLUE_COMMON_TARGETS REBLUE_TARGETS)
     target_link_libraries(${target} PRIVATE
         plume
         reblue_thirdparty
-        rex::o1heap
         SDL3::SDL3
         xxHash::xxhash
         # The SDK only links TracyClient into non-Release configs, so a Release
@@ -201,7 +200,7 @@ if(TARGET reblue_vk AND TARGET reblue)
     add_dependencies(reblue_vk reblue)
 endif()
 
-# SDL controller mappings, reached through the hid_mappings_file cvar.
+# SDL controller mappings, reached through the hid.sdl.mappings_file setting.
 foreach(target IN LISTS REBLUE_TARGETS)
     add_custom_command(TARGET ${target} POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -255,33 +254,17 @@ foreach(target IN LISTS REBLUE_VULKAN_TARGETS)
     endif()
 endforeach()
 
-# The SDK stages its shared runtime libs next to the exe on Windows only, and
-# nothing populates the $ORIGIN rpath it sets on UNIX, so the SDK module
-# libraries and libTracyClient link or load but fail to resolve.
-if(UNIX)
-    foreach(target IN LISTS REBLUE_TARGETS)
-        add_custom_command(TARGET ${target} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                $<TARGET_FILE:rex::core>
-                $<TARGET_FILE:rex::filesystem>
-                $<TARGET_FILE:rex::runtime>
-                "$<${REBLUE_PROFILING_ON}:$<TARGET_FILE:rex::TracyClient>>"
-                $<TARGET_FILE_DIR:${target}>
-            COMMAND_EXPAND_LISTS
-            VERBATIM)
-    endforeach()
-endif()
-
 # Only CMake knows the per-config runtime library names, so it renders the
 # shipped-file list twice: a header the self-installer and the updater compile
 # in, and a list the packaging script reads. Neither is part of the tree that
 # ships.
 set(reblue_program_files
     "$<TARGET_FILE_NAME:reblue>"
-    "$<TARGET_FILE_NAME:rex::core>"
-    "$<TARGET_FILE_NAME:rex::filesystem>"
-    "$<TARGET_FILE_NAME:rex::runtime>"
     "gamecontrollerdb.txt")
+rexglue_get_runtime_files(reblue reblue_sdk_files)
+foreach(f IN LISTS reblue_sdk_files)
+    list(APPEND reblue_program_files "$<PATH:GET_FILENAME,${f}>")
+endforeach()
 if(REBLUE_VULKAN_EXE)
     list(APPEND reblue_program_files "$<TARGET_FILE_NAME:reblue_vk>")
 endif()
@@ -289,16 +272,10 @@ if(REBLUE_D3D12_TARGETS)
     list(APPEND reblue_program_files dxcompiler.dll dxil.dll D3D12/D3D12Core.dll)
 endif()
 
-# Only a profiled build stages Tracy, so its entry is emitted whole or left out
-# entirely rather than becoming an empty one.
-set(reblue_tracy "$<TARGET_FILE_NAME:rex::TracyClient>")
-
 set(reblue_program_files_cxx "")
 foreach(f IN LISTS reblue_program_files)
     string(APPEND reblue_program_files_cxx "    \"${f}\",\n")
 endforeach()
-string(APPEND reblue_program_files_cxx
-       "    $<${REBLUE_PROFILING_ON}:\"${reblue_tracy}\",>")
 
 set(reblue_retired_files "")
 if(WIN32 AND NOT REBLUE_VULKAN_EXE)
@@ -327,4 +304,4 @@ ${reblue_retired_files_cxx}
 
 list(JOIN reblue_program_files "\n" reblue_program_files_txt)
 file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/packaging/program_files.txt"
-     CONTENT "${reblue_program_files_txt}\n$<${REBLUE_PROFILING_ON}:${reblue_tracy}\n>")
+     CONTENT "${reblue_program_files_txt}\n")

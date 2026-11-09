@@ -11,12 +11,12 @@
 #include <string>
 #include <vector>
 
-#include <rex/hook.h>
-#include <rex/memory/byte_swap.h>
+#include <rex/ppc/hook.h>
+#include <rex/memory/endian.h>
 #include <rex/ppc/stack.h>
-#include <rex/runtime/xtypes.h>
+#include <rex/kernel/types/memory.h>
 #include <rex/types.h>
-#include <rex/string/utf8.h>
+#include <rex/string/text.h>
 
 #include "core/memory_helpers.h"
 #include "engine/d2anime/anime_var.h"
@@ -48,7 +48,7 @@ struct AnimeData_t;
 
 struct AnimeElement_t {
   /* 0x00 */ u8 _pad00[0xC4];
-  /* 0xC4 */ rex::be_ptr<AnimeData_t> childAnime;
+  /* 0xC4 */ rex::kernel::be_ptr<AnimeData_t> childAnime;
   /* 0xC8 */ be_f32 timer;
 };
 static_assert(offsetof(AnimeElement_t, childAnime) == 0xC4);
@@ -56,13 +56,13 @@ static_assert(offsetof(AnimeElement_t, timer) == 0xC8);
 
 struct AnimeChainNode_t {
   /* 0x00 */ u8 _pad00[0x50];
-  /* 0x50 */ rex::be_vector<rex::be_ptr<AnimeElement_t>> elements;
+  /* 0x50 */ rex::kernel::GuestVector<rex::kernel::be_ptr<AnimeElement_t>> elements;
 };
 static_assert(offsetof(AnimeChainNode_t, elements) == 0x50);
 
 struct AnimeData_t {
   /* 0x000 */ u8 _pad000[0xC0];
-  /* 0x0C0 */ rex::be_vector<be_u32> varTracks;
+  /* 0x0C0 */ rex::kernel::GuestVector<u32> varTracks;
   /* 0x0CC */ u8 _pad0CC[0x138 - 0xCC];
   /* 0x138 */ be_f32 length;
   /* 0x13C */ be_u32 state;
@@ -72,7 +72,7 @@ struct AnimeData_t {
   /* 0x158 */ u8 _pad158[0x160 - 0x158];
   /* 0x160 */ be_u32 childEnabled;
   /* 0x164 */ u8 _pad164[0x178 - 0x164];
-  /* 0x178 */ rex::be_vector<rex::be_ptr<AnimeChainNode_t>> activeChain;
+  /* 0x178 */ rex::kernel::GuestVector<rex::kernel::be_ptr<AnimeChainNode_t>> activeChain;
 };
 static_assert(offsetof(AnimeData_t, varTracks) == 0x0C0);
 static_assert(offsetof(AnimeData_t, length) == 0x138);
@@ -126,16 +126,16 @@ void AnimeData::SyncActiveChain() {
   const f32 clock = self->frame;
   for (u32 i = 0; i < self->activeChain.size(); ++i) {
     const auto *nodeSlot = self->activeChain.TryAt(i, *view);
-    auto *node = nodeSlot ? nodeSlot->TryGet(*view) : nullptr;
+    auto *node = nodeSlot ? nodeSlot->TryGetHost(*view) : nullptr;
     if (!node || node->elements.size() > kMaxChainEntries)
       continue;
     for (u32 j = 0; j < node->elements.size(); ++j) {
       const auto *elementSlot = node->elements.TryAt(j, *view);
-      auto *element = elementSlot ? elementSlot->TryGet(*view) : nullptr;
+      auto *element = elementSlot ? elementSlot->TryGetHost(*view) : nullptr;
       if (!element)
         continue;
       element->timer = clock;
-      if (auto *child = element->childAnime.TryGet(*view))
+      if (auto *child = element->childAnime.TryGetHost(*view))
         child->childEnabled = 1;
     }
   }
@@ -184,7 +184,7 @@ void AnimeData::SetTextU16(const char *name, std::u16string_view text) {
 }
 
 void AnimeData::SetText(const char *name, std::string_view utf8) {
-  SetTextU16(name, rex::ToUTF16(utf8));
+  SetTextU16(name, rex::string::ToUTF16(utf8));
 }
 
 void AnimeData::SetColor(const char *name, u32 rgba) {

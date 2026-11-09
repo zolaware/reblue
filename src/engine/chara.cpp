@@ -9,7 +9,8 @@
 #include <algorithm>
 #include <cstddef>
 
-#include <rex/runtime/xtypes.h>
+#include <rex/kernel/types/memory.h>
+#include <rex/kernel/memory_view.h>
 
 #include "core/guest_global.h"
 #include "core/memory_helpers.h"
@@ -92,9 +93,9 @@ struct CharaBattleParams_t {
   // hands a container helper params+0xD0 or params+0xE0 and the helper reads
   // begin at +4.
   /* 0xD0 */ be_u32 _timedHeader;
-  /* 0xD4 */ rex::be_vector<CharaTimedEffect_t> timedEffects;
+  /* 0xD4 */ rex::kernel::GuestVector<CharaTimedEffect_t> timedEffects;
   /* 0xE0 */ be_u32 _passiveHeader;
-  /* 0xE4 */ rex::be_vector<CharaPassiveEffect_t> passiveEffects;
+  /* 0xE4 */ rex::kernel::GuestVector<CharaPassiveEffect_t> passiveEffects;
 };
 static_assert(sizeof(CharaBattleParams_t) == 0xF0);
 static_assert(offsetof(CharaBattleParams_t, statusResist) == 0x20);
@@ -296,7 +297,7 @@ Chara::EffectEntry ToEntry(const CharaTimedEffect_t &e) {
 }
 
 template <class T>
-std::vector<Chara::EffectEntry> ReadEffects(const rex::be_vector<T> &vec) {
+std::vector<Chara::EffectEntry> ReadEffects(const rex::kernel::GuestVector<T> &vec) {
   std::vector<Chara::EffectEntry> out;
   const auto view = mem::view();
   if (!view || !vec.first.GetAddress())

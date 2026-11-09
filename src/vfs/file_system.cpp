@@ -11,8 +11,7 @@
 #include <unordered_set>
 
 #include <rex/platform/file.h>
-#include <rex/string.h>
-#include <rex/string/utf8.h>
+#include <rex/string/text.h>
 
 #include "core/logging.h"
 
@@ -36,7 +35,7 @@ ByteOrder ByteOrderOf(const std::vector<u8> &bytes) {
 // when it bakes one: whole line, surrounding whitespace dropped, ASCII case
 // folded.
 template <class Str, class View> Str Fold(View s) {
-  Str out(rex::Trim(s));
+  Str out(rex::string::Trim(s));
   for (auto &c : out)
     if (c >= 'A' && c <= 'Z')
       c = static_cast<typename Str::value_type>(c - 'A' + 'a');
@@ -64,7 +63,7 @@ Str Extend(View text, const std::vector<std::string> &rows, Encode encode) {
   if (!out.empty() && out.back() != '\n')
     out += crlf;
   for (const std::string &row : rows) {
-    const Str line = encode(rex::Trim(std::string_view(row)));
+    const Str line = encode(rex::string::Trim(std::string_view(row)));
     if (!present.insert(Fold<Str>(View(line))).second)
       continue;
     out += line;
@@ -87,7 +86,7 @@ std::vector<u8> ExtendU16(const std::vector<u8> &base,
 
   const std::u16string out = Extend<std::u16string>(
       std::u16string_view(text), rows,
-      [](std::string_view row) { return rex::ToUTF16(row); });
+      [](std::string_view row) { return rex::string::ToUTF16(row); });
 
   std::vector<u8> bytes;
   bytes.reserve(2 + out.size() * 2);
@@ -112,7 +111,7 @@ std::vector<u8> ExtendShiftJIS(const std::vector<u8> &base,
   const std::string_view text(reinterpret_cast<const char *>(base.data()),
                               base.size());
   const std::string out = Extend<std::string>(
-      text, rows, [](std::string_view row) { return rex::UTF8ToShiftJIS(row); });
+      text, rows, [](std::string_view row) { return rex::string::UTF8ToShiftJIS(row); });
   return std::vector<u8>(out.begin(), out.end());
 }
 
@@ -147,7 +146,7 @@ void FileSystem::Add(std::string name, int priority,
   if (!mount)
     return;
 
-  REXLOG_INFO(bd, "vfs mount '{}' prio {} {} ({} keys)", name, priority,
+  REXBD_INFO("vfs mount '{}' prio {} {} ({} keys)", name, priority,
           ToString(mount->Kind()), mount->KeyCount());
   Insert({std::move(name), priority, 0, std::move(mount), nullptr});
 }
@@ -156,7 +155,7 @@ void FileSystem::AddPatch(std::string name, int priority, DbRows rows) {
   if (rows.empty())
     return;
 
-  REXLOG_INFO(bd, "vfs patch '{}' prio {} ({} tables)", name, priority,
+  REXBD_INFO("vfs patch '{}' prio {} ({} tables)", name, priority,
           rows.size());
   Insert({std::move(name), priority, 0, nullptr,
           std::make_shared<const DbRows>(std::move(rows))});
@@ -187,7 +186,7 @@ void FileSystem::Remove(std::string_view name) {
 
   std::lock_guard lock(mutex_);
   if (std::erase_if(mounts_, [&](const Entry &e) { return e.name == name; }))
-    REXLOG_INFO(bd, "vfs unmount '{}'", name);
+    REXBD_INFO("vfs unmount '{}'", name);
 }
 
 std::vector<FileSystem::Entry> FileSystem::Snapshot(Tier tier) const {
@@ -229,7 +228,7 @@ std::optional<ReadResult> FileSystem::ReadUnpatched(const Key &key,
     // Indexed but unreadable: keep walking, and the guest's own IO still
     // backstops us, so a broken overlay degrades to the shipped file.
     if (bytes->empty()) {
-      REXLOG_ERROR(bd, "vfs mount '{}' holds '{}' but produced nothing", e.name,
+      REXBD_ERROR("vfs mount '{}' holds '{}' but produced nothing", e.name,
                key.str());
       continue;
     }
@@ -293,7 +292,7 @@ std::optional<ReadResult> FileSystem::Read(const Key &key, Tier tier) const {
   if (!base && tier == Tier::Overlay)
     base = ReadUnpatched(key, Tier::Fallback);
   if (!base) {
-    REXLOG_WARN(bd, "vfs '{}' is patched but nothing serves it", key.str());
+    REXBD_WARN("vfs '{}' is patched but nothing serves it", key.str());
     return std::nullopt;
   }
 
@@ -302,7 +301,7 @@ std::optional<ReadResult> FileSystem::Read(const Key &key, Tier tier) const {
     base->bytes = ExtendTable(base->bytes, **it);
     offered += (*it)->size();
   }
-  REXLOG_INFO(bd, "vfs '{}' from '{}' extended by {} patch(es), {} row(s)",
+  REXBD_INFO("vfs '{}' from '{}' extended by {} patch(es), {} row(s)",
           key.str(), base->mount, patches.size(), offered);
 
   std::lock_guard lock(composed_mutex_);
@@ -343,7 +342,7 @@ void FileSystem::RebuildIndex() const {
     }
   }
   indexed_revision_ = revision;
-  REXLOG_INFO(bd, "vfs directory index: {} directories", index_.size());
+  REXBD_INFO("vfs directory index: {} directories", index_.size());
 }
 
 std::vector<DirEntry> FileSystem::List(const Key &dir) const {

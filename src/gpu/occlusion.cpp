@@ -111,12 +111,12 @@ void Occlusion::Begin() {
       s.occlusion_last_count = normalized > 16384u ? 16384u : normalized;
       if (normalized > 16384u)
         if (::bd::Settings::Get().Devmode()) {
-          REXLOG_WARN(bd, "occlusion normalized count {} (raw {} / {}x) > 16384 (slot "
+          REXBD_WARN("occlusion normalized count {} (raw {} / {}x) > 16384 (slot "
                  "{}), clamped",
                  normalized, count, oversample, slot);
         }
     } else {
-      REXLOG_ERROR(bd, "occlusion readback map() null (slot {}), keeping count {}",
+      REXBD_ERROR("occlusion readback map() null (slot {}), keeping count {}",
                slot, s.occlusion_last_count);
     }
   }

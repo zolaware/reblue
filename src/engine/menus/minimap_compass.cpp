@@ -10,9 +10,8 @@
 #include <string>
 #include <vector>
 
-#include <rex/color.h>
-#include <rex/hook.h>
-#include <rex/ppc/detour.h>
+#include <rex/ui/style.h>
+#include <rex/ppc/hook.h>
 #include <rex/types.h>
 
 #include "core/memory_helpers.h"
@@ -44,7 +43,7 @@ constexpr float kCompassFade = 0.9f;
 constexpr float kCompassMarkerZ = 20.098f;
 constexpr float kCompassMarkerZFloor = 20.09f;
 constexpr float kCompassArrowZ = 20.088f;
-constexpr rex::Color kCompassArrowColor = rex::Color::FromARGB8(0xB0FFFFFFu);
+constexpr rex::ui::Color kCompassArrowColor = rex::ui::Color::FromARGB8(0xB0FFFFFFu);
 // The widget stands down on the maps past this id, and so do the markers.
 constexpr u32 kCompassMapIdCap = 1810;
 // A marker this close to the center can stand on the arrow, which earns the

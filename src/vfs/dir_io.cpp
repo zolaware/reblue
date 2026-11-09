@@ -13,10 +13,9 @@
 #include <string>
 #include <string_view>
 
-#include <rex/hook.h>
-#include <rex/ppc/detour.h>
+#include <rex/ppc/hook.h>
 #include <rex/ppc/stack.h>
-#include <rex/string/utf8.h>
+#include <rex/string/text.h>
 #include <rex/types.h>
 
 #include "core/logging.h"
@@ -68,7 +67,7 @@ bool MatchesFilter(const std::string &name, const std::string &filter) {
     const auto dot = text.rfind('.');
     return dot == std::string::npos ? text : text.substr(dot + 1);
   };
-  return rex::utf8_lower_ascii(extension(name)) == rex::utf8_lower_ascii(extension(filter));
+  return rex::string::utf8_lower_ascii(extension(name)) == rex::string::utf8_lower_ascii(extension(filter));
 }
 
 u32 EntryCount(u32 list_va) {
@@ -90,7 +89,7 @@ std::set<std::string> ExistingNames(u32 list_va) {
 
   const u32 count = list->count;
   for (u32 i = 0; i < count; ++i)
-    names.insert(rex::utf8_lower_ascii(bd::mem::cstr(entries[i].name)));
+    names.insert(rex::string::utf8_lower_ascii(bd::mem::cstr(entries[i].name)));
   return names;
 }
 
@@ -123,10 +122,10 @@ void PromoteToDirectory(u32 list_va, const std::string &text) {
   if (!entries)
     return;
 
-  const std::string wanted = rex::utf8_lower_ascii(text);
+  const std::string wanted = rex::string::utf8_lower_ascii(text);
   const u32 count = list->count;
   for (u32 i = 0; i < count; ++i) {
-    if (rex::utf8_lower_ascii(bd::mem::cstr(entries[i].name)) == wanted)
+    if (rex::string::utf8_lower_ascii(bd::mem::cstr(entries[i].name)) == wanted)
       entries[i].type = kTypeDir;
   }
 }
@@ -155,14 +154,14 @@ u32 MergeMounts(u32 list_va, const std::string &dir, const std::string &filter,
       continue;
 
     const std::string text = (flags & kScanFullPath) ? path : entry.name;
-    if (!seen.insert(rex::utf8_lower_ascii(text)).second) {
+    if (!seen.insert(rex::string::utf8_lower_ascii(text)).second) {
       if (entry.is_dir)
         PromoteToDirectory(list_va, text);
       continue;
     }
 
     if (EntryCount(list_va) >= kMaxEntries) {
-      REXLOG_WARN(bd, "vfs directory listing capped at {} entries: '{}'", kMaxEntries,
+      REXBD_WARN("vfs directory listing capped at {} entries: '{}'", kMaxEntries,
               dir);
       return added;
     }

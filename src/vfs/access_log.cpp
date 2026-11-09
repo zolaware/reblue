@@ -13,7 +13,8 @@
 #include <fstream>
 #include <sstream>
 
-#include <rex/logging.h>
+#include <rex/filesystem/file_system.h>
+#include <rex/logging/log_category.h>
 
 #include "core/app_root.h"
 #include "core/logging.h"
@@ -149,7 +150,7 @@ void AccessLog::LoadSummaryLocked() {
   }
 
   if (!entries_.empty())
-    REXLOG_TRACE(bd, "mods restored {} entries from previous summary",
+    REXBD_TRACE("mods restored {} entries from previous summary",
              entries_.size());
 }
 
@@ -220,10 +221,10 @@ void AccessLog::PruneOldDetailLogsLocked() {
     std::error_code dec;
     std::filesystem::remove(files[i], dec);
     if (dec)
-      REXLOG_WARN(bd, "mods failed to prune {}: {}", files[i].string(),
+      REXBD_WARN("mods failed to prune {}: {}", files[i].string(),
               dec.message());
   }
-  REXLOG_INFO(bd, "mods pruned {} old access-log file(s), keeping newest {}",
+  REXBD_INFO("mods pruned {} old access-log file(s), keeping newest {}",
           to_delete, keep);
 }
 
@@ -237,7 +238,7 @@ void AccessLog::PrepareDetailPathLocked() {
   std::error_code ec;
   std::filesystem::create_directories(dir, ec);
   if (ec) {
-    REXLOG_ERROR(bd, "mods failed to create {}: {}", dir.string(), ec.message());
+    REXBD_ERROR("mods failed to create {}: {}", dir.string(), ec.message());
     session_detail_capped_ =
         true; // stop retrying (and re-logging) this session
     return;
@@ -273,7 +274,7 @@ void AccessLog::Flush() {
   std::error_code dir_ec;
   std::filesystem::create_directories(log_dir_, dir_ec);
   if (dir_ec) {
-    REXLOG_ERROR(bd, "mods failed to create log dir {}: {}", log_dir_.string(),
+    REXBD_ERROR("mods failed to create log dir {}: {}", log_dir_.string(),
              dir_ec.message());
     std::lock_guard lock(mutex_);
     session_detail_capped_ = true; // unwritable: don't accumulate in RAM
@@ -286,7 +287,7 @@ void AccessLog::Flush() {
     auto summary_path = log_dir_ / "file_access_summary.csv";
     std::ofstream ofs(summary_path, std::ios::trunc);
     if (!ofs) {
-      REXLOG_ERROR(bd, "mods failed to write summary to {}", summary_path.string());
+      REXBD_ERROR("mods failed to write summary to {}", summary_path.string());
     } else {
       ofs << "pack,inner_path,total_accesses,total_overrides,total_misses\n";
 
@@ -301,7 +302,7 @@ void AccessLog::Flush() {
             << e.override_count << "," << e.miss_count << "\n";
       }
 
-      REXLOG_TRACE(bd, "mods wrote summary ({} entries) to {}", summary.size(),
+      REXBD_TRACE("mods wrote summary ({} entries) to {}", summary.size(),
                summary_path.string());
     }
   }
@@ -321,7 +322,7 @@ void AccessLog::Flush() {
                   ? std::filesystem::file_size(detail_path, sec)
                   : 0;
     if (!sec && cur >= static_cast<u64>(max_mb) * 1024ull * 1024ull) {
-      REXLOG_WARN(bd, "mods detail log hit {} MB cap, stopping detail capture for "
+      REXBD_WARN("mods detail log hit {} MB cap, stopping detail capture for "
               "this session ({})",
               max_mb, detail_path.string());
       std::lock_guard lock(mutex_);
@@ -337,7 +338,7 @@ void AccessLog::Flush() {
 
   std::ofstream ofs(detail_path, std::ios::app);
   if (!ofs) {
-    REXLOG_ERROR(bd, "mods failed to write detail log to {}", detail_path.string());
+    REXBD_ERROR("mods failed to write detail log to {}", detail_path.string());
     return;
   }
 
@@ -348,7 +349,7 @@ void AccessLog::Flush() {
         << FileSourceStr(d.source) << "\n";
   }
 
-  REXLOG_TRACE(bd, "mods appended {} detail entries to {}", detail.size(),
+  REXBD_TRACE("mods appended {} detail entries to {}", detail.size(),
            detail_path.string());
 }
 

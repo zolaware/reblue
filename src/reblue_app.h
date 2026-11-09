@@ -17,15 +17,18 @@
 #include <string>
 #include <thread>
 
-#include <rex/cli_action.h>
-#include <rex/cvar/registry.h>
-#include <rex/gpu/overlay.h>
-#include <rex/ui/title_app.h>
+#include <rex/cli.h>
+#include <rex/input_keys.h>
+#include <rex/app/title_app.h>
+#include <rex/ui/ui_system.h>
+
+#include "core/cvar_table.h"
+#include "gpu/imgui_overlay_drawer.h"
 
 #include "installer/installer.h"
 #include "ui/ui.h"
 
-class ReblueApp : public rex::ui::TitleApp {
+class ReblueApp : public rex::app::TitleApp, public rex::ui::IUIEventListener {
 public:
   ReblueApp();
   ~ReblueApp() override;
@@ -33,6 +36,10 @@ public:
   // Raises the installer or the upgrade prompt when the install needs one.
   // True while that setup UI owns the boot, false when the title can launch or
   // shutdown was requested.
+  // The raw arguments, read in OnConfigure ahead of the command line layer so
+  // the profile and the install can pick the config file.
+  void SetCommandLine(const rex::CLIArgList &args) { args_ = &args; }
+
   bool PrepareSetup();
   bool SetupActive() const;
   void PresentSetupFrame();
@@ -42,15 +49,16 @@ public:
   void RunHandoff();
 
 protected:
-  rex::Result<void> OnConfigure(rex::Config &config) override;
-  rex::Result<void> OnInit(rex::Config &config, rex::API &api) override;
-  void OnCreateWindow(rex::ui::TitleUI &ui) override;
-  bool OnEvent(const rex::ui::UIEvent &event) override;
-  rex::Result<void> OnTitleLaunch(rex::Runtime &runtime) override;
+  rex::AppSysRequirements GetRequirements() const override;
+  rex::Result<void> OnConfigure(rex::SettingsRegistry &settings) override;
+  rex::Result<void> OnInit() override;
+  rex::Result<void> OnTitleLaunch(rex::kernel::TitleRuntime &title) override;
+  void OnTitleExit(rex::kernel::TitleExitReason reason) override;
   void OnShutdown() override;
   std::span<const rex::CLIAction> GetActions() const override;
-  rex::Result<void> OnAction(const rex::CLIAction &action,
-                             const rex::CLIOption &option) override;
+  rex::Result<void> OnAction(const rex::CLIActionHit &hit) override;
+  void OnUIEvent(const rex::ui::UIEvent &event) override;
+  void OnInputEvent(rex::InputEvent &event) override;
 
 private:
   static constexpr std::array<rex::CLIAction, 1> kActions = {REX_CLI_ACTION(
@@ -60,9 +68,6 @@ private:
 
   // Paths for booting against a recorded install. One owner: a declined
   // upgrade prompt has to reach the same answer PrepareSetup would have.
-  rex::PathsConfig PathsForInstall(const rex::PathsConfig &defaults,
-                                  const bd::installer::InstallConfig &cfg);
-
   // Whether this build sits outside a non-portable install, so upgrading it
   // copies binaries and has to ask first. Callers gate on official and newer.
   bool NeedsUpgradePrompt(const bd::installer::InstallConfig &cfg) const;
@@ -90,6 +95,7 @@ private:
   // Brings up the native device and the overlay hook before the title, so the
   // setup UI can draw. No Runtime exists yet.
   bool BeginPreTitleUI();
+  bool CreateDevice();
   void InstallOverlayDrawHook();
 
   // Raises the update prompt the first time Updates::Newer() has an answer.
@@ -105,18 +111,24 @@ private:
   // behind it, so HasDialogs alone would never let the first one through.
   bool PendingOverlayWork() const;
 
+  rex::ScopeGuard ui_listener_guard_;
+
 #ifdef REBLUE_BUILD_INSTALLER
   std::unique_ptr<bd::installer::InstallerWizard> installer_wizard_;
+  rex::ScopeGuard installer_wizard_guard_;
 #endif
 
   // The check the prompt last answered, so a re-run offers its build instead
   // of reading as the one already declined.
   u32 update_prompt_generation_ = 0;
   std::unique_ptr<bd::ui::UpdateStatusOverlay> update_status_;
+  rex::ScopeGuard update_status_guard_;
   std::unique_ptr<bd::ui::UpdatePromptDialog> update_prompt_;
+  rex::ScopeGuard update_prompt_guard_;
 
 #if defined(_WIN32) && defined(REBLUE_BUILD_INSTALLER)
   std::unique_ptr<bd::installer::UpgradePrompt> upgrade_prompt_;
+  rex::ScopeGuard upgrade_prompt_guard_;
 #endif
 
   // Active profile, resolved once in OnConfigure from --bd.profile.
@@ -130,8 +142,8 @@ private:
   std::string unknown_language_code_;
   std::string location_warning_;
 
-  rex::cvar::ICvarRegistry *cvars_ = nullptr;
-  rex::gpu::IOverlayDrawer *overlay_drawer_ = nullptr;
-  std::thread::id ui_thread_;
+  const rex::CLIArgList *args_ = nullptr;
+  std::unique_ptr<bd::gpu::ImGuiOverlayDrawer> overlay_drawer_;
+  bd::SettingWatches watches_;
   std::optional<std::filesystem::path> handoff_exe_;
 };

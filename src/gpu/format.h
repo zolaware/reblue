@@ -9,7 +9,8 @@
  */
 #pragma once
 
-#include <rex/xenos/xenos.h>
+#include <rex/xenos/format.h>
+#include <rex/xenos/state.h>
 #include <rex/types.h>
 
 #include <plume_render_interface.h>

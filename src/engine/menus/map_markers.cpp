@@ -91,7 +91,7 @@ constexpr UVRect kUvWrpHatenaSmall = {0.0f, 0.5f, 0.5f, 1.0f};
             z -= kMarkerZStep;
     }
 
-    rex::Color DotColor(GimmickKind kind) {
+    rex::ui::Color DotColor(GimmickKind kind) {
         switch (kind) {
         case GimmickKind::Item:
             return kDotItem;

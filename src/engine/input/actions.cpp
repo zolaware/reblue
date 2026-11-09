@@ -64,6 +64,8 @@ constexpr ActionDesc kDescs[kActionCount] = {
 
     {"pause", "settings.action.pause", ActionContext::System,
      ActionKind::Dispatched, -1, -1, AxisPair::None, "P,PadX"},
+    {"overlay", "settings.action.overlay", ActionContext::System,
+     ActionKind::Dispatched, -1, -1, AxisPair::None, "F3"},
     {"mindows", "settings.action.mindows", ActionContext::System,
      ActionKind::Dispatched, -1, -1, AxisPair::None, ""},
 };

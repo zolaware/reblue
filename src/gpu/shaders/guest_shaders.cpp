@@ -18,6 +18,7 @@
 #include <plume_render_interface.h>
 #include <rex/hash.h>
 #include <zstd.h>
+#include <xxhash.h>
 
 #include "core/logging.h"
 #include "gpu/backend.h"
@@ -66,7 +67,7 @@ const u8 *DxilCache() {
         ZSTD_decompress(g_dxil_cache.get(), g_dxilCacheDecompressedSize,
                         g_compressedDxilCache, g_dxilCacheCompressedSize);
     if (ZSTD_isError(n) || n != g_dxilCacheDecompressedSize) {
-      REXLOG_ERROR(bd, "DXIL shader cache decompression failed ({} of {} bytes)", n,
+      REXBD_ERROR("DXIL shader cache decompression failed ({} of {} bytes)", n,
                g_dxilCacheDecompressedSize);
       g_dxil_cache.reset();
     }
@@ -89,11 +90,11 @@ const u8 *LinkedDxilCache() {
                       static_cast<mz_ulong>(g_linkedDxilCacheCompressedSize)) !=
             MZ_OK ||
         out_len != g_linkedDxilCacheDecompressedSize) {
-      REXLOG_ERROR(bd, "linked shader cache decompression failed");
+      REXBD_ERROR("linked shader cache decompression failed");
       return;
     }
     g_linked_dxil_cache = std::move(buf);
-    REXLOG_DEBUG(bd, "linked shader cache: {} prelinked spec-constant variant(s)",
+    REXBD_DEBUG("linked shader cache: {} prelinked spec-constant variant(s)",
              g_linkedShaderCacheEntryCount);
   });
   return g_linked_dxil_cache.get();
@@ -126,7 +127,7 @@ const u8 *SpirvCache() {
         ZSTD_decompress(g_spirv_cache.get(), g_spirvCacheDecompressedSize,
                         g_compressedSpirvCache, g_spirvCacheCompressedSize);
     if (ZSTD_isError(n) || n != g_spirvCacheDecompressedSize) {
-      REXLOG_ERROR(bd, "SPIR-V shader cache decompression failed ({} of {} bytes)", n,
+      REXBD_ERROR("SPIR-V shader cache decompression failed ({} of {} bytes)", n,
                g_spirvCacheDecompressedSize);
       g_spirv_cache.reset();
     }
@@ -181,7 +182,7 @@ GuestShader *CreateShader(const be_u32 *function, ResourceType type) {
     }
     shader->shaderCacheEntry = entry;
   } else {
-    REXLOG_WARN(bd, "Shader cache miss: hash=0x{:016X} len={} type={}", hash, hash_len,
+    REXBD_WARN("Shader cache miss: hash=0x{:016X} len={} type={}", hash, hash_len,
             static_cast<u32>(type));
   }
   // Let boot cache replay enqueue any pending PSO that was waiting on this
@@ -222,7 +223,7 @@ plume::RenderShader *GetOrLinkShader(GuestShader *gs, u32 specConstants) {
   std::vector<u8> spirv(smolv::GetDecodedBufferSize(smol, entry->spirvSize));
   if (spirv.empty() ||
       !smolv::Decode(smol, entry->spirvSize, spirv.data(), spirv.size())) {
-    REXLOG_ERROR(bd, "GetOrLinkShader: SPIR-V decode failed (hash=0x{:016X})",
+    REXBD_ERROR("GetOrLinkShader: SPIR-V decode failed (hash=0x{:016X})",
              entry->hash);
     return nullptr;
   }
@@ -264,7 +265,7 @@ plume::RenderShader *GetOrLinkShader(GuestShader *gs, u32 specConstants) {
     sh = device->createShader(linkedCache + pre->dxilOffset, pre->dxilSize,
                               "main", plume::RenderShaderFormat::DXIL);
   } else {
-    REXLOG_WARN(bd, "GetOrLinkShader: no prelinked variant, runtime DXC link "
+    REXBD_WARN("GetOrLinkShader: no prelinked variant, runtime DXC link "
             "(hash=0x{:016X} mask=0x{:X})",
             entry->hash, masked);
     std::vector<u8> linked =

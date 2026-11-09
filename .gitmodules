@@ -7,3 +7,6 @@
 [submodule "thirdparty/picosha2"]
 	path = thirdparty/picosha2
 	url = https://github.com/okdshin/PicoSHA2.git
+[submodule "thirdparty/tomlplusplus"]
+	path = thirdparty/tomlplusplus
+	url = https://github.com/marzer/tomlplusplus.git

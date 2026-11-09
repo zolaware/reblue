@@ -10,8 +10,7 @@
 #include <array>
 #include <cstddef>
 
-#include <rex/hook.h>
-#include <rex/ppc/detour.h>
+#include <rex/ppc/hook.h>
 
 #include "engine/events.h"
 #include "engine/game.h"

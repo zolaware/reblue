@@ -10,11 +10,12 @@
 #include <algorithm>
 #include <utility>
 
-#include <rex/runtime.h>
-#include <rex/runtime/achievement_manager.h>
+#include <rex/kernel/title_runtime.h>
+#include <rex/xam/achievement_manager.h>
 
 #include "core/logging.h"
 #include "engine/achievements/achievements.h"
+#include "platform/host_ui.h"
 
 namespace bd::engine {
 
@@ -28,9 +29,9 @@ const std::vector<AchievementRow> &RefreshAchievementList() {
   Achievements::Register();
   s_rows.clear();
 
-  auto *rt = rex::GetProcessRuntime();
+  auto *rt = bd::platform::Title();
   if (!rt) {
-    REXLOG_WARN(bd, "achv no runtime, achievement list is empty");
+    REXBD_WARN("achv no runtime, achievement list is empty");
     return s_rows;
   }
   auto &mgr = rt->GetAchievementManager();
@@ -56,7 +57,7 @@ const std::vector<AchievementRow> &RefreshAchievementList() {
                      return a.unlocked && a.unlockedAt > b.unlockedAt;
                    });
 
-  REXLOG_DEBUG(bd, "achv catalog refreshed: {} achievements", s_rows.size());
+  REXBD_DEBUG("achv catalog refreshed: {} achievements", s_rows.size());
   return s_rows;
 }
 

@@ -7,35 +7,33 @@
 #include <string>
 #include <string_view>
 
-#include <rex/string/utf8.h>
+#include <rex/string/text.h>
+#include <rex/xam/language.h>
 
 #include "platform/host_ui.h"
 
 namespace bd::platform {
 namespace {
 
-// The host reports no script subtag, so Traditional Chinese goes by region.
-u32 XLangFromLocale(const rex::ui::HostLocale &locale) {
-  const std::string_view lang(locale.language);
-  if (lang == "zh") {
-    const std::string_view country(locale.country);
-    return (country == "TW" || country == "HK" || country == "MO") ? 8 : 10;
-  }
-  if (lang == "pl")
-    return 11;
-  if (lang == "ru")
-    return 12;
-  return XLanguageFromCode(lang);
+// The engine's language set is the twelve ids BD ships, with Simplified Chinese
+// at 10 where the SDK uses 17. A locale mapping to any later language names
+// nothing the engine has, so the next preferred locale gets its turn.
+u32 EngineLanguageFor(const rex::ui::HostLocale &locale) {
+  const auto language = rex::xam::GetLanguageForLocale(locale);
+  if (language == rex::kernel::XLanguage::kSChinese)
+    return 10;
+  const u32 id = static_cast<u32>(language);
+  return id <= 12 ? id : 0;
 }
 
 } // namespace
 
 u32 DetectOsXLanguage() {
-  rex::ui::IUserInterface *ui = UI();
+  rex::ui::IUISystem *ui = UI();
   if (!ui)
     return 1;
   for (const rex::ui::HostLocale &locale : ui->GetPreferredLocales()) {
-    if (const u32 xlang = XLangFromLocale(locale))
+    if (const u32 xlang = EngineLanguageFor(locale))
       return xlang;
   }
   return 1;
@@ -44,7 +42,7 @@ u32 DetectOsXLanguage() {
 u32 XLanguageFromCode(std::string_view code) {
   // Codes follow BD's Language Set (bd_boot.ini): US JP DE FR ES IT KR TW CN
   // PO, with common ISO aliases also accepted. Values are XLanguage ids.
-  const std::string s = rex::utf8_lower_ascii(code.substr(0, 7));
+  const std::string s = rex::string::utf8_lower_ascii(code.substr(0, 7));
   if (s == "us" || s == "en")
     return 1;
   if (s == "jp" || s == "ja")

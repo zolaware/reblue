@@ -7,10 +7,8 @@
  */
 #include "core/app_root.h"
 
-#include <fstream>
-
 #include <rex/platform/file.h>
-#include <rex/platform/env.h>
+#include <rex/platform/process.h>
 
 #include "core/settings.h"
 
@@ -32,17 +30,6 @@ bool IsMacAppBundle() {
 std::filesystem::path g_app_root_override;
 
 } // namespace
-
-bool IsPackagedApplication() {
-#if !defined(_WIN32)
-  if (rex::platform::GetEnvironmentValue("APPIMAGE"))
-    return true;
-#if defined(__APPLE__)
-  return IsMacAppBundle();
-#endif
-#endif
-  return false;
-}
 
 std::filesystem::path UserConfigFolder() {
 #if !defined(_WIN32)
@@ -85,20 +72,6 @@ std::filesystem::path AppRootFolder() {
 #endif
 #endif
   return rex::platform::GetExecutableFolder();
-}
-
-bool DirectoryWritable(const std::filesystem::path &dir) {
-  std::error_code ec;
-  if (!std::filesystem::is_directory(dir, ec))
-    return false;
-  const auto probe = dir / ".reblue_write_probe";
-  {
-    std::ofstream out(probe, std::ios::trunc);
-    if (!out)
-      return false;
-  }
-  std::filesystem::remove(probe, ec);
-  return true;
 }
 
 } // namespace bd

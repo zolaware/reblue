@@ -21,6 +21,11 @@ bool DevmodeOn() { return bd::Settings::Get().Devmode(); }
 
 void ToggleDebugOverlay() { Game::Get().ToggleMindows(); }
 
+void ToggleOverlay() {
+  auto &settings = bd::Settings::Get();
+  settings.SetPerfOverlay(!settings.PerfOverlay());
+}
+
 void TogglePause() { CutscenePause::Get().Toggle(); }
 
 bool PauseAvailable() { return CutscenePause::Get().Available(); }
@@ -40,6 +45,7 @@ void RegisterDefault(Action action, ActionHandler handler,
 void PrepareDefaults() {
   static const bool once = [] {
     RegisterDefault(Action::Pause, TogglePause, PauseAvailable);
+    RegisterDefault(Action::Overlay, ToggleOverlay, nullptr);
     RegisterDefault(Action::Mindows, ToggleDebugOverlay, DevmodeOn);
     return true;
   }();

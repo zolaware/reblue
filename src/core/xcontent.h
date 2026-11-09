@@ -16,7 +16,7 @@
 #include <rex/types.h>
 
 namespace rex::filesystem {
-class Container;
+class IContainerImage;
 struct ContainerNode;
 }
 
@@ -24,13 +24,13 @@ namespace bd {
 
 inline constexpr u32 kBlueDragonTitleId = 0x4D5307DF;
 
-bool CopyEntry(const rex::filesystem::Container &container,
+bool CopyEntry(const rex::filesystem::IContainerImage &container,
                const rex::filesystem::ContainerNode &node,
                const std::filesystem::path &dest);
-std::string ReadEntry(const rex::filesystem::Container &container,
+std::string ReadEntry(const rex::filesystem::IContainerImage &container,
                       const rex::filesystem::ContainerNode &node);
 const rex::filesystem::ContainerNode *
-FindEntry(const rex::filesystem::Container &container,
+FindEntry(const rex::filesystem::IContainerImage &container,
           const rex::filesystem::ContainerNode &root, std::string_view path);
 bool IsDirectory(const rex::filesystem::ContainerNode &node);
 

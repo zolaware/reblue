@@ -55,7 +55,6 @@ Catalog g_markers;   // "#key" strings, kept so Text can return a reference
 Catalog g_fallbacks; // literal half of a borrow that did not resolve
 u32 g_localeId = kLocaleUS;
 GameTermResolver g_resolver;
-std::vector<std::function<void()>> g_callbacks;
 bool g_loaded = false;
 
 void Flatten(const toml::table &tbl, const std::string &prefix, Catalog &out) {
@@ -74,7 +73,7 @@ void MergeTOML(std::string_view text, std::string_view origin, Catalog &out) {
   try {
     Flatten(toml::parse(text), "", out);
   } catch (const toml::parse_error &e) {
-    REXLOG_WARN(bd, "i18n {} parse error: {}", origin, e.description());
+    REXBD_WARN("i18n {} parse error: {}", origin, e.description());
   }
 }
 
@@ -86,7 +85,7 @@ bool MergeFile(const std::filesystem::path &path, Catalog &out) {
     Flatten(toml::parse_file(path.string()), "", out);
     return true;
   } catch (const toml::parse_error &e) {
-    REXLOG_WARN(bd, "i18n {} parse error: {}", path.string(), e.description());
+    REXBD_WARN("i18n {} parse error: {}", path.string(), e.description());
     return false;
   }
 }
@@ -111,7 +110,7 @@ void Reload() {
 
   const auto delivered = vfs::VFS::Get().Content().Find("localization.toml");
   if (MergeFile(delivered, g_catalog)) {
-    REXLOG_INFO(bd, "i18n catalog from {}", delivered.string());
+    REXBD_INFO("i18n catalog from {}", delivered.string());
   } else {
     constexpr auto kCatalog = bd::Embedded("localization.toml");
     MergeTOML(kCatalog.text(), "localization.toml", g_catalog);
@@ -164,19 +163,15 @@ const std::string *Lookup(std::string_view key, std::string_view code) {
 } // namespace
 
 void SetLocale(u32 locale) {
-  std::vector<std::function<void()>> callbacks;
   {
     std::lock_guard lock(g_mutex);
     if (g_loaded && locale == g_localeId)
       return;
     g_localeId = locale;
     Reload();
-    callbacks = g_callbacks;
   }
-  REXLOG_INFO(bd, "i18n locale {} ({})", engine::Locale(locale).Code(),
+  REXBD_INFO("i18n locale {} ({})", engine::Locale(locale).Code(),
           engine::Locale(locale).Name());
-  for (auto &cb : callbacks)
-    cb();
 }
 
 void SyncLocale() {
@@ -200,11 +195,6 @@ void SyncLocale() {
 u32 CurrentLocale() {
   std::lock_guard lock(g_mutex);
   return g_localeId;
-}
-
-void OnLocaleChanged(std::function<void()> cb) {
-  std::lock_guard lock(g_mutex);
-  g_callbacks.push_back(std::move(cb));
 }
 
 void SetGameTermResolver(GameTermResolver resolver) {
@@ -240,7 +230,7 @@ const std::string &Text(std::string_view key) {
 
   const bool first = !g_markers.contains(key);
   if (first)
-    REXLOG_WARN(bd, "i18n missing key: {}", key);
+    REXBD_WARN("i18n missing key: {}", key);
   return KeyMarker(key);
 }
 

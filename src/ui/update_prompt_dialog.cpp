@@ -12,7 +12,7 @@
 #include <imgui.h>
 
 #include "core/i18n.h"
-#include <rex/ui/color.h>
+#include <rex/ui/style.h>
 #include "ui/theme.h"
 #include "platform/platform.h"
 
@@ -40,7 +40,7 @@ const char *ErrorKey(Updates::ApplyResult result) {
 UpdatePromptDialog::UpdatePromptDialog(UpdatePromptContext ctx)
     : ctx_(std::move(ctx)) {}
 
-void UpdatePromptDialog::OnDraw(ImGuiIO &) {
+bool UpdatePromptDialog::Draw(ImGuiIO &) {
   const ImGuiViewport *vp = ImGui::GetMainViewport();
   ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_Always,
                           ImVec2(0.5f, 0.5f));
@@ -51,7 +51,7 @@ void UpdatePromptDialog::OnDraw(ImGuiIO &) {
                     ImGuiWindowFlags_NoCollapse |
                         ImGuiWindowFlags_AlwaysAutoResize)) {
     ImGui::End();
-    return;
+    return true;
   }
   ImGui::SetWindowFontScale(1.35f);
 
@@ -71,7 +71,7 @@ void UpdatePromptDialog::OnDraw(ImGuiIO &) {
     ImGui::Text("%s / %s", i18n::Bytes(done).c_str(),
                 i18n::Bytes(total).c_str());
     ImGui::End();
-    return;
+    return true;
   }
 
   if (stage == Updates::ApplyStage::kDone) {
@@ -82,7 +82,7 @@ void UpdatePromptDialog::OnDraw(ImGuiIO &) {
       ImGui::End();
       // The swap runs at startup, so the restart is what applies it.
       bd::platform::RequestWarmReboot();
-      return;
+      return true;
     }
     ImGui::PushStyleColor(ImGuiCol_Text, rex::ui::ToImVec4(Theme::kError));
     ImGui::TextWrapped("%s", T(ErrorKey(result)));
@@ -92,10 +92,12 @@ void UpdatePromptDialog::OnDraw(ImGuiIO &) {
     ImGui::Spacing();
     if (ImGui::Button(T("update.close"),
                       ImVec2(bd::platform::UI()->GetStyle().metrics.button_width,
-                             0)))
-      Close();
+                             0))) {
+      ImGui::End();
+      return false;
+    }
     ImGui::End();
-    return;
+    return true;
   }
 
   ImGui::TextWrapped(
@@ -109,9 +111,12 @@ void UpdatePromptDialog::OnDraw(ImGuiIO &) {
     updates.BeginApply();
   }
   ImGui::SameLine();
-  if (ImGui::Button(T("update.decline"), ImVec2(140, 0)))
-    Close();
+  if (ImGui::Button(T("update.decline"), ImVec2(140, 0))) {
+    ImGui::End();
+    return false;
+  }
   ImGui::End();
+  return true;
 }
 
 } // namespace bd::ui

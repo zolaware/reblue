@@ -11,8 +11,8 @@
 #include <utility>
 
 #include <imgui.h>
+#include <rex/ui/style.h>
 
-#include <rex/ui/title_app.h>
 
 #include "core/build_info.h"
 #include "core/i18n.h"
@@ -39,12 +39,12 @@ void UpgradePrompt::Answer(bool accepted) {
   if (answered_)
     return;
   answered_ = true;
-  // Deferred so OnDraw returns before the owner deletes this in the callback.
+  // Deferred so Draw returns before the owner deletes this in the callback.
   auto cb = on_done_;
-  rex::ui::InvokeFunction([cb, accepted] { cb(accepted); });
+  bd::platform::UI()->PostTask([cb, accepted] { cb(accepted); });
 }
 
-void UpgradePrompt::OnDraw(ImGuiIO &) {
+bool UpgradePrompt::Draw(ImGuiIO &) {
   const ImGuiViewport *vp = ImGui::GetMainViewport();
   ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_Always,
                           ImVec2(0.5f, 0.5f));
@@ -53,7 +53,7 @@ void UpgradePrompt::OnDraw(ImGuiIO &) {
                     ImGuiWindowFlags_NoCollapse |
                         ImGuiWindowFlags_AlwaysAutoResize)) {
     ImGui::End();
-    return;
+    return true;
   }
   ImGui::SetWindowFontScale(1.35f);
 
@@ -80,6 +80,7 @@ void UpgradePrompt::OnDraw(ImGuiIO &) {
     Answer(false);
   ImGui::EndDisabled();
   ImGui::End();
+  return true;
 }
 
 } // namespace bd::installer

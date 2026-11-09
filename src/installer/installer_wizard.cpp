@@ -8,11 +8,9 @@
 #include "installer/installer_wizard.h"
 
 #include <imgui.h>
-#include <rex/color.h>
+#include <imgui_internal.h>
 #include <rex/platform/file.h>
-#include <rex/ui/color.h>
 #include <rex/ui/style.h>
-#include <rex/ui/title_app.h>
 #include <stb_image.h>
 
 #include <algorithm>
@@ -34,8 +32,8 @@
 
 namespace bd::installer {
 namespace {
-constexpr rex::Color kDim = rex::Color::FromRGBA(0.32f, 0.34f, 0.40f);
-constexpr rex::Color kPanelFill = rex::Color::FromRGBA(0.049f, 0.039f, 0.122f, 0.86f);
+constexpr rex::ui::Color kDim = rex::ui::Color::FromRGBA(0.32f, 0.34f, 0.40f);
+constexpr rex::ui::Color kPanelFill = rex::ui::Color::FromRGBA(0.049f, 0.039f, 0.122f, 0.86f);
 
 const rex::ui::Style &UIStyle() { return bd::platform::UI()->GetStyle(); }
 
@@ -96,16 +94,15 @@ void InitInstallerFonts(ImFontAtlas *atlas) {
   g_title_font = load(40.0f);
   g_path_font = load(13.0f);
   if (!g_body_font) {
-    REXLOG_WARN(bd, 
+    REXBD_WARN(
         "Failed to load installer body font, wizard will use drawer default");
   }
 }
 
 InstallerWizard::InstallerWizard(
-    rex::gpu::IOverlayDrawer *immediate_drawer,
     const std::filesystem::path &default_install_dir, bool repair,
     const InstallConfig *existing, CompletionCallback on_done)
-    : immediate_drawer_(immediate_drawer), on_done_(std::move(on_done)),
+    : on_done_(std::move(on_done)),
       repair_(repair), install_dir_(default_install_dir) {
   // No engine yet, so this resolves to the bd_language cvar or the OS language.
   i18n::SyncLocale();
@@ -118,14 +115,16 @@ InstallerWizard::InstallerWizard(
     connector_ = existing->connector;
   }
   picked_dir_ = install_dir_;
-  portable_allowed_ = !repair_ && !bd::IsPackagedApplication() &&
-                      bd::DirectoryWritable(
+  portable_allowed_ = !repair_ && !rex::platform::IsPackagedApp() &&
+                      rex::platform::IsDirectoryWritable(
                           rex::platform::GetExecutableFolder());
 
   InitDLCCatalog();
 }
 
 InstallerWizard::~InstallerWizard() {
+  if (background_texture_)
+    ImGui::UnregisterUserTexture(background_texture_.get());
   if (install_thread_.joinable()) {
     progress_.canceled.store(true);
     install_thread_.join();
@@ -145,11 +144,11 @@ void InstallerWizard::Finish(bool completed) {
   for (int i = 0; i < kDiscCount; ++i)
     cfg.iso_fingerprints[i] = discs_[i].fingerprint;
 
-  REXLOG_INFO(bd, "InstallerWizard: finished, completed={}", completed);
+  REXBD_INFO("InstallerWizard: finished, completed={}", completed);
 
   auto cb = on_done_;
   const WizardChoices choices = choices_;
-  rex::ui::InvokeFunction(
+  bd::platform::UI()->PostTask(
       [cb, completed, cfg, choices]() { cb(completed, cfg, choices); });
 }
 
@@ -267,7 +266,7 @@ void InstallerWizard::PickSource() {
 
 void InstallerWizard::PickInstallDir() {
   auto picked = bd::platform::UI()->ShowFileDialog(
-      {.mode = rex::ui::FileDialogDesc::Mode::kOpenFolder,
+      {.mode = rex::ui::FileDialogConfig::Mode::kOpenFolder,
        .title = i18n::Text("installer.dialog.select_folder")});
   if (!picked || picked->empty())
     return;
@@ -312,14 +311,14 @@ void InstallerWizard::StartInstall() {
   const auto abs_install = std::filesystem::absolute(install_dir_);
   const auto abs_game = abs_install / "game";
   const auto abs_user = abs_install / "user";
-  REXLOG_INFO(bd, "InstallerWizard: install root -> '{}'", abs_install.string());
-  REXLOG_INFO(bd, "InstallerWizard:   game data  -> '{}'", abs_game.string());
-  REXLOG_INFO(bd, "InstallerWizard:   user data  -> '{}'", abs_user.string());
+  REXBD_INFO("InstallerWizard: install root -> '{}'", abs_install.string());
+  REXBD_INFO("InstallerWizard:   game data  -> '{}'", abs_game.string());
+  REXBD_INFO("InstallerWizard:   user data  -> '{}'", abs_user.string());
 
   std::error_code ec;
   std::filesystem::create_directories(abs_user / "dlc", ec);
   if (ec) {
-    REXLOG_WARN(bd, "InstallerWizard: could not create user/dlc dir '{}': {}",
+    REXBD_WARN("InstallerWizard: could not create user/dlc dir '{}': {}",
             (abs_user / "dlc").string(), ec.message());
   }
 
@@ -330,7 +329,7 @@ void InstallerWizard::StartInstall() {
     install_thread_ = Installer::RunAsync(sources, abs_game, repair_,
                                           BuildSelection(), progress_);
   } catch (const std::system_error &e) {
-    REXLOG_ERROR(bd, "Installer::RunAsync failed to spawn worker: {}", e.what());
+    REXBD_ERROR("Installer::RunAsync failed to spawn worker: {}", e.what());
     progress_.SetError(i18n::Fmt("installer.error.spawn", e.what()));
     progress_.failed.store(true);
     progress_.complete.store(true);
@@ -350,27 +349,25 @@ void InstallerWizard::StartIndexRebuild() {
       });
 }
 
-void InstallerWizard::OnDraw(ImGuiIO &) {
-  if (!background_texture_ && !background_tried_ && immediate_drawer_) {
+bool InstallerWizard::Draw(ImGuiIO &) {
+  if (!background_texture_ && !background_tried_) {
     int w = 0, h = 0, channels = 0;
     constexpr auto kLogo = bd::Embedded("installer/installer.png");
     u8 *rgba = stbi_load_from_memory(kLogo.data,
                                      static_cast<int>(kLogo.size), &w,
                                      &h, &channels, /*req_comp=*/4);
     if (!rgba) {
-      REXLOG_ERROR(bd, "InstallerWizard: stbi_load_from_memory failed: {}",
+      REXBD_ERROR("InstallerWizard: stbi_load_from_memory failed: {}",
                stbi_failure_reason());
       background_tried_ = true;
     } else {
-      auto texture = immediate_drawer_->CreateTexture(
-          static_cast<u32>(w), static_cast<u32>(h),
-          rex::gpu::OverlayTextureFilter::kLinear, /*repeat=*/false,
-          std::span<const u8>(rgba, static_cast<size_t>(w) * h * 4));
+      background_texture_ = std::make_unique<ImTextureData>();
+      background_texture_->Create(ImTextureFormat_RGBA32, w, h);
+      std::memcpy(background_texture_->GetPixels(), rgba,
+                  static_cast<size_t>(w) * h * 4);
       stbi_image_free(rgba);
-      if (texture) {
-        background_texture_ = std::move(*texture);
-        background_tried_ = true;
-      }
+      ImGui::RegisterUserTexture(background_texture_.get());
+      background_tried_ = true;
     }
   }
 
@@ -386,8 +383,8 @@ void InstallerWizard::OnDraw(ImGuiIO &) {
     if (background_texture_) {
       ImVec2 p0 = vp->WorkPos;
       ImVec2 p1 = ImVec2(p0.x + vp->WorkSize.x, p0.y + vp->WorkSize.y);
-      ImGui::GetWindowDrawList()->AddImage(
-          reinterpret_cast<ImTextureID>(background_texture_.get()), p0, p1);
+      ImGui::GetWindowDrawList()->AddImage(background_texture_->GetTexRef(),
+                                           p0, p1);
     }
 
     // Dark panel keeps controls readable over the background image. Wide
@@ -440,6 +437,7 @@ void InstallerWizard::OnDraw(ImGuiIO &) {
     ImGui::PopStyleColor();
   }
   ImGui::End();
+  return true;
 }
 
 namespace {
@@ -497,7 +495,7 @@ void DirectoryRow(const char *heading, const char *sublabel,
   ImGui::AlignTextToFramePadding();
   ImGui::TextUnformatted(heading);
   ImGui::SameLine();
-  ImGui::PushStyleColor(ImGuiCol_Text, rex::ui::ToImVec4(rex::colors::kWhite.WithAlpha(0.55f)));
+  ImGui::PushStyleColor(ImGuiCol_Text, rex::ui::ToImVec4(rex::ui::colors::kWhite.WithAlpha(0.55f)));
   ImGui::TextUnformatted(sublabel);
   ImGui::PopStyleColor();
   ImGui::SameLine();
@@ -596,7 +594,7 @@ void InstallerWizard::DrawContent() {
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted(T("installer.install_location"));
     ImGui::SameLine();
-    ImGui::PushStyleColor(ImGuiCol_Text, rex::ui::ToImVec4(rex::colors::kWhite.WithAlpha(0.55f)));
+    ImGui::PushStyleColor(ImGuiCol_Text, rex::ui::ToImVec4(rex::ui::colors::kWhite.WithAlpha(0.55f)));
     ImGui::TextUnformatted(
         T(repair_ ? "installer.hint.existing" : "installer.hint.portable"));
     ImGui::PopStyleColor();
@@ -745,8 +743,8 @@ void InstallerWizard::DrawInstallMode() {
   ImGui::EndDisabled();
   if (!portable_allowed_) {
     ImGui::SameLine();
-    ImGui::PushStyleColor(ImGuiCol_Text, rex::ui::ToImVec4(rex::colors::kWhite.WithAlpha(0.55f)));
-    ImGui::TextUnformatted(T(bd::IsPackagedApplication()
+    ImGui::PushStyleColor(ImGuiCol_Text, rex::ui::ToImVec4(rex::ui::colors::kWhite.WithAlpha(0.55f)));
+    ImGui::TextUnformatted(T(rex::platform::IsPackagedApp()
                                  ? "installer.hint.portable_packaged"
                                  : "installer.hint.portable_readonly"));
     ImGui::PopStyleColor();

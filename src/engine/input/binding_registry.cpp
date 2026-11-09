@@ -6,10 +6,8 @@
 #include <string_view>
 #include <vector>
 
-#include <rex/cvar.h>
-#include <rex/hid/input_source.h>
-#include <rex/hid/virtual_key.h>
-#include <rex/string.h>
+#include <rex/input_keys.h>
+#include <rex/string/text.h>
 
 #include "core/cvar_table.h"
 #include "core/logging.h"
@@ -67,21 +65,21 @@ bool AnyStoredKeys() {
 }
 
 bool MouseSource(const Source &source) {
-  if (source.kind == SourceKind::kMouseWheel)
+  if (source.type == SourceKind::kMouseWheel)
     return true;
-  if (source.kind != SourceKind::kKey)
+  if (source.type != SourceKind::kKey)
     return false;
-  const auto vk = static_cast<rex::hid::VirtualKey>(source.code);
-  return vk == rex::hid::VirtualKey::kLButton ||
-         vk == rex::hid::VirtualKey::kRButton ||
-         vk == rex::hid::VirtualKey::kMButton ||
-         vk == rex::hid::VirtualKey::kXButton1 ||
-         vk == rex::hid::VirtualKey::kXButton2;
+  const auto vk = static_cast<rex::VirtualKey>(source.code);
+  return vk == rex::VirtualKey::kLButton ||
+         vk == rex::VirtualKey::kRButton ||
+         vk == rex::VirtualKey::kMButton ||
+         vk == rex::VirtualKey::kXButton1 ||
+         vk == rex::VirtualKey::kXButton2;
 }
 
 int DefaultPadButton(std::span<const Source> sources) {
   for (const Source &source : sources) {
-    if (source.kind == SourceKind::kPadButton)
+    if (source.type == SourceKind::kPadButton)
       return static_cast<int>(source.code);
   }
   return -1;
@@ -93,16 +91,16 @@ std::string CvarName(Action action) {
   return std::string("bind.") + Describe(action).name;
 }
 
-rex::hid::PadAxes ToPadAxes(AxisPair axis) {
+rex::PadAxes ToPadAxes(AxisPair axis) {
   switch (axis) {
   case AxisPair::Left:
-    return rex::hid::PadAxes::kLeft;
+    return rex::PadAxes::kLeft;
   case AxisPair::Right:
-    return rex::hid::PadAxes::kRight;
+    return rex::PadAxes::kRight;
   case AxisPair::None:
     break;
   }
-  return rex::hid::PadAxes::kNone;
+  return rex::PadAxes::kNone;
 }
 
 // A plain list from a retired cvar, with the same folding of repeats the set
@@ -113,20 +111,20 @@ std::vector<Source> ParseOldList(Action action, std::string_view value) {
   while (pos <= value.size()) {
     const size_t comma = value.find(',', pos);
     const bool last = comma == std::string_view::npos;
-    const std::string_view token = rex::Trim(
+    const std::string_view token = rex::string::Trim(
         value.substr(pos, last ? std::string_view::npos : comma - pos));
     pos = last ? value.size() + 1 : comma + 1;
     if (token.empty() || token == kRetiredMouseLook)
       continue;
-    const auto parsed = rex::hid::ParseInputSource(token);
+    const auto parsed = bd::platform::HID().ParseInputSource(token);
     if (!parsed) {
-      REXLOG_WARN(bd, "[input] {} bind token '{}' failed to parse",
+      REXBD_WARN("[input] {} bind token '{}' failed to parse",
                   ToString(action), token);
       continue;
     }
     const bool repeat =
         std::any_of(out.begin(), out.end(), [&](const Source &have) {
-          return rex::hid::IsSameInput(have, *parsed);
+          return rex::IsSameInput(have, *parsed);
         });
     if (!repeat)
       out.push_back(*parsed);
@@ -148,7 +146,7 @@ bool AxisKeys(AxisPair pair, std::string &out) {
   for (const int button : kAxisKeyButtons[which]) {
     const std::string value = OldKeys(button);
     const std::string_view token =
-        rex::Trim(std::string_view(value).substr(0, value.find(',')));
+        rex::string::Trim(std::string_view(value).substr(0, value.find(',')));
     if (token.empty())
       return false;
     stored = stored || StoredKeys(button);
@@ -166,7 +164,7 @@ Bindings &Bindings::Get() {
   return instance;
 }
 
-void Bindings::Init() {
+void Bindings::Init(rex::hid::IInputSystem &input) {
   for (int i = 0; i < kActionCount; ++i) {
     const ActionDesc &desc = Describe(static_cast<Action>(i));
     descriptions_[i] =
@@ -177,15 +175,21 @@ void Bindings::Init() {
                  .group = static_cast<u32>(desc.context),
                  .axes = ToPadAxes(desc.axis)};
   }
-  set_ = std::make_unique<rex::hid::BindingSet>(descs_);
+  set_ = input.CreateBindingSet(descs_, "bind");
 }
 
-void Bindings::Register(rex::cvar::ICvarRegistry &registry) {
-  if (auto added = set_->Register(registry); !added)
-    REXLOG_WARN(bd, "input binds not registered: {}", added.error().message);
+void Bindings::Register() {
+  if (auto added = set_->Register(rex::GetSettingsRegistry()); !added)
+    REXBD_WARN("input binds not registered: {}", added.error().message);
 }
 
-void Bindings::Unregister() { set_->Unregister(); }
+void Bindings::Unregister() {
+  if (!set_)
+    return;
+  set_->Unregister();
+  // The set must not outlive the input system, and this singleton does.
+  set_.reset();
+}
 
 void Bindings::Migrate() {
   if (migrated_)
@@ -201,7 +205,7 @@ void Bindings::Migrate() {
   int type = 0;
   bool haveType = CvarIsSet(kControlTypeCvar);
   if (haveType) {
-    type = REXCVAR_GET(bd::cvars::opt_ctl_normal_type);
+    type = bd::cvars::Get().opt_ctl_normal_type.Get();
     haveType = type > 0 && type < ButtonMap::kControlTypes;
   }
   const bool haveKeys = AnyStoredKeys();
@@ -238,9 +242,9 @@ void Bindings::Migrate() {
       if (!AxisKeys(desc.axis, value))
         continue;
       for (const Source &source : set_->GetSources(i)) {
-        if (source.kind != SourceKind::kPadAxes)
+        if (source.type != SourceKind::kPadAxes)
           continue;
-        const std::string token = rex::hid::InputSourceToString(source);
+        const std::string token = bd::platform::HID().InputSourceToString(source);
         if (!token.empty())
           value += "," + token;
       }
@@ -255,9 +259,9 @@ void Bindings::Migrate() {
         continue;
 
       for (const Source &source : ParseOldList(action, OldKeys(chosen))) {
-        if (source.kind != SourceKind::kKey || MouseSource(source))
+        if (source.type != SourceKind::kKey || MouseSource(source))
           continue;
-        const std::string token = rex::hid::InputSourceToString(source);
+        const std::string token = bd::platform::HID().InputSourceToString(source);
         if (token.empty())
           continue;
         if (!value.empty())
@@ -265,12 +269,12 @@ void Bindings::Migrate() {
         value += token;
       }
       for (const Source &source : set_->GetSources(i)) {
-        if (source.kind == SourceKind::kKey && !MouseSource(source))
+        if (source.type == SourceKind::kKey && !MouseSource(source))
           continue;
         Source moved = source;
-        if (source.kind == SourceKind::kPadButton && int(source.code) == stock)
+        if (source.type == SourceKind::kPadButton && int(source.code) == stock)
           moved.code = static_cast<u16>(chosen);
-        const std::string token = rex::hid::InputSourceToString(moved);
+        const std::string token = bd::platform::HID().InputSourceToString(moved);
         if (token.empty())
           continue;
         if (!value.empty())
@@ -288,10 +292,12 @@ void Bindings::Migrate() {
   const std::string from =
       haveType ? "controller type " + std::to_string(type) + " and its keys"
                : "the keys it had bound";
-  REXLOG_INFO(bd, "input profile migrated: {} binds seeded from {}", seeded, from);
+  REXBD_INFO("input profile migrated: {} binds seeded from {}", seeded, from);
 }
 
 std::span<const Source> Bindings::Sources(Action action) const {
+  if (!set_)
+    return {};
   const int i = static_cast<int>(action);
   return set_->GetSources((i < 0 || i >= kActionCount) ? 0 : size_t(i));
 }
@@ -307,12 +313,6 @@ bool Bindings::SetSource(Action action, int slot, const Source &source) {
 
 bool Bindings::SetSources(Action action, std::span<const Source> sources) {
   const bool ok = set_->SetSources(static_cast<size_t>(action), sources);
-  ReportParseErrors();
-  return ok;
-}
-
-bool Bindings::ClearSources(Action action) {
-  const bool ok = set_->Clear(static_cast<size_t>(action));
   ReportParseErrors();
   return ok;
 }
@@ -342,7 +342,7 @@ void Bindings::ReportParseErrors() {
   for (const std::string &msg : set_->TakeParseErrors()) {
     if (msg.find(kRetiredMouseLook) != std::string::npos)
       continue;
-    REXLOG_WARN(bd, "[input] {}", msg);
+    REXBD_WARN("[input] {}", msg);
   }
 }
 

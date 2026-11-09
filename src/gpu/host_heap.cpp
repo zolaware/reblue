@@ -10,12 +10,11 @@
 #include <memory>
 #include <mutex>
 
-#include <o1heap.h>
-#include <rex/dbg.h>
+#include <rex/platform/perf.h>
 #include <rex/memory.h>
-#include <rex/runtime.h>
-#include <rex/runtime/guest_allocator.h>
-#include <rex/runtime/xmemory.h>
+#include <rex/kernel/guest_allocator.h>
+#include <rex/kernel/guest_memory.h>
+#include <rex/kernel/heap.h>
 
 #include "core/logging.h"
 #include "core/memory_helpers.h"
@@ -55,7 +54,7 @@ constexpr u32 kPageSize64K = 64u * 1024u;
 
 struct HeapState {
   std::mutex mutex;
-  std::unique_ptr<rex::runtime::GuestAllocator> allocator;
+  std::unique_ptr<rex::kernel::GuestAllocator> allocator;
   u64 live_count = 0;
   bool oom_logged = false;
 };
@@ -68,7 +67,7 @@ HeapState &state() {
 #if defined(REXGLUE_ENABLE_PROFILING)
 // Caller holds state().mutex.
 void EmitPlotsLocked(const HeapState &s) {
-  const auto d = s.allocator->GetDiagnostics();
+  const auto d = s.allocator->GetStats();
   BD_MEM_PLOT("HostHeap Live Bytes", d.allocated);
   BD_MEM_PLOT("HostHeap Peak Bytes", d.peak_allocated);
   BD_MEM_PLOT("HostHeap Live Allocs", s.live_count);
@@ -91,18 +90,18 @@ bool HostHeap::Init() {
   if (s.allocator)
     return true;
 
-  auto *memory = bd::mem::memory();
+  rex::kernel::GuestMemory *memory = bd::mem::memory();
   if (!memory) {
-    REXLOG_ERROR(bd, "HostHeap::Init: no Memory instance");
+    REXBD_ERROR("HostHeap::Init: no title memory");
     return false;
   }
 
   // The physical 64K heap is vA0000000 with host_address_offset 0.
-  auto allocator = rex::runtime::GuestAllocator::Create(
+  auto allocator = rex::kernel::GuestAllocator::Create(
       *memory, kHeapSize, kPageSize64K, /*physical=*/true, kPageSize64K, 0,
-      rex::runtime::GuestPool::kHeap);
+      rex::kernel::GuestPool::kTitle);
   if (!allocator) {
-    REXLOG_ERROR(bd, "HostHeap::Init: failed to reserve {} bytes in vA0000000: {}",
+    REXBD_ERROR("HostHeap::Init: failed to reserve {} bytes in vA0000000: {}",
                  kHeapSize, allocator.error().GetDescription());
     return false;
   }
@@ -129,8 +128,10 @@ void HostHeap::Shutdown() {
   if (!s.allocator)
     return;
   if (s.live_count)
-    REXLOG_DEBUG(bd, "HostHeap::Shutdown: releasing {} live blocks", s.live_count);
-  s.allocator.reset();
+    REXBD_DEBUG("HostHeap::Shutdown: dropping {} live blocks", s.live_count);
+  // The title memory, this block included, is gone by OnShutdown, so the
+  // allocator is dropped rather than released.
+  (void)s.allocator.release();
   s.live_count = 0;
   s.oom_logged = false;
 }
@@ -140,28 +141,30 @@ void *HostHeap::Alloc(std::size_t size, std::size_t alignment) {
   HeapState &s = state();
   std::lock_guard<std::mutex> lock(s.mutex);
   if (!s.allocator) {
-    REXLOG_ERROR(bd, "HostHeap::Alloc before Init or after Shutdown");
+    REXBD_ERROR("HostHeap::Alloc before Init or after Shutdown");
     return nullptr;
   }
   if (size == 0)
     size = 1;
   if (size > kHeapSize) {
-    REXLOG_ERROR(bd, "HostHeap::Alloc size {} exceeds the heap", size);
+    REXBD_ERROR("HostHeap::Alloc size {} exceeds the heap", size);
     return nullptr;
   }
-  // o1heap only guarantees O1HEAP_ALIGNMENT (16), so reject larger to avoid
-  // silent under-alignment.
-  if (alignment > O1HEAP_ALIGNMENT) {
-    REXLOG_ERROR(bd, "HostHeap::Alloc alignment {} > {} unsupported", alignment,
-             static_cast<std::size_t>(O1HEAP_ALIGNMENT));
+  // The allocator only guarantees kBlockAlignment (16), so reject larger to
+  // avoid silent under-alignment.
+  constexpr std::size_t kMaxAlignment =
+      rex::kernel::GuestAllocator::kBlockAlignment;
+  if (alignment > kMaxAlignment) {
+    REXBD_ERROR("HostHeap::Alloc alignment {} > {} unsupported", alignment,
+             kMaxAlignment);
     return nullptr;
   }
 
   void *p = s.allocator->Allocate(static_cast<u32>(size));
   if (!p) {
     if (!s.oom_logged) {
-      const auto d = s.allocator->GetDiagnostics();
-      REXLOG_ERROR(bd, "HostHeap OOM: req {} allocated {}/{} peak {} (raise "
+      const auto d = s.allocator->GetStats();
+      REXBD_ERROR("HostHeap OOM: req {} allocated {}/{} peak {} (raise "
                "kHeapSize)",
                size, d.allocated, d.capacity, d.peak_allocated);
       s.oom_logged = true;
@@ -203,22 +206,6 @@ void HostHeap::FreeGuest(u32 guest_va) {
     return;
   void *host = bd::mem::view()->TranslateVirtual<void *>(guest_va);
   Free(host);
-}
-
-HostHeap::Snapshot HostHeap::GetSnapshot() {
-  HeapState &s = state();
-  std::lock_guard<std::mutex> lock(s.mutex);
-  Snapshot out{};
-  out.ready = s.allocator != nullptr;
-  out.live_count = s.live_count;
-  if (s.allocator) {
-    const auto d = s.allocator->GetDiagnostics();
-    out.capacity = d.capacity;
-    out.allocated = d.allocated;
-    out.peak_allocated = d.peak_allocated;
-    out.oom_count = d.oom_count;
-  }
-  return out;
 }
 
 } // namespace bd::gpu

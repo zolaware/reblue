@@ -9,7 +9,7 @@
  */
 #pragma once
 
-#include <rex/color.h>
+#include <rex/ui/style.h>
 #include <rex/types.h>
 
 #include "engine/d2anime/anime_layout.h"
@@ -41,17 +41,17 @@ constexpr float kMarkerZStep = 0.0001f;
 constexpr float kMarkerZFloor = kPlayerZ + 0.01f;
 constexpr float kSqrtHalf = 0.70710678f; // cos and sin of the turned quad
 
-constexpr rex::Color kDotItem = rex::Color::FromARGB8(0xFFFFD24Au);
-constexpr rex::Color kDotGold = rex::Color::FromARGB8(0xFFFFA02Au);
-constexpr rex::Color kDotMedal = rex::Color::FromARGB8(0xFF6FE0FFu);
-constexpr rex::Color kDotParam = rex::Color::FromARGB8(0xFF7CE07Cu);
-constexpr rex::Color kDotHeal = rex::Color::FromARGB8(0xFFFF8CC0u);
-constexpr rex::Color kDotGrass = rex::Color::FromARGB8(0xFF9CD86Cu);
-constexpr rex::Color kDotPlain = rex::Color::FromARGB8(0xFFB0B0B0u);
-constexpr rex::Color kChestLid = rex::Color::FromARGB8(0xFFD8B44Au);
-constexpr rex::Color kDotBarrier = rex::Color::FromARGB8(0xFFC08CFFu);
+constexpr rex::ui::Color kDotItem = rex::ui::Color::FromARGB8(0xFFFFD24Au);
+constexpr rex::ui::Color kDotGold = rex::ui::Color::FromARGB8(0xFFFFA02Au);
+constexpr rex::ui::Color kDotMedal = rex::ui::Color::FromARGB8(0xFF6FE0FFu);
+constexpr rex::ui::Color kDotParam = rex::ui::Color::FromARGB8(0xFF7CE07Cu);
+constexpr rex::ui::Color kDotHeal = rex::ui::Color::FromARGB8(0xFFFF8CC0u);
+constexpr rex::ui::Color kDotGrass = rex::ui::Color::FromARGB8(0xFF9CD86Cu);
+constexpr rex::ui::Color kDotPlain = rex::ui::Color::FromARGB8(0xFFB0B0B0u);
+constexpr rex::ui::Color kChestLid = rex::ui::Color::FromARGB8(0xFFD8B44Au);
+constexpr rex::ui::Color kDotBarrier = rex::ui::Color::FromARGB8(0xFFC08CFFu);
 
-constexpr rex::Color kOpaqueWhite = rex::colors::kWhite;
+constexpr rex::ui::Color kOpaqueWhite = rex::ui::colors::kWhite;
 
 constexpr float kDegToRad = 0.017453292f;
 constexpr float kHalfPi = 1.5707964f;
@@ -71,7 +71,7 @@ extern IconSheet *const kIconSheets[2];
 constexpr float kMarkerHalf = 8.0f;        // 16x16 on the map
 constexpr float kLegendMarkerHalf = 10.5f; // ~21x21 in the legend
 
-rex::Color DotColor(GimmickKind kind);
+rex::ui::Color DotColor(GimmickKind kind);
 
 // A run of quads at descending z, drawn through the engine's own 2D prim path.
 // Caller must have bound the sheet with PrimSelectTexture.

@@ -12,25 +12,25 @@
 namespace bd::platform {
 namespace {
 
-std::atomic<rex::hid::IHIDBackend *> g_hid{nullptr};
+std::atomic<rex::hid::IInputSystem *> g_hid{nullptr};
 std::atomic<bool> g_game_cursor{false};
 std::atomic<bool> g_look{false};
 
 void ApplyPointerMode() {
-  rex::hid::PointerMode mode = rex::hid::PointerMode::kFree;
+  rex::PointerMode mode = rex::PointerMode::kFree;
   if (g_look.load(std::memory_order_relaxed))
-    mode = rex::hid::PointerMode::kLocked;
+    mode = rex::PointerMode::kLocked;
   else if (g_game_cursor.load(std::memory_order_relaxed))
-    mode = rex::hid::PointerMode::kHidden;
+    mode = rex::PointerMode::kHidden;
   HID().SetPointerMode(mode);
 }
 
 } // namespace
 
-rex::hid::IHIDBackend &HID() { return *g_hid.load(std::memory_order_acquire); }
+rex::hid::IInputSystem &HID() { return *g_hid.load(std::memory_order_acquire); }
 
-void SetHID(rex::hid::IHIDBackend *backend) {
-  g_hid.store(backend, std::memory_order_release);
+void SetInput(rex::hid::IInputSystem *input) {
+  g_hid.store(input, std::memory_order_release);
 }
 
 void SetGameCursorActive(bool active) {
@@ -41,21 +41,6 @@ void SetGameCursorActive(bool active) {
 void SetLookActive(bool active) {
   if (g_look.exchange(active, std::memory_order_relaxed) != active)
     ApplyPointerMode();
-}
-
-rex::hid::MouseButton ToHIDButton(rex::ui::MouseEvent::Button button) {
-  switch (button) {
-  case rex::ui::MouseEvent::Button::kRight:
-    return rex::hid::MouseButton::kRight;
-  case rex::ui::MouseEvent::Button::kMiddle:
-    return rex::hid::MouseButton::kMiddle;
-  case rex::ui::MouseEvent::Button::kX1:
-    return rex::hid::MouseButton::kX1;
-  case rex::ui::MouseEvent::Button::kX2:
-    return rex::hid::MouseButton::kX2;
-  default:
-    return rex::hid::MouseButton::kLeft;
-  }
 }
 
 } // namespace bd::platform

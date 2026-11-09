@@ -12,7 +12,7 @@
 
 #include <cstddef>
 
-#include <rex/runtime/xcontent_data.h>
+#include <rex/kernel/types/content.h>
 #include <rex/types.h>
 
 namespace bd::engine {
@@ -70,7 +70,7 @@ struct ContentTask {
   /* 0x000C0 */ u8 _pad000C0[0xDC - 0xC0];
   /* 0x000DC */ be_u32 DeviceId; // device the enumerator used
   /* 0x000E0 */ u8 _pad000E0[0x118 - 0xE0];
-  /* 0x00118 */ rex::runtime::XCONTENT_DATA entries[30];
+  /* 0x00118 */ rex::kernel::XCONTENT_DATA entries[30];
   /* 0x02530 */ be_u32 Count;
   /* 0x02534 */ u8 _pad02534[0x04];
   /* 0x02538 */ SaveBlock_t readBlock;

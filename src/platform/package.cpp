@@ -23,7 +23,7 @@ Package::Result Package::FetchVerified(const std::string &url,
   if (!parent.empty()) {
     fs::create_directories(parent, ec);
     if (ec) {
-      REXLOG_ERROR(bd, "package cannot create {}: {}", parent.string(), ec.message());
+      REXBD_ERROR("package cannot create {}: {}", parent.string(), ec.message());
       return Result::kDownloadFailed;
     }
   }
@@ -35,18 +35,18 @@ Package::Result Package::FetchVerified(const std::string &url,
   ec.clear();
   fs::remove(dest, ec);
   if (ec) {
-    REXLOG_ERROR(bd, "package cannot replace {}: {}", dest.string(), ec.message());
+    REXBD_ERROR("package cannot replace {}: {}", dest.string(), ec.message());
     return Result::kDownloadFailed;
   }
 
   const HTTPResult result = HTTP::Download(url, dest, progress);
   if (!result.Succeeded()) {
-    REXLOG_ERROR(bd, "package {} download failed: {}", url, result.error);
+    REXBD_ERROR("package {} download failed: {}", url, result.error);
     fs::remove(dest, ec);
     return Result::kDownloadFailed;
   }
   if (bd::SHA256File(dest) != sha256) {
-    REXLOG_ERROR(bd, "package {} does not match its manifest digest", url);
+    REXBD_ERROR("package {} does not match its manifest digest", url);
     fs::remove(dest, ec);
     return Result::kHashMismatch;
   }
@@ -67,7 +67,7 @@ Package::Result Package::Fetch(const std::string &url,
   fs::remove_all(dest, ec);
   std::string error;
   if (!bd::UnpackZip(cache_zip, dest, error)) {
-    REXLOG_ERROR(bd, "package unpack failed: {}", error);
+    REXBD_ERROR("package unpack failed: {}", error);
     fs::remove_all(dest, ec);
     return Result::kUnpackFailed;
   }

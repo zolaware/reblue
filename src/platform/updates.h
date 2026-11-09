@@ -15,8 +15,11 @@
 #include <optional>
 #include <string>
 
-#include <rex/cvar/registry.h>
+#include <vector>
+
+#include <rex/settings_registry.h>
 #include <rex/types.h>
+#include <rex/utility.h>
 
 #include "platform/http.h"
 #include "platform/manifest.h"
@@ -115,7 +118,7 @@ private:
   std::optional<Release> newer_;
   std::optional<AppManifest> manifest_;
   std::atomic<bool> started_{false};
-  rex::cvar::CallbackHandle channelWatch_;
+  std::vector<rex::ScopeGuard> channelWatch_;
   std::atomic<bool> checking_{false};
   std::atomic<Stage> stage_{Stage::kIdle};
   std::atomic<bool> has_newer_{false};

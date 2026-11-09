@@ -15,7 +15,7 @@
 #include <mutex>
 #include <unordered_map>
 
-#include <rex/dbg.h>
+#include <rex/platform/perf.h>
 #include <xxhash.h>
 
 #include "gpu/device.h"

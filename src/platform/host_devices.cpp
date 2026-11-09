@@ -4,34 +4,34 @@
  */
 #include "platform/host_devices.h"
 
-#include <SDL3/SDL_gamepad.h>
-#include <SDL3/SDL_stdinc.h>
+#include <rex/hid/input_driver.h>
+#include <rex/types.h>
+
+#include "platform/hid.h"
 
 namespace bd::platform {
 
 namespace {
 
-constexpr Uint16 kValveVendor = 0x28DE;
-constexpr Uint16 kSteamDeckProduct = 0x1205;
+constexpr u16 kValveVendor = 0x28DE;
+constexpr u16 kSteamDeckProduct = 0x1205;
 
-PadBrand BrandOf(SDL_JoystickID id) {
-  if (SDL_GetGamepadVendorForID(id) == kValveVendor &&
-      SDL_GetGamepadProductForID(id) == kSteamDeckProduct)
+PadBrand BrandOf(const rex::hid::PadInfo &pad) {
+  if (pad.vendor == kValveVendor && pad.product == kSteamDeckProduct)
     return PadBrand::SteamDeck;
 
-  switch (SDL_GetGamepadTypeForID(id)) {
-  case SDL_GAMEPAD_TYPE_XBOX360:
+  using rex::hid::PadType;
+  switch (pad.type) {
+  case PadType::kX360:
     return PadBrand::Xbox360;
-  case SDL_GAMEPAD_TYPE_XBOXONE:
+  case PadType::kXOne:
     return PadBrand::XboxSeries;
-  case SDL_GAMEPAD_TYPE_PS3:
-  case SDL_GAMEPAD_TYPE_PS4:
-  case SDL_GAMEPAD_TYPE_PS5:
+  case PadType::kPS3:
+  case PadType::kPS4:
+  case PadType::kPS5:
     return PadBrand::PlayStation;
-  case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_PRO:
-  case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_LEFT:
-  case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_RIGHT:
-  case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_PAIR:
+  case PadType::kSwitchPro:
+  case PadType::kSwitchJoyCon:
     return PadBrand::Switch;
   default:
     return PadBrand::Unknown;
@@ -41,13 +41,8 @@ PadBrand BrandOf(SDL_JoystickID id) {
 } // namespace
 
 PadBrand ConnectedPad() {
-  int count = 0;
-  SDL_JoystickID *ids = SDL_GetGamepads(&count);
-  if (!ids)
-    return PadBrand::Unknown;
-  const PadBrand brand = count > 0 ? BrandOf(ids[0]) : PadBrand::Unknown;
-  SDL_free(ids);
-  return brand;
+  const auto pad = HID().GetPadInfo(0);
+  return pad ? BrandOf(*pad) : PadBrand::Unknown;
 }
 
 } // namespace bd::platform

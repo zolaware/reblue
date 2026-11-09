@@ -6,9 +6,7 @@
  */
 #include "engine/battle_camera_task.h"
 
-#include <rex/hook.h>
-#include <rex/ppc.h>
-#include <rex/ppc/detour.h>
+#include <rex/ppc/hook.h>
 #include <rex/ppc/midasm.h>
 
 #include "engine/events.h"

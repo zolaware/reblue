@@ -14,14 +14,15 @@
 #include <filesystem>
 #include <functional>
 #include <memory>
+
+struct ImTextureData;
 #include <optional>
 #include <set>
 #include <string>
 #include <thread>
 #include <vector>
 
-#include <rex/gpu/overlay.h>
-#include <rex/ui/imgui_dialog.h>
+#include <rex/ui/ui_system.h>
 
 #include "core/settings_model.h"
 #include "installer/boot_languages.h"
@@ -56,7 +57,7 @@ struct WizardChoices {
   bool reset_config = false;
 };
 
-class InstallerWizard : public rex::ui::ImGuiDialog {
+class InstallerWizard : public rex::ui::DialogBase {
 public:
   // completed=true: install finished, cfg valid. completed=false: cancel/error.
   using CompletionCallback = std::function<void(
@@ -66,13 +67,11 @@ public:
   // the files missing from it (see Installer::RunAsync). existing != nullptr in
   // repair mode: its disc fingerprints are reused so the user can finish
   // without re-selecting the DVDs.
-  InstallerWizard(rex::gpu::IOverlayDrawer *immediate_drawer,
-                  const std::filesystem::path &default_install_dir, bool repair,
+  InstallerWizard(const std::filesystem::path &default_install_dir, bool repair,
                   const InstallConfig *existing, CompletionCallback on_done);
   ~InstallerWizard();
 
-protected:
-  void OnDraw(ImGuiIO &io) override;
+  bool Draw(ImGuiIO &io) override;
 
 private:
   // Content is what to install, Options is how it runs. Splitting them is
@@ -110,7 +109,6 @@ private:
   void InitDLCCatalog();
   void PickAndInstallDLC();
 
-  rex::gpu::IOverlayDrawer *immediate_drawer_;
   CompletionCallback on_done_;
   bool finished_ = false;
   bool repair_ = false; // existing install detected: verify + copy missing only
@@ -118,7 +116,8 @@ private:
   bool portable_allowed_ = false;
   std::filesystem::path picked_dir_;
 
-  std::unique_ptr<rex::gpu::OverlayTexture> background_texture_;
+  // An ImGui user texture, which the overlay renderer uploads on first draw.
+  std::unique_ptr<ImTextureData> background_texture_;
   bool background_tried_ = false;
 
   Page page_ = Page::Content;

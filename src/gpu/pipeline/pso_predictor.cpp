@@ -12,8 +12,9 @@
 #include <unordered_set>
 #include <vector>
 
-#include <rex/ppc.h>
-#include <rex/runtime.h>
+#include <rex/logging/log_category.h>
+#include <rex/ppc/context.h>
+#include <rex/kernel/title_runtime.h>
 #include <rex/types.h>
 #include <rex/ppc/midasm.h>
 
@@ -284,7 +285,7 @@ size_t EmitTechDeclLocked(u32 tech, const DeclRecord &d) {
   }
 #ifdef REBLUE_PSO_CAP
   if (emitted)
-    REXLOG_DEBUG(bd, "pso_predict: emitted {} pipeline(s) tech={} decl=0x{:016X} "
+    REXBD_DEBUG("pso_predict: emitted {} pipeline(s) tech={} decl=0x{:016X} "
              "stride={}{}",
              emitted, tech, d.decl->hash, d.stride,
              d.skinned ? " skinned" : "");
@@ -349,7 +350,7 @@ void OnModelTechniqueKnown(u32 visualVa, bool loadRequest) {
     static std::unordered_set<u32> s_badTech;
     std::lock_guard<std::mutex> lock(g_mutex);
     if (s_badTech.insert(tech).second)
-      REXLOG_WARN(bd, "pso_predict: model base technique {} out of range (vo=0x{:08X})",
+      REXBD_WARN("pso_predict: model base technique {} out of range (vo=0x{:08X})",
               tech, visualVa);
     return;
   }
@@ -398,7 +399,7 @@ void OnModelTechniqueKnown(u32 visualVa, bool loadRequest) {
   }
 #ifdef REBLUE_PSO_CAP
   if (fresh)
-    REXLOG_DEBUG(bd, "pso_predict: model tech={}{} -> {} candidate pair(s), {} new",
+    REXBD_DEBUG("pso_predict: model tech={}{} -> {} candidate pair(s), {} new",
              tech, toonMarker == kToonMarkerValue ? "+toon" : "", candidates,
              fresh);
 #endif
@@ -442,7 +443,7 @@ void OnLoadBegin(u32 loadModelVa) {
       it->second.decls.clear();
 #ifdef REBLUE_PSO_CAP
     if (it == g_assets.end() || it->second.requesters.empty())
-      REXLOG_DEBUG(bd, "pso_predict: load-begin asset=0x{:08X} has no requester yet "
+      REXBD_DEBUG("pso_predict: load-begin asset=0x{:08X} has no requester yet "
                "(LH_Model preload?)",
                loadModelVa);
 #endif
@@ -514,8 +515,6 @@ std::string DescribePair(u64 vsHash, u64 psHash) {
 // the model goes live. Hook C registers decls, and bdModelLoadEnd closes the
 // token.
 REX_MIDASM_HOOK(bdModelLoadBeginHook, (PPCRegister &r30)) {
-  if (!bd::gpu::PrecacheEnabled())
-    return;
   bd::gpu::BeginLoadCapture();
   bd::gpu::OnLoadBegin(r30.u32);
 }
@@ -582,8 +581,6 @@ REX_MIDASM_AT(bdModelLoadEndHook, 0x8217B9FC, before);
 // r3 = the declaration cache slot hcgVertexDeclarationRegist returned, r31 =
 // per-vertex stride.
 REX_MIDASM_HOOK(bdSceneGraphPredictDeclHook, (PPCRegister &r3, PPCRegister &r31)) {
-  if (!bd::gpu::PrecacheEnabled())
-    return;
   bd::gpu::OnDeclRegistered(r3.u32, static_cast<u8>(r31.u32));
 }
 REX_MIDASM_AT(bdSceneGraphPredictDeclHook, 0x8227E4B4, before, r3, r31);

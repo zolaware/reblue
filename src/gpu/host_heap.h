@@ -8,9 +8,9 @@
  *            See LICENSE file in the project root for full license text.
  *
  * Reserves one block in the guest physical window (vA0000000, offset 0) through
- * rex::runtime::GuestAllocator, which runs a single o1heap over it. Many small host shadow structs fragmented the
- * non-coalescing system heap ("BaseHeap::Alloc failed to find contiguous
- * range"), o1heap coalesces on free. Offset-0 pointers round-trip to valid
+ * rex::kernel::GuestAllocator, which runs a single TLSF allocator over it. Many
+ * small host shadow structs fragmented the non-coalescing system heap
+ * ("BaseHeap::Alloc failed to find contiguous range"), TLSF coalesces on free. Offset-0 pointers round-trip to valid
  * guest VAs and stay FromGuest-resolvable.
  */
 #pragma once
@@ -33,8 +33,8 @@ public:
   // and FreeGuest calls are ignored.
   void Shutdown();
 
-  // O(1) alloc returning a 16-byte-aligned host pointer, or nullptr on
-  // exhaustion (logged once). alignment must be <= O1HEAP_ALIGNMENT (16).
+  // Constant time alloc returning a 16-byte-aligned host pointer, or nullptr on
+  // exhaustion (logged once). alignment must be <= GuestAllocator::kBlockAlignment (16).
   void *Alloc(std::size_t size, std::size_t alignment);
   void Free(void *host_ptr);
 
@@ -42,16 +42,6 @@ public:
   // D3DTexture_GetSurfaceLevel). Returns a vA0000000 VA, or 0 on OOM.
   u32 AllocGuest(std::size_t size, std::size_t alignment);
   void FreeGuest(u32 guest_va);
-
-  struct Snapshot {
-    std::size_t capacity;
-    std::size_t allocated;
-    std::size_t peak_allocated;
-    u64 oom_count;
-    u64 live_count;
-    bool ready;
-  };
-  Snapshot GetSnapshot();
 };
 
 } // namespace bd::gpu

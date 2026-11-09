@@ -16,19 +16,19 @@
 #include <string>
 #endif
 
-#include <rex/ui/user_interface.h>
+#include <rex/ui/ui_driver.h>
 
 #include "core/logging.h"
-#include "platform/host_resources.h"
+#include <rex/platform/process.h>
 
 namespace bd::platform {
 
 #if defined(_WIN32)
 
-bool GetNativeRenderWindow(rex::ui::IWindow &window, plume::RenderWindow &out) {
-  const rex::ui::NativeWindow native = window.GetNative();
-  if (native.kind != rex::ui::NativeWindow::Kind::kWin32 || !native.window) {
-    REXLOG_ERROR(bd, "Window has no native HWND yet");
+bool GetNativeRenderWindow(const rex::NativeWindow &native,
+                           plume::RenderWindow &out) {
+  if (native.type != rex::NativeWindow::Type::kWin32 || !native.window) {
+    REXBD_ERROR("Window has no native HWND yet");
     return false;
   }
   out = static_cast<plume::RenderWindow>(native.window);
@@ -46,7 +46,7 @@ void SetenvIfUnset(const char *name, const char *value) {
 
 __attribute__((constructor(101))) void
 ConfigureMoltenVKAndReexec(int /*argc*/, char **argv) {
-  RaiseFDLimit();
+  (void)rex::platform::RaiseOpenFileLimit();
 
   SetenvIfUnset("SDL_MAC_PRESS_AND_HOLD", "0");
 
@@ -95,11 +95,11 @@ ConfigureMoltenVKAndReexec(int /*argc*/, char **argv) {
 
 } // namespace
 
-bool GetNativeRenderWindow(rex::ui::IWindow &window, plume::RenderWindow &out) {
-  const rex::ui::NativeWindow native = window.GetNative();
-  if (native.kind != rex::ui::NativeWindow::Kind::kCocoa || !native.window ||
+bool GetNativeRenderWindow(const rex::NativeWindow &native,
+                           plume::RenderWindow &out) {
+  if (native.type != rex::NativeWindow::Type::kCocoa || !native.window ||
       !native.layer) {
-    REXLOG_ERROR(bd,
+    REXBD_ERROR(
         "Window exposed no NSWindow/CAMetalLayer for the Metal surface");
     return false;
   }
@@ -110,10 +110,11 @@ bool GetNativeRenderWindow(rex::ui::IWindow &window, plume::RenderWindow &out) {
 
 #else
 
-bool GetNativeRenderWindow(rex::ui::IWindow &window, plume::RenderWindow &out) {
-  out = static_cast<SDL_Window *>(window.GetNative().sdl);
+bool GetNativeRenderWindow(const rex::NativeWindow &native,
+                           plume::RenderWindow &out) {
+  out = static_cast<SDL_Window *>(native.sdl);
   if (!out) {
-    REXLOG_ERROR(bd, "No SDL window available for the Vulkan surface");
+    REXBD_ERROR("No SDL window available for the Vulkan surface");
     return false;
   }
   return true;

@@ -14,7 +14,8 @@
 #include <mutex>
 #include <unordered_map>
 
-#include <rex/xenos/xenos.h>
+#include <rex/logging/log_category.h>
+#include <rex/xenos/fetch.h>
 
 #include "core/logging.h"
 #include "gpu/bindless_allocator.h"
@@ -167,7 +168,7 @@ u32 ResolveSlotLocked(const plume::RenderSamplerDesc &desc) {
   if (slot == 0) {
     static std::atomic<u32> warned{0};
     if (warned.fetch_add(1, std::memory_order_relaxed) < 4) {
-      REXLOG_WARN(bd, 
+      REXBD_WARN(
           "sampler-cache bindless sampler heap full, falling back to slot 0");
     }
     return 0;

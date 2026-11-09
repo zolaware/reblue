@@ -40,6 +40,7 @@ enum class Action : int {
   StickPressRight,
 
   Pause,
+  Overlay,
   Mindows,
 
   Count,

@@ -10,7 +10,6 @@
 #include "platform/content_sync.h"
 #include "platform/desktop_shortcut.h"
 #include "platform/host_devices.h"
-#include "platform/host_resources.h"
 #include "platform/host_ui.h"
 #include "platform/hid.h"
 #include "platform/http.h"

@@ -1,6 +1,6 @@
 #include "engine/input/input_sources.h"
 
-#include <rex/hid/virtual_key.h>
+#include <rex/input_keys.h>
 
 #include "core/memory_helpers.h"
 #include "engine/input/actions.h"
@@ -26,30 +26,30 @@ u32 PadButtonBit(u16 id) {
 }
 
 struct MouseKey {
-  rex::hid::VirtualKey key;
-  rex::ui::MouseEvent::Button button;
+  rex::VirtualKey key;
+  rex::MouseButton button;
 };
 
 constexpr MouseKey kMouseKeys[] = {
-    {rex::hid::VirtualKey::kLButton, rex::ui::MouseEvent::Button::kLeft},
-    {rex::hid::VirtualKey::kRButton, rex::ui::MouseEvent::Button::kRight},
-    {rex::hid::VirtualKey::kMButton, rex::ui::MouseEvent::Button::kMiddle},
+    {rex::VirtualKey::kLButton, rex::MouseButton::kLeft},
+    {rex::VirtualKey::kRButton, rex::MouseButton::kRight},
+    {rex::VirtualKey::kMButton, rex::MouseButton::kMiddle},
 };
 
-rex::ui::MouseEvent::Button MouseKeyButton(u16 code) {
-  const auto key = static_cast<rex::hid::VirtualKey>(code);
+rex::MouseButton MouseKeyButton(u16 code) {
+  const auto key = static_cast<rex::VirtualKey>(code);
   for (const MouseKey &entry : kMouseKeys)
     if (entry.key == key)
       return entry.button;
-  return rex::ui::MouseEvent::Button::kNone;
+  return rex::MouseButton::kNone;
 }
 
 bool IsMouse(const Source &source) {
-  switch (source.kind) {
+  switch (source.type) {
   case SourceKind::kMouseWheel:
     return true;
   case SourceKind::kKey:
-    return MouseKeyButton(source.code) != rex::ui::MouseEvent::Button::kNone;
+    return MouseKeyButton(source.code) != rex::MouseButton::kNone;
   default:
     return false;
   }
@@ -60,7 +60,7 @@ bool MouseTaken(const Source &source) {
 }
 
 int PadAxisBase(const Source &source) {
-  return static_cast<rex::hid::PadAxes>(source.code) == rex::hid::PadAxes::kRight
+  return static_cast<rex::PadAxes>(source.code) == rex::PadAxes::kRight
              ? 2
              : 0;
 }
@@ -83,7 +83,7 @@ void InputSources::Sample(u32 padBlock) {
 }
 
 bool InputSources::Active(const Source &source) const {
-  if (source.kind == SourceKind::kKey && platform::MindowsOwnsKeyboard())
+  if (source.type == SourceKind::kKey && platform::MindowsOwnsKeyboard())
     return false;
   return ActiveUnheld(source);
 }
@@ -91,18 +91,18 @@ bool InputSources::Active(const Source &source) const {
 bool InputSources::ActiveUnheld(const Source &source) const {
   if (MouseTaken(source))
     return false;
-  switch (source.kind) {
+  switch (source.type) {
   case SourceKind::kKey: {
     const u8 held = static_cast<u8>(platform::HID().GetModifiers());
     const u8 mods = static_cast<u8>(source.modifiers);
-    const rex::ui::MouseEvent::Button button = MouseKeyButton(source.code);
-    if (button != rex::ui::MouseEvent::Button::kNone)
+    const rex::MouseButton button = MouseKeyButton(source.code);
+    if (button != rex::MouseButton::kNone)
       return (held & mods) == mods &&
-             platform::HID().IsButtonDown(platform::ToHIDButton(button));
+             platform::HID().IsButtonDown(button);
     if (held != mods)
       return false;
     return platform::HID().IsKeyDown(
-        static_cast<rex::hid::VirtualKey>(source.code));
+        static_cast<rex::VirtualKey>(source.code));
   }
   case SourceKind::kMouseWheel:
     return source.sign != 0 &&
@@ -120,7 +120,7 @@ bool InputSources::ActiveUnheld(const Source &source) const {
 f32 InputSources::Axis(const Source &source, int component) const {
   if (MouseTaken(source))
     return 0.0f;
-  switch (source.kind) {
+  switch (source.type) {
   case SourceKind::kPadAxes:
     return component == 0 || component == 1
                ? padAnalog_[PadAxisBase(source) + component]

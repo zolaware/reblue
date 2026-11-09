@@ -15,10 +15,10 @@
 
 void bd::commands::GameEvents(std::string_view) {
   const auto recent = bd::engine::EventLog::Recent();
-  REXLOG_INFO(bd, "events {} published, last {} shown",
+  REXBD_INFO("events {} published, last {} shown",
           bd::engine::EventLog::TotalPublished(), recent.size());
   for (const auto &e : recent)
-    REXLOG_INFO(bd, "events   tick {:<8} {:<20} {:#010x} {:#010x}", e.tick,
+    REXBD_INFO("events   tick {:<8} {:<20} {:#010x} {:#010x}", e.tick,
             e.name ? e.name : "?", e.a, e.b);
 }
 

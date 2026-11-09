@@ -11,7 +11,7 @@
 
 #include "vfs/file_system.h"
 
-#include <rex/memory/mapped_memory.h>
+#include <rex/memory/virtual_memory.h>
 
 #include <filesystem>
 #include <functional>

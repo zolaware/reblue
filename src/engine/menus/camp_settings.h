@@ -13,7 +13,8 @@
 #include "engine/menus/config_menu.h"
 #include "engine/task.h"
 
-#include <rex/ppc/func.h>
+#include <rex/ppc/recompiled_code.h>
+#include <rex/ppc/context.h>
 #include <rex/types.h>
 
 namespace bd::engine {
@@ -26,7 +27,7 @@ public:
   static CampSettings &Get();
 
   // True when reblue drew this frame and the stock update must be skipped.
-  bool Update(PPCContext &ctx, u8 *base, u32 taskAddr);
+  bool Update(PPCContext &ctx, u32 taskAddr);
 
   // Once per engine tick. Loads the menu when a camp opens, so the CSV and its
   // textures load while the user is still on the camp menus and the settings

@@ -23,7 +23,7 @@
 #include <string>
 #include <system_error>
 
-#include <rex/string/utf8.h>
+#include <rex/string/text.h>
 
 #include "core/build_info.h"
 
@@ -48,7 +48,7 @@ struct Handle {
 HTTPResult Perform(const std::string &url, const BodySink &sink,
                    const DownloadProgress &progress) {
   HTTPResult out;
-  const std::wstring wide = rex::ToWideString(url);
+  const std::wstring wide = rex::string::ToWideString(url);
 
   URL_COMPONENTS parts{};
   parts.dwStructSize = sizeof(parts);
@@ -72,7 +72,7 @@ HTTPResult Perform(const std::string &url, const BodySink &sink,
   if (path.empty())
     path = L"/";
 
-  const std::wstring agent = rex::ToWideString("reblue/" REBLUE_VERSION_STRING);
+  const std::wstring agent = rex::string::ToWideString("reblue/" REBLUE_VERSION_STRING);
   Handle session{WinHttpOpen(agent.c_str(), WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
                              WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS,
                              0)};
@@ -84,7 +84,7 @@ HTTPResult Perform(const std::string &url, const BodySink &sink,
 
   Handle connection{WinHttpConnect(session.h, host.c_str(), parts.nPort, 0)};
   if (!connection.h) {
-    out.error = "cannot reach " + rex::ToUTF8(host);
+    out.error = "cannot reach " + rex::string::ToUTF8(host);
     return out;
   }
 
@@ -101,7 +101,7 @@ HTTPResult Perform(const std::string &url, const BodySink &sink,
   if (!WinHttpSendRequest(request.h, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
                           WINHTTP_NO_REQUEST_DATA, 0, 0, 0) ||
       !WinHttpReceiveResponse(request.h, nullptr)) {
-    out.error = "no reply from " + rex::ToUTF8(host);
+    out.error = "no reply from " + rex::string::ToUTF8(host);
     return out;
   }
 

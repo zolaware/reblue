@@ -23,7 +23,7 @@
 #include <type_traits>
 #include <utility>
 
-#include <rex/runtime.h>
+#include <rex/kernel/title_runtime.h>
 #include "core/memory_helpers.h"
 
 #include "gpu/host_heap.h"

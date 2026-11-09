@@ -14,9 +14,9 @@
 #include "engine/menus/shop_main_task.h"
 #include "platform/platform.h"
 
-#include <rex/ppc.h>
+#include <rex/ppc/context.h>
 #include <rex/types.h>
-#include <rex/ui/ui_event.h>
+#include <rex/ui/ui_driver.h>
 #include <rex/ppc/midasm.h>
 
 namespace bd::engine {
@@ -42,7 +42,7 @@ constexpr ArrowBands kMechatRow = {393.0f, 420.0f, 720.0f, 747.0f};
 bool CountArrowClicked(const ShopMainTask &shop) {
   if (!MenuMouse::Get().PointerActive())
     return false;
-  if (!platform::HID().IsButtonDown(rex::hid::MouseButton::kLeft))
+  if (!platform::HID().IsButtonDown(rex::MouseButton::kLeft))
     return false;
 
   AnimeMenu menu = shop.StateMenu();

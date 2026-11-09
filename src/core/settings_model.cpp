@@ -25,7 +25,6 @@
 #include <string_view>
 #include <vector>
 
-#include <rex/cvar.h>
 
 #include "engine/engine.h"
 #include "platform/platform.h"
@@ -116,7 +115,7 @@ const SettingRow &At(SettingsPage page, int index) { return *Find(page, index); 
 bool Windowed() { return CvarGet("ui.fullscreen") != "true"; }
 
 // Menu spelling of one bind token. The cvar stores rex's canonical key names
-// (rex::hid::ParseVirtualKey), which read as words rather than as the key legend
+// (rex::ParseVirtualKey), which read as words rather than as the key legend
 // a player is looking for, so punctuation shows its printed character and the
 // long names shorten to what fits on a keycap.
 struct KeyAlias {
@@ -259,8 +258,8 @@ const std::array<std::vector<BindEntry>, kBindColumns> &BindColumns() {
 }
 
 bool PadSource(const engine::Source &source) {
-  return source.kind == engine::SourceKind::kPadButton ||
-         source.kind == engine::SourceKind::kPadAxes;
+  return source.type == engine::SourceKind::kPadButton ||
+         source.type == engine::SourceKind::kPadAxes;
 }
 
 void SwapInto(engine::Action owner, const engine::Source &taken,
@@ -269,7 +268,7 @@ void SwapInto(engine::Action owner, const engine::Source &taken,
   const auto owned = binds.Sources(owner);
   std::vector<engine::Source> sources(owned.begin(), owned.end());
   for (size_t i = 0; i < sources.size(); ++i) {
-    if (!rex::hid::IsSameInput(sources[i], taken))
+    if (!rex::IsSameInput(sources[i], taken))
       continue;
     if (given && !binds.Conflict(owner, *given)) {
       const u8 slot = sources[i].axis_slot;
@@ -281,7 +280,7 @@ void SwapInto(engine::Action owner, const engine::Source &taken,
     break;
   }
   binds.SetSources(owner, sources);
-  REXLOG_DEBUG(bd, "config {} swapped out of its bind", engine::ToString(owner));
+  REXBD_DEBUG("config {} swapped out of its bind", engine::ToString(owner));
 }
 
 int ChipSource(const BindEntry &entry, int chip) {
@@ -563,10 +562,10 @@ bool WriteSlider(const SettingRow &s, double value) {
   if (s.binding.set)
     return s.binding.set(std::strtod(buf, nullptr));
   if (!CvarSet(s.binding.cvar, buf)) {
-    REXLOG_WARN(bd, "config failed to set {} = {}", s.binding.cvar, buf);
+    REXBD_WARN("config failed to set {} = {}", s.binding.cvar, buf);
     return false;
   }
-  REXLOG_DEBUG(bd, "config {} = {}", s.binding.cvar, buf);
+  REXBD_DEBUG("config {} = {}", s.binding.cvar, buf);
   return true;
 }
 
@@ -580,12 +579,12 @@ bool WriteValue(const SettingRow &s, const SettingOption &o) {
   if (s.binding.set)
     return s.binding.set(o.num);
   if (!CvarSet(s.binding.cvar, o.value)) {
-    REXLOG_WARN(bd, "config failed to set {} = {}", s.binding.cvar, o.value);
+    REXBD_WARN("config failed to set {} = {}", s.binding.cvar, o.value);
     return false;
   }
   if (s.binding.cvar2 && o.value2)
     CvarSet(s.binding.cvar2, o.value2);
-  REXLOG_DEBUG(bd, "config {} = {}", s.binding.cvar, OptionLabel(o));
+  REXBD_DEBUG("config {} = {}", s.binding.cvar, OptionLabel(o));
   return true;
 }
 
@@ -671,10 +670,6 @@ const char *SettingsDescription(SettingsPage page, int index) {
 
 void SettingsDisableRestartRows(bool disable) { s_disableRestart = disable; }
 
-bool SettingsSaveScoped(SettingsPage page, int index) {
-  return InRange(page, index) && At(page, index).saveScoped;
-}
-
 std::string SettingsValueText(SettingsPage page, int index) {
   if (!InRange(page, index))
     return "";
@@ -729,9 +724,9 @@ std::string BindChipToken(const BindEntry &entry, int chip) {
       engine::Bindings::Get().Sources(entry.action);
   if (entry.cell == BindCell::AxisKey && chip == kBindPadChip) {
     for (const engine::Source &source : sources) {
-      if (source.kind != engine::SourceKind::kPadAxes)
+      if (source.type != engine::SourceKind::kPadAxes)
         continue;
-      const bool left = source.code == u16(rex::hid::PadAxes::kLeft);
+      const bool left = source.code == u16(rex::PadAxes::kLeft);
       return std::string(left ? "LStick" : "RStick") +
              kStickDirectionNames[entry.direction];
     }
@@ -740,7 +735,7 @@ std::string BindChipToken(const BindEntry &entry, int chip) {
   const int at = ChipSource(entry, chip);
   if (at < 0)
     return {};
-  return rex::hid::InputSourceToString(sources[static_cast<size_t>(at)]);
+  return bd::platform::HID().InputSourceToString(sources[static_cast<size_t>(at)]);
 }
 
 std::string BindChipLegend(const BindEntry &entry, int chip) {
@@ -760,7 +755,7 @@ bool BindChipFixed(const BindEntry &entry, int chip) {
 }
 
 bool BindChipAccepts(int chip, const std::string &token) {
-  const auto source = rex::hid::ParseInputSource(token);
+  const auto source = bd::platform::HID().ParseInputSource(token);
   return source && (chip == kBindPadChip) == PadSource(*source);
 }
 
@@ -800,10 +795,6 @@ bool SettingsDisabled(SettingsPage page, int index) {
   const SettingRow &s = At(page, index);
   return (s.restart && s_disableRestart) || (s.windowedGated && !Windowed()) ||
          (s.special == SettingSpecial::Monitor && SingleDisplay());
-}
-
-bool SettingsIsSlider(SettingsPage page, int index) {
-  return InRange(page, index) && At(page, index).kind == SettingKind::Slider;
 }
 
 int SettingsOptionCount(SettingsPage page, int index) {
@@ -927,9 +918,9 @@ bool SetBindChip(const BindEntry &entry, int chip, const std::string &token,
   if (chip < 0 || chip >= kBindChipCount || BindChipFixed(entry, chip))
     return false;
 
-  const auto parsed = rex::hid::ParseInputSource(token);
+  const auto parsed = bd::platform::HID().ParseInputSource(token);
   if (!parsed) {
-    REXLOG_WARN(bd, "config '{}' is not a bindable input", token);
+    REXBD_WARN("config '{}' is not a bindable input", token);
     return false;
   }
   engine::Source source = *parsed;
@@ -949,7 +940,7 @@ bool SetBindChip(const BindEntry &entry, int chip, const std::string &token,
     if (static_cast<int>(i) == at) {
       updated.push_back(source);
       placed = true;
-    } else if (!rex::hid::IsSameInput(current[i], source)) {
+    } else if (!rex::IsSameInput(current[i], source)) {
       updated.push_back(current[i]);
     }
   }
@@ -957,11 +948,11 @@ bool SetBindChip(const BindEntry &entry, int chip, const std::string &token,
     updated.push_back(source);
 
   if (!binds.SetSources(entry.action, updated)) {
-    REXLOG_WARN(bd, "config failed to bind {} to {}", token,
+    REXBD_WARN("config failed to bind {} to {}", token,
             engine::ToString(entry.action));
     return false;
   }
-  REXLOG_DEBUG(bd, "config {} chip {} = {}", engine::ToString(entry.action), chip,
+  REXBD_DEBUG("config {} chip {} = {}", engine::ToString(entry.action), chip,
            token);
   if (other) {
     SwapInto(*other, source, at < 0 ? nullptr : &current[size_t(at)]);
@@ -979,7 +970,7 @@ bool ClearBindChip(const BindEntry &entry, int chip) {
   const auto held = binds.Sources(entry.action);
   std::vector<engine::Source> kept(held.begin(), held.end());
   kept.erase(kept.begin() + at);
-  REXLOG_DEBUG(bd, "config {} chip {} cleared", engine::ToString(entry.action), chip);
+  REXBD_DEBUG("config {} chip {} cleared", engine::ToString(entry.action), chip);
   return binds.SetSources(entry.action, kept);
 }
 
@@ -1005,7 +996,7 @@ bool ClearBindEntry(const BindEntry &entry) {
   }
   if (kept.size() == binds.Sources(entry.action).size())
     return false;
-  REXLOG_DEBUG(bd, "config {} cleared", BindEntryLabel(entry));
+  REXBD_DEBUG("config {} cleared", BindEntryLabel(entry));
   return binds.SetSources(entry.action, kept);
 }
 

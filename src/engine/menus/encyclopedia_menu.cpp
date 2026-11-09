@@ -18,7 +18,8 @@
 
 #include <optional>
 
-#include <rex/ppc.h>
+#include <rex/logging/log_category.h>
+#include <rex/ppc/context.h>
 #include <rex/types.h>
 #include <rex/ppc/midasm.h>
 
@@ -184,7 +185,7 @@ REX_MIDASM_BRANCH(bdEncyclopediaAchievementsUpdateHook, (PPCRegister &r31, PPCRe
     // Items task and outlive this one, so they are not abandoned here.
     s_row_task = bd::engine::D2AnimeTask();
     s_row_gate = TabGate::Hidden;
-    REXLOG_DEBUG(bd, "encyclopedia Diary task 0x{:08X} up", encTask);
+    REXBD_DEBUG("encyclopedia Diary task 0x{:08X} up", encTask);
   }
 
   auto menu = s_enc_task.TopMenu();
@@ -210,7 +211,7 @@ REX_MIDASM_BRANCH(bdEncyclopediaAchievementsUpdateHook, (PPCRegister &r31, PPCRe
         s_enc_task, "d2anime\\camp\\dia\\l_dia_ach_tab.csv",
         bd::engine::D2AnimeTask::Reveal::Held);
     if (!s_row_task)
-      REXLOG_ERROR(bd, "encyclopedia sixth row Load failed");
+      REXBD_ERROR("encyclopedia sixth row Load failed");
 
     s_row_added = true;
   }
@@ -229,7 +230,7 @@ REX_MIDASM_BRANCH(bdEncyclopediaAchievementsUpdateHook, (PPCRegister &r31, PPCRe
   if (!s_ach_menu.IsActive()) {
     s_ach_menu.Create(s_enc_task);
     if (!s_ach_menu.IsActive()) {
-      REXLOG_ERROR(bd, "encyclopedia achievement viewer Create failed");
+      REXBD_ERROR("encyclopedia achievement viewer Create failed");
       // Enter(1) brings the top screen back before this call returns, so the
       // row has to be on the same frame or the strip comes up five rows deep.
       UpdateRowGate(TabGate::Top, {});
@@ -277,10 +278,10 @@ REX_MIDASM_HOOK(bdCampEncyclopediaPreviewHook, (PPCRegister &r31)) {
         s_item_task, "d2anime\\camp\\dia\\l_dia_ach_prev.csv",
         bd::engine::D2AnimeTask::Reveal::Held);
     if (!s_preview_task) {
-      REXLOG_ERROR(bd, "encyclopedia preview row Load failed");
+      REXBD_ERROR("encyclopedia preview row Load failed");
       return;
     }
-    REXLOG_DEBUG(bd, 
+    REXBD_DEBUG(
         "encyclopedia preview row 0x{:08X} alongside L_itm_cate 0x{:08X}",
         s_preview_task.Address(), cate.Address());
   }
@@ -308,7 +309,7 @@ REX_MIDASM_HOOK(bdCampEncyclopediaPreviewHook, (PPCRegister &r31)) {
 
   if (paneUp != s_preview_visible) {
     s_preview_visible = paneUp;
-    REXLOG_DEBUG(bd, "encyclopedia Encyclopedia pane up={} ({}={}), row visible={}",
+    REXBD_DEBUG("encyclopedia Encyclopedia pane up={} ({}={}), row visible={}",
              paneUp, kPaneGateVar, gate, s_preview_task.IsVisible());
   }
 

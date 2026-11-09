@@ -11,6 +11,8 @@
 #include <cstring>
 #include <vector>
 
+#include <imgui.h>
+
 #include <rex/math.h>
 
 #include <plume_render_interface.h>
@@ -38,26 +40,36 @@ constexpr u32 kSharedTextureSlots = 65536;
 constexpr u32 kSharedSamplerSlots = 1024;
 
 const plume::RenderInputSlot
-    kImGuiInputSlot(0, sizeof(rex::gpu::OverlayVertex),
+    kImGuiInputSlot(0, sizeof(ImDrawVert),
                     plume::RenderInputSlotClassification::PER_VERTEX_DATA);
 } // namespace
 
 PlumeImmediateTexture::PlumeImmediateTexture(
-    u32 w, u32 h, u32 tex_slot, u32 sampler_slot,
-    std::unique_ptr<plume::RenderTexture> texture,
+    u32 tex_slot, std::unique_ptr<plume::RenderTexture> texture,
     std::unique_ptr<plume::RenderTextureView> view)
-    : rex::gpu::OverlayTexture(w, h), tex_slot_(tex_slot),
-      sampler_slot_(sampler_slot), texture_(std::move(texture)),
+    : tex_slot_(tex_slot), texture_(std::move(texture)),
       view_(std::move(view)) {}
 
 PlumeImmediateTexture::~PlumeImmediateTexture() {
-  // Runs on the UI thread while Present is parked (same contract as the
-  // allocation in UploadRGBA8Texture), and sampler_slot_ is the shared cache's.
-  // The slot's null rewrite is fence-deferred, so the image/view must stay
-  // alive until the same boundary: park them, don't free.
+  // Outside the overlay pass nothing is parked holding the video state lock, so
+  // the locking park is safe. The slot's null rewrite is fence-deferred, so the
+  // image and view must stay alive until the same boundary: park them, don't
+  // free.
+  if (tex_slot_ == UINT32_MAX)
+    return;
   Video::FreeBindlessTextureSlot(tex_slot_);
   Video::ParkTextureUntilFence(std::move(texture_));
   Video::ParkTextureUntilFence(std::move(view_));
+}
+
+void PlumeImmediateTexture::Retire() {
+  // The parked Present holds the video state lock for the UI thread, so the
+  // locking park would deadlock against it.
+  const u32 slot = tex_slot_;
+  tex_slot_ = UINT32_MAX;
+  Video::FreeBindlessTextureSlotLocked(slot);
+  Video::ParkTextureUntilFenceLocked(std::move(texture_));
+  Video::ParkTextureUntilFenceLocked(std::move(view_));
 }
 
 ImGuiOverlayDrawer::ImGuiOverlayDrawer() = default;
@@ -85,7 +97,7 @@ bool ImGuiOverlayDrawer::UploadRGBA8Texture(
   std::unique_ptr<plume::RenderTexture> tex =
       CreateHostTexture(device, desc, "imgui-overlay");
   if (!tex) {
-    REXLOG_WARN(bd, "ImGui overlay: createTexture failed ({}x{})", w, h);
+    REXBD_WARN("ImGui overlay: createTexture failed ({}x{})", w, h);
     return false;
   }
 
@@ -96,7 +108,7 @@ bool ImGuiOverlayDrawer::UploadRGBA8Texture(
   std::unique_ptr<plume::RenderTextureView> view =
       tex->createTextureView(view_desc);
   if (!view) {
-    REXLOG_WARN(bd, "ImGui overlay: createTextureView failed ({}x{})", w, h);
+    REXBD_WARN("ImGui overlay: createTextureView failed ({}x{})", w, h);
     return false;
   }
 
@@ -118,13 +130,13 @@ bool ImGuiOverlayDrawer::UploadRGBA8Texture(
     up = UploadHostBytes(padded.data(), row_pitch * h, 0x200);
   }
   if (!up.memory) {
-    REXLOG_WARN(bd, "ImGui overlay: pixel upload allocation failed ({}x{})", w, h);
+    REXBD_WARN("ImGui overlay: pixel upload allocation failed ({}x{})", w, h);
     return false;
   }
 
   const u32 slot = Video::AllocateBindlessTextureSlot();
   if (slot == UINT32_MAX) {
-    REXLOG_ERROR(bd, "ImGui overlay: bindless texture slot pool exhausted");
+    REXBD_ERROR("ImGui overlay: bindless texture slot pool exhausted");
     return false;
   }
   bd::gpu::state().texture_descriptor_set->setTexture(
@@ -163,7 +175,7 @@ bool ImGuiOverlayDrawer::TryInitDeviceResources() {
   ps_ = device->createShader(REBLUE_SHADER_BLOB(imgui_ps), "main",
                              kHostShaderFormat);
   if (!vs_ || !ps_) {
-    REXLOG_ERROR(bd, "ImGui overlay: createShader failed");
+    REXBD_ERROR("ImGui overlay: createShader failed");
     return false;
   }
 
@@ -207,7 +219,7 @@ bool ImGuiOverlayDrawer::TryInitDeviceResources() {
   lb.end();
   layout_ = lb.create(device);
   if (!layout_) {
-    REXLOG_ERROR(bd, "ImGui overlay: pipeline layout create failed");
+    REXBD_ERROR("ImGui overlay: pipeline layout create failed");
     return false;
   }
 
@@ -238,7 +250,7 @@ bool ImGuiOverlayDrawer::TryInitDeviceResources() {
   pd.inputElementsCount = 3;
   pipeline_ = CreateHostGraphicsPipeline(device, pd, "imgui-overlay");
   if (!pipeline_) {
-    REXLOG_ERROR(bd, "ImGui overlay: pipeline create failed");
+    REXBD_ERROR("ImGui overlay: pipeline create failed");
     return false;
   }
 
@@ -246,7 +258,7 @@ bool ImGuiOverlayDrawer::TryInitDeviceResources() {
   static const u8 kWhite[4] = {0xFF, 0xFF, 0xFF, 0xFF};
   if (!UploadRGBA8Texture(1, 1, kWhite, white_texture_, white_view_,
                           white_slot_)) {
-    REXLOG_ERROR(bd, "ImGui overlay: white texture upload failed");
+    REXBD_ERROR("ImGui overlay: white texture upload failed");
     return false;
   }
 
@@ -254,95 +266,85 @@ bool ImGuiOverlayDrawer::TryInitDeviceResources() {
   return true;
 }
 
-rex::Result<std::unique_ptr<rex::gpu::OverlayTexture>>
-ImGuiOverlayDrawer::CreateTexture(u32 width, u32 height,
-                                  rex::gpu::OverlayTextureFilter filter,
-                                  bool repeat, std::span<const u8> rgba8) {
-  // Error until the device exists. The caller retries on a later frame.
-  if (!TryInitDeviceResources())
-    return rex::Err<std::unique_ptr<rex::gpu::OverlayTexture>>(
-        rex::ErrorCategory::kRuntime, "Plume device not ready");
-  if (rgba8.empty() || width == 0 || height == 0)
-    return rex::Err<std::unique_ptr<rex::gpu::OverlayTexture>>(
-        rex::ErrorCategory::kValidation, "ImGui overlay: empty texture");
+void ImGuiOverlayDrawer::SetTarget(plume::RenderCommandList *cmd,
+                                   plume::RenderFramebuffer *fb, u32 width,
+                                   u32 height) {
+  cmd_ = cmd;
+  fb_ = fb;
+  rt_w_ = width;
+  rt_h_ = height;
+}
+
+void ImGuiOverlayDrawer::RetireTexture(ImTextureData &texture) {
+  auto *old = static_cast<PlumeImmediateTexture *>(texture.BackendUserData);
+  if (!old)
+    return;
+  old->Retire();
+  delete old;
+}
+
+// An atlas update replaces the whole image. The font atlas changes rarely, so a
+// partial upload is not worth the copy region bookkeeping.
+void ImGuiOverlayDrawer::UpdateTexture(ImTextureData &texture) {
+  if (texture.Status == ImTextureStatus_WantDestroy) {
+    RetireTexture(texture);
+    texture.BackendUserData = nullptr;
+    texture.SetTexID(ImTextureID_Invalid);
+    texture.SetStatus(ImTextureStatus_Destroyed);
+    return;
+  }
+  if (texture.Status != ImTextureStatus_WantCreate &&
+      texture.Status != ImTextureStatus_WantUpdates)
+    return;
+
+  const u32 w = static_cast<u32>(texture.Width);
+  const u32 h = static_cast<u32>(texture.Height);
+  std::vector<u8> rgba(static_cast<size_t>(w) * h * 4);
+  const u8 *src = static_cast<const u8 *>(texture.GetPixels());
+  if (texture.Format == ImTextureFormat_Alpha8) {
+    for (size_t i = 0; i < size_t(w) * h; ++i) {
+      rgba[i * 4 + 0] = 0xFF;
+      rgba[i * 4 + 1] = 0xFF;
+      rgba[i * 4 + 2] = 0xFF;
+      rgba[i * 4 + 3] = src[i];
+    }
+  } else {
+    std::memcpy(rgba.data(), src, rgba.size());
+  }
 
   std::unique_ptr<plume::RenderTexture> tex;
   std::unique_ptr<plume::RenderTextureView> view;
   u32 slot = 0;
-  if (!UploadRGBA8Texture(width, height, rgba8.data(), tex, view, slot)) {
-    REXLOG_WARN(bd, "ImGui overlay: CreateTexture upload failed ({}x{})", width,
-            height);
-    return rex::Err<std::unique_ptr<rex::gpu::OverlayTexture>>(
-        rex::ErrorCategory::kRuntime, "ImGui overlay: texture upload failed");
-  }
-
-  // Shared sampler slot 0 (linear-clamp) is what the font atlas wants.
-  (void)filter;
-  (void)repeat;
-  return std::unique_ptr<rex::gpu::OverlayTexture>(
-      std::make_unique<PlumeImmediateTexture>(
-          width, height, slot,
-          /*sampler_slot=*/0u, std::move(tex), std::move(view)));
-}
-
-bool ImGuiOverlayDrawer::Scissor(const rex::gpu::OverlayDraw &draw, u32 &l,
-                                 u32 &t, u32 &w, u32 &h) const {
-  if (!draw.scissor) {
-    l = 0;
-    t = 0;
-    w = rt_w_;
-    h = rt_h_;
-    return rt_w_ && rt_h_;
-  }
-  const rex::gpu::OverlayRect &sc = *draw.scissor;
-  const float rt_wf = float(rt_w_);
-  const float rt_hf = float(rt_h_);
-  const float scale_x = rt_wf / coord_w_;
-  const float scale_y = rt_hf / coord_h_;
-  const float x0f = rex::clamp_float(sc.left * scale_x, 0.0f, rt_wf);
-  const float y0f = rex::clamp_float(sc.top * scale_y, 0.0f, rt_hf);
-  const float x1f = rex::clamp_float(sc.right * scale_x, x0f, rt_wf);
-  const float y1f = rex::clamp_float(sc.bottom * scale_y, y0f, rt_hf);
-  // 16p8 fixed point, top-left includes .5 and bottom-right excludes it.
-  const i32 x0 = (i32(std::nearbyint(x0f * 256.0f)) + 127) >> 8;
-  const i32 y0 = (i32(std::nearbyint(y0f * 256.0f)) + 127) >> 8;
-  const i32 x1 = (i32(std::nearbyint(x1f * 256.0f)) + 127) >> 8;
-  const i32 y1 = (i32(std::nearbyint(y1f * 256.0f)) + 127) >> 8;
-  l = u32(x0);
-  t = u32(y0);
-  w = u32(x1 - x0);
-  h = u32(y1 - y0);
-  return x1 > x0 && y1 > y0;
-}
-
-void ImGuiOverlayDrawer::Begin(rex::gpu::OverlayDrawContext &ctx, float width,
-                               float height) {
-  rt_w_ = ctx.GetRenderTargetWidth();
-  rt_h_ = ctx.GetRenderTargetHeight();
-  if (!(width > 0.0f) || !(height > 0.0f)) {
-    width = float(rt_w_);
-    height = float(rt_h_);
-  }
-  coord_w_ = width;
-  coord_h_ = height;
-  batch_open_ = false;
-  if (!TryInitDeviceResources()) {
-    cmd_ = nullptr;
+  if (!UploadRGBA8Texture(w, h, rgba.data(), tex, view, slot)) {
+    REXBD_WARN("ImGui overlay: texture upload failed ({}x{})", w, h);
     return;
   }
+  RetireTexture(texture);
+  texture.BackendUserData =
+      new PlumeImmediateTexture(slot, std::move(tex), std::move(view));
+  texture.SetTexID(static_cast<ImTextureID>(slot));
+  texture.SetStatus(ImTextureStatus_OK);
+}
 
-  auto &rctx = static_cast<ReblueUIDrawContext &>(ctx);
-  cmd_ = rctx.command_list();
-  if (!cmd_)
+void ImGuiOverlayDrawer::RenderOverlays(ImDrawData &draw_data) {
+  // The device does not exist yet, or the frame has no open command list.
+  // Textures stay queued in ImGui and go up on a later frame.
+  if (!cmd_ || !TryInitDeviceResources())
     return;
 
-  const float cw = coord_w_;
-  const float ch = coord_h_;
+  if (draw_data.Textures) {
+    for (ImTextureData *texture : *draw_data.Textures)
+      UpdateTexture(*texture);
+  }
 
-  cmd_->setFramebuffer(rctx.framebuffer());
-  plume::RenderViewport vp(
-      0.0f, 0.0f, static_cast<float>(ctx.GetRenderTargetWidth()),
-      static_cast<float>(ctx.GetRenderTargetHeight()), 0.0f, 1.0f);
+  const float disp_w = draw_data.DisplaySize.x;
+  const float disp_h = draw_data.DisplaySize.y;
+  if (!(disp_w > 0.0f) || !(disp_h > 0.0f) || !rt_w_ || !rt_h_)
+    return;
+
+  cmd_->setFramebuffer(fb_);
+  plume::RenderViewport vp(0.0f, 0.0f, static_cast<float>(rt_w_),
+                           static_cast<float>(rt_h_), 0.0f, 1.0f);
   cmd_->setViewports(&vp, 1);
   // Bind our layout before the sets: BeginCommandList leaves reblue's main
   // layout active and sets bind against whatever layout is current.
@@ -358,65 +360,62 @@ void ImGuiOverlayDrawer::Begin(rex::gpu::OverlayDrawContext &ctx, float width,
     float scale[2];
     float translate[2];
   } ortho;
-  ortho.scale[0] = 2.0f / cw;
-  ortho.scale[1] = -2.0f / ch;
-  ortho.translate[0] = -1.0f;
-  ortho.translate[1] = 1.0f;
+  ortho.scale[0] = 2.0f / disp_w;
+  ortho.scale[1] = -2.0f / disp_h;
+  ortho.translate[0] = -1.0f - draw_data.DisplayPos.x * ortho.scale[0];
+  ortho.translate[1] = 1.0f - draw_data.DisplayPos.y * ortho.scale[1];
   cmd_->setGraphicsPushConstants(0, &ortho, 0, sizeof(ortho));
-}
 
-void ImGuiOverlayDrawer::BeginBatch(const rex::gpu::OverlayBatch &b) {
-  batch_open_ = false;
-  if (!cmd_ || b.vertices.empty())
-    return;
+  const float scale_x = static_cast<float>(rt_w_) / disp_w;
+  const float scale_y = static_cast<float>(rt_h_) / disp_h;
 
-  const u32 vbytes =
-      u32(sizeof(rex::gpu::OverlayVertex)) * u32(b.vertices.size());
-  ConstantAllocation va = UploadHostBytes(b.vertices.data(), vbytes, 16);
-  if (!va.memory)
-    return;
-  const plume::RenderVertexBufferView vbv(va.ref, va.size);
-  cmd_->setVertexBuffers(0, &vbv, 1, &kImGuiInputSlot);
-
-  if (!b.indices.empty()) {
-    const u32 ibytes = u32(sizeof(u16)) * u32(b.indices.size());
-    ConstantAllocation ia = UploadHostBytes(b.indices.data(), ibytes, 4);
-    if (!ia.memory)
-      return;
-    const plume::RenderIndexBufferView ibv(ia.ref, ia.size,
-                                           plume::RenderFormat::R16_UINT);
+  for (const ImDrawList *list : draw_data.CmdLists) {
+    const u32 vbytes = u32(sizeof(ImDrawVert)) * u32(list->VtxBuffer.Size);
+    const u32 ibytes = u32(sizeof(ImDrawIdx)) * u32(list->IdxBuffer.Size);
+    if (!vbytes || !ibytes)
+      continue;
+    ConstantAllocation va = UploadHostBytes(list->VtxBuffer.Data, vbytes, 16);
+    ConstantAllocation ia = UploadHostBytes(list->IdxBuffer.Data, ibytes, 4);
+    if (!va.memory || !ia.memory)
+      continue;
+    const plume::RenderVertexBufferView vbv(va.ref, va.size);
+    cmd_->setVertexBuffers(0, &vbv, 1, &kImGuiInputSlot);
+    const plume::RenderIndexBufferView ibv(
+        ia.ref, ia.size,
+        sizeof(ImDrawIdx) == 2 ? plume::RenderFormat::R16_UINT
+                               : plume::RenderFormat::R32_UINT);
     cmd_->setIndexBuffer(&ibv);
+
+    for (const ImDrawCmd &pcmd : list->CmdBuffer) {
+      if (pcmd.UserCallback || pcmd.ElemCount == 0)
+        continue;
+      const float x0 = rex::clamp_float(
+          (pcmd.ClipRect.x - draw_data.DisplayPos.x) * scale_x, 0.0f,
+          static_cast<float>(rt_w_));
+      const float y0 = rex::clamp_float(
+          (pcmd.ClipRect.y - draw_data.DisplayPos.y) * scale_y, 0.0f,
+          static_cast<float>(rt_h_));
+      const float x1 = rex::clamp_float(
+          (pcmd.ClipRect.z - draw_data.DisplayPos.x) * scale_x, x0,
+          static_cast<float>(rt_w_));
+      const float y1 = rex::clamp_float(
+          (pcmd.ClipRect.w - draw_data.DisplayPos.y) * scale_y, y0,
+          static_cast<float>(rt_h_));
+      if (x1 <= x0 || y1 <= y0)
+        continue;
+      plume::RenderRect rc(i32(x0), i32(y0), i32(std::ceil(x1)),
+                           i32(std::ceil(y1)));
+      cmd_->setScissors(&rc, 1);
+
+      u32 slots[2] = {white_slot_, 0};
+      if (const ImTextureID id = pcmd.GetTexID())
+        slots[0] = static_cast<u32>(id);
+      cmd_->setGraphicsPushConstants(1, slots, 0, sizeof(slots));
+
+      cmd_->drawIndexedInstanced(pcmd.ElemCount, 1, pcmd.IdxOffset,
+                                 static_cast<i32>(pcmd.VtxOffset), 0);
+    }
   }
-  batch_open_ = true;
-}
-
-void ImGuiOverlayDrawer::Draw(const rex::gpu::OverlayDraw &draw) {
-  if (!cmd_ || !batch_open_ || draw.count == 0)
-    return;
-
-  u32 l, t, w, h;
-  if (!Scissor(draw, l, t, w, h))
-    return; // empty -> skip
-  plume::RenderRect rc(i32(l), i32(t), i32(l + w), i32(t + h));
-  cmd_->setScissors(&rc, 1);
-
-  u32 tex_slot = white_slot_;
-  u32 samp_slot = 0;
-  if (draw.texture) {
-    auto *tex = static_cast<PlumeImmediateTexture *>(draw.texture);
-    tex_slot = tex->tex_slot();
-    samp_slot = tex->sampler_slot();
-  }
-  u32 slots[2] = {tex_slot, samp_slot};
-  cmd_->setGraphicsPushConstants(1, slots, 0, sizeof(slots)); // PIXEL range 1
-
-  cmd_->drawIndexedInstanced(draw.count, 1, draw.index_offset,
-                             draw.base_vertex, 0);
-}
-
-void ImGuiOverlayDrawer::EndBatch() { batch_open_ = false; }
-
-void ImGuiOverlayDrawer::End() {
   cmd_ = nullptr;
 }
 

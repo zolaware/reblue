@@ -10,6 +10,8 @@
 #include "engine/input/button_map.h"
 #include "reblue_init.h"
 #include <rex/types.h>
+#include <rex/ppc/hook.h>
+#include <rex/kernel/memory_view.h>
 
 REX_IMPORT(__imp__bdInputCheckButton, InputCheckButton, u32(u32, u32, u32));
 // The trailing argument is the caller's priority, which every in-game reader

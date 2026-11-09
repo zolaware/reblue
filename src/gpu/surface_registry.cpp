@@ -9,7 +9,7 @@
 
 #include <functional>
 #include <mutex>
-#include <rex/dbg.h>
+#include <rex/platform/perf.h>
 #include <rex/types.h>
 #include <unordered_map>
 #include <vector>
@@ -88,7 +88,7 @@ GuestTexture *CreateSurface(u32 width, u32 height, u32 guest_format,
   auto *surface = HostResourceHeap::Alloc<GuestTexture>(
       is_depth ? ResourceType::DepthStencil : ResourceType::RenderTarget);
   if (!surface) {
-    REXLOG_ERROR(bd, "CreateSurface: host resource heap exhausted");
+    REXBD_ERROR("CreateSurface: host resource heap exhausted");
     return nullptr;
   }
   InitResourceHeader(surface->x360.as_surface.resource,
@@ -125,7 +125,7 @@ GuestTexture *CreateSurface(u32 width, u32 height, u32 guest_format,
       Video::BindTextureSRV(surface);
     }
   } else {
-    REXLOG_ERROR(bd, "CreateSurface fired before Video host device exists");
+    REXBD_ERROR("CreateSurface fired before Video host device exists");
   }
   surface->format = plume_format;
   surface->guestFormat = guest_format;
@@ -141,7 +141,7 @@ void RecreateSurface(GuestTexture *surface, float scale_x, float scale_y) {
   surface->scaleY = scale_y;
   Video::RecreateTexture(surface);
   if (!surface->texture) {
-    REXLOG_ERROR(bd, "surface rescale failed for {:08X}",
+    REXBD_ERROR("surface rescale failed for {:08X}",
                  HostResourceHeap::ToGuest(surface));
     return;
   }

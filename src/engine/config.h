@@ -26,6 +26,7 @@ public:
   bool CamRollInv() const;
 
   bool SetHddCache(u32 v);
+  bool SetPadLogSlot(u32 v);
   bool SetDebugInputKey(u32 v);
   bool SetDebugInputPad(u32 v);
   bool SetDebugMenuBoot(u32 v);

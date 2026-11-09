@@ -13,21 +13,20 @@
 #include <functional>
 #include <string>
 
-#include <rex/ui/imgui_dialog.h>
+#include <rex/ui/ui_system.h>
 
 struct ImGuiIO;
 
 namespace bd::installer {
 
-class UpgradePrompt final : public rex::ui::ImGuiDialog {
+class UpgradePrompt final : public rex::ui::DialogBase {
 public:
   using DoneCallback = std::function<void(bool accepted)>;
 
   UpgradePrompt(std::filesystem::path install_root, std::string installed,
                 DoneCallback on_done);
 
-protected:
-  void OnDraw(ImGuiIO &io) override;
+  bool Draw(ImGuiIO &io) override;
 
 private:
   void Answer(bool accepted);

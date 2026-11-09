@@ -7,7 +7,7 @@
 
 #pragma once
 
-#include <rex/hook.h>
+#include <rex/ppc/hook.h>
 #include <rex/types.h>
 
 REX_IMPORT(__imp__bdPlaySoundEffect, PlaySoundEffect, u32(u32));

@@ -8,11 +8,12 @@
  * @license   BSD 3-Clause License
  *            See LICENSE file in the project root for full license text.
  */
-#include <rex/hook.h>
-#include <rex/ppc/detour.h>
+#include <rex/ppc/hook.h>
 
+#include "core/frame_meter.h"
 #include "engine/battle_task.h"
 #include "engine/cutscene_pause.h"
+#include "engine/frame_clock.h"
 #include "engine/frame_interp.h"
 #include "engine/hud_fade.h"
 #include "engine/input/dispatch.h"
@@ -22,6 +23,8 @@ REX_DETOUR(bdMainGameStep, void, (u32 step)) {
   bd::engine::BattleTask::OnBattleGameStep();
   bd::engine::HudFade::Get().Poll();
   bd::engine::CutscenePause::Get().Poll();
+  if (bd::engine::TickDue())
+    bd::FrameMeterTickBegin();
   original(step);
   bd::engine::RunDispatch();
 }

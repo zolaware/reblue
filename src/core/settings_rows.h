@@ -72,7 +72,6 @@ struct SettingRow {
   SettingSpecial special = SettingSpecial::None;
   // The value is one of the stock game options, so it participates in the
   // per-save override.
-  bool saveScoped = false;
   // The disc does not have this row at all. The guest's own removal pass is
   // Camp__Config__MainTask__BuildRows and these predicates mirror its
   // conditions.

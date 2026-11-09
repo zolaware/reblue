@@ -24,8 +24,6 @@ float Alpha();
 
 u64 TickCount();
 
-double TicksPerSecond();
-
 double FrameTime();
 
 double FrameDelta();

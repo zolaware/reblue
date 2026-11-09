@@ -16,8 +16,7 @@
 #include <utility>
 #include <vector>
 
-#include <rex/hook.h>
-#include <rex/ppc/detour.h>
+#include <rex/ppc/hook.h>
 #include <rex/ppc/stack.h>
 #include <rex/types.h>
 
@@ -621,8 +620,8 @@ void AreaMap::Draw(const MechattMapMainTask &screen) {
   // The body draws at half alpha and ramps to nothing at the left and right
   // edges. The engine 2D path has no gradient of its own, so the ramp is three
   // quads whose vertex colors meet.
-  constexpr rex::Color kMapBodyColor = rex::Color::FromARGB8(0x80FFFFFFu);
-  constexpr rex::Color kMapEdgeColor = rex::Color::FromARGB8(0x00FFFFFFu);
+  constexpr rex::ui::Color kMapBodyColor = rex::ui::Color::FromARGB8(0x80FFFFFFu);
+  constexpr rex::ui::Color kMapEdgeColor = rex::ui::Color::FromARGB8(0x00FFFFFFu);
   constexpr float kFadeRatio = 0.05f;
 
   const auto corner = [&](float x, float y, float u, float v, u32 color) {
@@ -651,7 +650,7 @@ void AreaMap::Draw(const MechattMapMainTask &screen) {
   };
 
   const auto band = [&](float x0, float x1, float uLeft, float uRight,
-                        rex::Color colorLeft, rex::Color colorRight) {
+                        rex::ui::Color colorLeft, rex::ui::Color colorRight) {
     PrimBegin(kTexturedQuad2D, kMapZ);
     PrimSetTexture(0, floorTex);
     corner(x0, -halfH, uLeft, v0, colorLeft.ToARGB8());

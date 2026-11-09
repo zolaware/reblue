@@ -15,13 +15,13 @@
 #include <string_view>
 #include <vector>
 
-#include <rex/xenos/texture_conversion.h>
-#include <rex/xenos/texture_layout.h>
-#include <rex/xenos/xenos.h>
-#include <rex/hook.h>
-#include <rex/ppc/detour.h>
+#include <rex/xenos/texture.h>
+#include <rex/logging/log_category.h>
+#include <rex/kernel/memory_view.h>
+#include <rex/xenos/format.h>
+#include <rex/ppc/hook.h>
 #include <rex/types.h>
-#include <rex/hid/virtual_key.h>
+#include <rex/input_keys.h>
 
 #include "core/logging.h"
 #include "core/memory_helpers.h"
@@ -228,7 +228,7 @@ int PadSetIndex(int padButton) {
 
 int PadGlyphIndex(Action action) {
   for (const Source &s : Bindings::Get().Sources(action)) {
-    if (s.kind == SourceKind::kPadButton)
+    if (s.type == SourceKind::kPadButton)
       return PadSetIndex(int(s.code));
   }
   return -1;
@@ -269,7 +269,7 @@ PadSet HostPadSet() {
   }
 }
 
-int IndexOfKey(rex::hid::VirtualKey key) {
+int IndexOfKey(rex::VirtualKey key) {
   const auto *begin = std::begin(platform::kBindableKeys);
   const auto *end = std::end(platform::kBindableKeys);
   const auto *found = std::find(begin, end, key);
@@ -279,15 +279,15 @@ int IndexOfKey(rex::hid::VirtualKey key) {
 } // namespace
 
 int KeyIndex(std::string_view keyName) {
-  const rex::hid::VirtualKey key = rex::hid::ParseVirtualKey(keyName);
-  return rex::hid::VirtualKeyToString(key) == keyName ? IndexOfKey(key) : -1;
+  const rex::VirtualKey key = bd::platform::HID().ParseVirtualKey(keyName);
+  return bd::platform::HID().VirtualKeyToString(key) == keyName ? IndexOfKey(key) : -1;
 }
 
 int BoundKeyIndex(Action action) {
   for (const Source &s : Bindings::Get().Sources(action)) {
-    if (s.kind != SourceKind::kKey)
+    if (s.type != SourceKind::kKey)
       continue;
-    return IndexOfKey(static_cast<rex::hid::VirtualKey>(s.code));
+    return IndexOfKey(static_cast<rex::VirtualKey>(s.code));
   }
   return -1;
 }
@@ -354,7 +354,7 @@ void Glyphs::Rebind() {
     nameBlock_ =
         gpu::HostHeap::Get().AllocGuest(kNameStride * kHelpCells, 16);
     if (!nameBlock_) {
-      REXLOG_WARN(bd, "glyphs no engine memory for cell names, prompts stay stock");
+      REXBD_WARN("glyphs no engine memory for cell names, prompts stay stock");
       return;
     }
     for (int i = 0; i < kHelpCells; ++i) {

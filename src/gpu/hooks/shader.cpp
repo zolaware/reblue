@@ -11,8 +11,8 @@
 #include <cstring>
 #include <mutex>
 
-#include <rex/hook.h>
-#include <rex/runtime.h>
+#include <rex/ppc/hook.h>
+#include <rex/kernel/title_runtime.h>
 #include <rex/types.h>
 
 #include <plume_render_interface.h>
@@ -39,7 +39,7 @@ namespace {
 // GuestVertexDeclaration so SetVertexDeclaration_hook can FromGuest it. The
 // engine only stores and forwards the pointer, so the layout need not match.
 bd::gpu::GuestVertexDeclaration *hcgCreateVertexDeclaration_hook(
-    rex::MappedPtr<bd::gpu::GuestVertexElement> elements) {
+    rex::memory::MappedPtr<bd::gpu::GuestVertexElement> elements) {
   if (!elements)
     return nullptr;
   return bd::gpu::CreateVertexDeclaration(
@@ -90,14 +90,14 @@ GetOrCreateBlitShader(bd::gpu::ResourceType type, const void *blob,
     return *cache_slot;
   auto *device = bd::gpu::Video::HostDevice();
   if (!device) {
-    REXLOG_ERROR(bd, "hcg*ShaderCreateByHlsl_hook: host device not ready");
+    REXBD_ERROR("hcg*ShaderCreateByHlsl_hook: host device not ready");
     return nullptr;
   }
   auto *shader = bd::gpu::HostResourceHeap::Alloc<bd::gpu::GuestShader>(type);
   shader->shader =
       device->createShader(blob, blob_size, "main", bd::gpu::kHostShaderFormat);
   if (!shader->shader) {
-    REXLOG_ERROR(bd, "hcg*ShaderCreateByHlsl_hook: createShader failed (type={})",
+    REXBD_ERROR("hcg*ShaderCreateByHlsl_hook: createShader failed (type={})",
              static_cast<u32>(type));
     bd::gpu::HostResourceHeap::Free(shader);
     return nullptr;
@@ -116,7 +116,7 @@ u32 HcgCreateByHlslImpl(bd::gpu::ResourceType type, const void *blob,
     return 0;
   const u32 slot_va = FindEmptyHcgSlot(table_base, table_end);
   if (!slot_va) {
-    REXLOG_ERROR(bd, "hcg*ShaderCreateByHlsl_hook: slot table full");
+    REXBD_ERROR("hcg*ShaderCreateByHlsl_hook: slot table full");
     return 0;
   }
   bd::mem::store<u32>(slot_va, bd::gpu::HostResourceHeap::ToGuest(shader));

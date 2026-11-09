@@ -10,11 +10,12 @@
  */
 #pragma once
 
+#include <atomic>
 #include <string>
 
 #include <rex/types.h>
 
-#include <rex/ui/imgui_dialog.h>
+#include <rex/ui/ui_system.h>
 
 #include "engine/engine.h"
 
@@ -29,17 +30,19 @@ struct UpdatePromptContext {
 
 // The download runs in Updates, not here, so closing this mid-download costs
 // nothing and the dialog owns no thread.
-class UpdatePromptDialog final : public rex::ui::ImGuiDialog {
+class UpdatePromptDialog final : public rex::ui::DialogBase {
 public:
   explicit UpdatePromptDialog(UpdatePromptContext ctx);
 
-protected:
-  void OnDraw(ImGuiIO &io) override;
+  bool Draw(ImGuiIO &io) override;
+  void OnClose() override { closed_.store(true); }
+  bool IsClosed() const { return closed_.load(); }
 
 private:
   engine::HostPointerClaim pointer_;
   UpdatePromptContext ctx_;
   bool accepted_ = false;
+  std::atomic<bool> closed_{false};
 };
 
 } // namespace bd::ui

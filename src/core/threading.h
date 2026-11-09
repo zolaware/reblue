@@ -1,6 +1,6 @@
 /**
  * @file    core/threading.h
- * @brief   Native threading, sleep, and frame timing hooks.
+ * @brief   Native threading hooks.
  *
  * @copyright Copyright (c) 2026 Tom Clay <tomc@tctechstuff.com>
  *            All rights reserved.

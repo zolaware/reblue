@@ -7,27 +7,27 @@
 #include <string>
 #include <vector>
 
-#include <rex/cvar.h>
-#include <rex/hid/bindings.h>
+#include <rex/hid/binding.h>
+#include <rex/hid/input_system.h>
 #include <rex/types.h>
 
 #include "engine/input/actions.h"
 
 namespace bd::engine {
 
-using Source = rex::hid::InputSource;
-using SourceKind = rex::hid::InputSourceKind;
+using Source = rex::InputSource;
+using SourceKind = rex::InputSourceType;
 
 class Bindings {
 public:
   static Bindings &Get();
 
-  void Init();
+  void Init(rex::hid::IInputSystem &input);
 
   // Adds the bind.* cvars to the registry and watches them. The registry keeps
   // the values a config file or the command line carried for them until then,
   // and the set reads them here.
-  void Register(rex::cvar::ICvarRegistry &registry);
+  void Register();
   void Unregister();
 
   // Seeds bind.* from the retired hid.keybind_* cvars and the controller type.
@@ -39,7 +39,6 @@ public:
 
   bool SetSource(Action action, int slot, const Source &source);
   bool SetSources(Action action, std::span<const Source> sources);
-  bool ClearSources(Action action);
   bool Reset(Action action);
   bool ResetContext(ActionContext context);
 
@@ -52,9 +51,9 @@ public:
 private:
   Bindings() = default;
 
-  std::array<rex::hid::BindingDesc, kActionCount> descs_;
+  std::array<rex::hid::BindingConfig, kActionCount> descs_;
   std::array<std::string, kActionCount> descriptions_;
-  std::unique_ptr<rex::hid::BindingSet> set_;
+  std::unique_ptr<rex::hid::IBindingSet> set_;
   bool migrated_ = false;
 };
 

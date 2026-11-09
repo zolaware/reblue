@@ -23,14 +23,16 @@
 #include <unordered_set>
 #include <vector>
 
-#include <rex/dbg.h>
-#include <rex/hook.h>
-#include <rex/ppc.h>
-#include <rex/runtime.h>
-#include <rex/runtime/function_dispatcher.h>
-#include <rex/runtime/xtypes.h>
+#include <rex/platform/perf.h>
+#include <rex/ppc/hook.h>
+#include <rex/kernel/types/memory.h>
+#include <rex/memory/mapped_ptr.h>
+#include <rex/ppc/call.h>
+#include <rex/ppc/context.h>
+#include <rex/kernel/memory_view.h>
+#include <rex/kernel/title_runtime.h>
+#include <rex/kernel/function_dispatcher.h>
 #include <rex/types.h>
-#include <rex/ppc/detour.h>
 #include <rex/ppc/midasm.h>
 
 #include "core/guest_global.h"
@@ -55,6 +57,7 @@
 #include "engine/virtual_buttons.h"
 #include "engine/visual_object.h"
 #include "gpu/gpu.h"
+#include "platform/host_ui.h"
 
 namespace {
 
@@ -1050,7 +1053,7 @@ struct IssEvent_t {
   /* 0x088 */ be_u32 state;
   /* 0x08C */ u8 _pad08C[0x3EC - 0x8C];
   /* 0x3EC */ be_f32 speed;
-  /* 0x3F0 */ rex::be_ptr<IssChild_t> childList;
+  /* 0x3F0 */ rex::kernel::be_ptr<IssChild_t> childList;
 };
 static_assert(offsetof(IssEvent_t, frame) == 0x68);
 static_assert(offsetof(IssEvent_t, state) == 0x88);
@@ -1060,8 +1063,8 @@ static_assert(offsetof(IssEvent_t, childList) == 0x3F0);
 struct IssChild_t {
   /* 0x00 */ be_u32 vtable;
   /* 0x04 */ u8 _pad004[0x80 - 0x04];
-  /* 0x80 */ rex::be_ptr<IssEvent_t> parent;
-  /* 0x84 */ rex::be_ptr<IssChild_t> next;
+  /* 0x80 */ rex::kernel::be_ptr<IssEvent_t> parent;
+  /* 0x84 */ rex::kernel::be_ptr<IssChild_t> next;
 };
 static_assert(offsetof(IssChild_t, parent) == 0x80);
 static_assert(offsetof(IssChild_t, next) == 0x84);
@@ -1225,7 +1228,7 @@ static_assert(offsetof(AnimClip_t, length) == 0x04);
 
 struct AnimSlot_t {
   /* 0x00 */ u8 _pad00[0x0C];
-  /* 0x0C */ rex::be_ptr<AnimClip_t> clip;
+  /* 0x0C */ rex::kernel::be_ptr<AnimClip_t> clip;
 };
 static_assert(offsetof(AnimSlot_t, clip) == 0x0C);
 
@@ -1236,7 +1239,7 @@ struct CharaAnim_t {
   /* 0x768 */ be_f32 cursor;
   /* 0x76C */ be_f32 cursorRate;
   /* 0x770 */ u8 _pad770[0x780 - 0x770];
-  /* 0x780 */ rex::be_ptr<AnimSlot_t> anim;
+  /* 0x780 */ rex::kernel::be_ptr<AnimSlot_t> anim;
 };
 static_assert(offsetof(CharaAnim_t, loopFlag) == 0x754);
 static_assert(offsetof(CharaAnim_t, cursor) == 0x768);
@@ -1304,16 +1307,16 @@ IssEvent_t *DrivenEvent(u32 childEA) {
   if (!g_hostEvtDrive && g_evtTickAdvanced.find(child->parent.GetAddress()) ==
                              g_evtTickAdvanced.end())
     return nullptr;
-  return child->parent.get();
+  return child->parent.GetHost();
 }
 
 template <typename F> void ForEachEventChild(const IssEvent_t &evt, F &&visit) {
   u32 childEA = evt.childList.GetAddress();
-  auto *child = evt.childList.get();
+  auto *child = evt.childList.GetHost();
   for (int guard = 0; child && guard < kMaxEventChildren; ++guard) {
     visit(childEA, *child);
     childEA = child->next.GetAddress();
-    child = child->next.get();
+    child = child->next.GetHost();
   }
 }
 
@@ -1374,7 +1377,7 @@ bool CameraOutputFinite(const IssCamera_t &cam) {
   return true;
 }
 
-void CameraGuardCapture(rex::MappedPtr<IssCamera_t> cam) {
+void CameraGuardCapture(rex::memory::MappedPtr<IssCamera_t> cam) {
   if (!cam || !CameraOutputFinite(*cam))
     return;
   CamSave &s = g_camSaves[cam.GetGuestAddress()];
@@ -1382,13 +1385,13 @@ void CameraGuardCapture(rex::MappedPtr<IssCamera_t> cam) {
   ReadFloats(cam->dir, s.dir, 2);
   ReadFloats(cam->sample, s.sample, kCamSampleFloats);
   if (const auto view = bd::mem::view()) {
-    ReadFloats(kCamPosGlobal.get(*view)->v, s.posGlobal, 3);
-    ReadFloats(kCamDirGlobal.get(*view)->v, s.dirGlobal, 3);
+    ReadFloats(kCamPosGlobal.GetHost(*view)->v, s.posGlobal, 3);
+    ReadFloats(kCamDirGlobal.GetHost(*view)->v, s.dirGlobal, 3);
   }
   s.valid = true;
 }
 
-void CameraGuardRepair(rex::MappedPtr<IssCamera_t> cam) {
+void CameraGuardRepair(rex::memory::MappedPtr<IssCamera_t> cam) {
   if (!cam || CameraOutputFinite(*cam))
     return;
   auto it = g_camSaves.find(cam.GetGuestAddress());
@@ -1399,8 +1402,8 @@ void CameraGuardRepair(rex::MappedPtr<IssCamera_t> cam) {
   WriteFloats(cam->dir, s.dir, 2);
   WriteFloats(cam->sample, s.sample, kCamSampleFloats);
   if (const auto view = bd::mem::view()) {
-    WriteFloats(kCamPosGlobal.get(*view)->v, s.posGlobal, 3);
-    WriteFloats(kCamDirGlobal.get(*view)->v, s.dirGlobal, 3);
+    WriteFloats(kCamPosGlobal.GetHost(*view)->v, s.posGlobal, 3);
+    WriteFloats(kCamDirGlobal.GetHost(*view)->v, s.dirGlobal, 3);
   }
 }
 
@@ -1408,8 +1411,6 @@ f32 DriveEventChildren(IssEvent_t &evt, f32 frac) {
   const f32 speed = evt.speed;
   if (speed == 0.0f)
     return 0.0f;
-  auto *runtime = rex::GetProcessRuntime();
-  auto *dispatcher = runtime ? runtime->GetFunctionDispatcher() : nullptr;
   evt.speed = speed * frac;
   g_hostEvtDrive = true;
   g_evtWindowClosing = false;
@@ -1421,7 +1422,7 @@ f32 DriveEventChildren(IssEvent_t &evt, f32 frac) {
       return;
     if (fn == kIssCameraUpdateEA)
       g_evtCameras.insert(childEA);
-    else if (auto *host = dispatcher ? dispatcher->GetFunction(fn) : nullptr)
+    else if (auto *host = bd::platform::FindTitleFunction(fn))
       rex::ppc::HostToGuestCall<void>(host, childEA);
   });
   g_hostEvtDrive = false;
@@ -1503,7 +1504,7 @@ struct EvtSpeedRemainder {
     const auto it = g_evtTickAdvanced.find(child->parent.GetAddress());
     if (it == g_evtTickAdvanced.end() || EvtClipRestarted(childEA))
       return;
-    evt = child->parent.get();
+    evt = child->parent.GetHost();
     if (!evt)
       return;
     if (!g_evtTickScaled.insert(childEA).second) {
@@ -1540,10 +1541,8 @@ void FlushEvtHidePending() {
     if (obj && u32(obj->hidePending) != 0)
       obj->visible = 0u;
   }
-  auto *runtime = rex::GetProcessRuntime();
-  auto *apply = runtime ? runtime->GetFunctionDispatcher()->GetFunction(
-                              kIssActorApplySpecialModelFlagsEA)
-                        : nullptr;
+  auto *apply =
+      bd::platform::FindTitleFunction(kIssActorApplySpecialModelFlagsEA);
   for (const u32 ea : g_evtActorHides) {
     auto *actor = live.count(ea) ? bd::mem::try_at<IssActor_t>(ea) : nullptr;
     if (apply && actor && u32(actor->hidePending) != 0)
@@ -1599,7 +1598,7 @@ static_assert(offsetof(LipRecord_t, level) == 0x08);
 static_assert(sizeof(LipRecord_t) == 0x10);
 
 struct LipClip_t {
-  /* 0x00 */ rex::be_ptr<LipRecord_t> records;
+  /* 0x00 */ rex::kernel::be_ptr<LipRecord_t> records;
   /* 0x04 */ u8 _pad004[0x44 - 0x04];
   /* 0x44 */ be_u32 recordCount;
 };
@@ -1609,7 +1608,7 @@ struct LipOwner_t;
 
 struct LipPlayer_t {
   /* 0x00 */ be_u32 state;
-  /* 0x04 */ rex::be_ptr<LipClip_t> clip;
+  /* 0x04 */ rex::kernel::be_ptr<LipClip_t> clip;
   /* 0x08 */ be_f32 cursor;
   /* 0x0C */ u8 _pad00C[0x30 - 0x0C];
   /* 0x30 */ u8 viseme;
@@ -1617,7 +1616,7 @@ struct LipPlayer_t {
   /* 0x32 */ u8 _pad032[0x34 - 0x32];
   /* 0x34 */ be_f32 amp;
   /* 0x38 */ u8 _pad038[0x50 - 0x38];
-  /* 0x50 */ rex::be_ptr<LipOwner_t> owner;
+  /* 0x50 */ rex::kernel::be_ptr<LipOwner_t> owner;
 };
 static_assert(offsetof(LipPlayer_t, cursor) == 0x08);
 static_assert(offsetof(LipPlayer_t, viseme) == 0x30);
@@ -1646,7 +1645,7 @@ f64 LipContinuous(f64 db) {
 } // namespace
 
 REX_DETOUR(LipPlayerApply, void, (LipPlayer_t *lip, u32 outFlag)) {
-  auto *owner = lip ? lip->owner.get() : nullptr;
+  auto *owner = lip ? lip->owner.GetHost() : nullptr;
   const u32 prevVis = lip ? lip->prevViseme : 0;
   const f32 blendBefore = owner ? f32(owner->blend) : 0.0f;
   original(lip, outFlag);
@@ -1664,13 +1663,13 @@ REX_DETOUR(LipPlayerSample, void, (LipPlayer_t *lip)) {
     return;
   if (u32(lip->state) != kLipPlaying)
     return;
-  auto *clip = lip->clip.get();
+  auto *clip = lip->clip.GetHost();
   if (!clip)
     return;
   const f32 cursor = lip->cursor;
   const u32 count = clip->recordCount;
   const u32 idx = u32(cursor) * 2;
-  const auto *records = clip->records.get();
+  const auto *records = clip->records.GetHost();
   if (!records || idx >= count)
     return;
   const u32 next = idx + 2 < count ? idx + 2 : idx;
@@ -1691,7 +1690,7 @@ REX_DETOUR(issEvent__Update, void, (IssEvent_t *evtTask)) {
 }
 
 REX_DETOUR(bdVisualObjectSetAnimation, void,
-           (rex::MappedPtr<CharaAnim_t> visualObject, u32 slot, u32 clip,
+           (rex::memory::MappedPtr<CharaAnim_t> visualObject, u32 slot, u32 clip,
             f32 blend, u32 arg4, u32 arg5)) {
   CharaAnim_t *anim = slot == 0 ? visualObject.GetHostPtr() : nullptr;
   const f32 before = anim ? f32(anim->cursor) : 0.0f;
@@ -1702,7 +1701,7 @@ REX_DETOUR(bdVisualObjectSetAnimation, void,
     g_evtRestartedVO.insert(visualObject.GetGuestAddress());
 }
 
-REX_DETOUR(issObject__Update, void, (rex::MappedPtr<IssObject_t> object)) {
+REX_DETOUR(issObject__Update, void, (rex::memory::MappedPtr<IssObject_t> object)) {
   EvtSpeedRemainder z(object.GetGuestAddress());
   auto *evt = DrivenEvent(object.GetGuestAddress());
   IssObject_t *obj = evt ? object.GetHostPtr() : nullptr;
@@ -1714,7 +1713,7 @@ REX_DETOUR(issObject__Update, void, (rex::MappedPtr<IssObject_t> object)) {
   g_evtWindowClosing = false;
 }
 
-REX_DETOUR(issCamera__Update, void, (rex::MappedPtr<IssCamera_t> camera)) {
+REX_DETOUR(issCamera__Update, void, (rex::memory::MappedPtr<IssCamera_t> camera)) {
   const bool guard =
       bd::engine::InterpolationActive() &&
       g_evtCameras.find(camera.GetGuestAddress()) != g_evtCameras.end();
@@ -1735,7 +1734,7 @@ REX_DETOUR(issSprite__Update, void, (u32 sprite)) {
   original(sprite);
 }
 
-REX_DETOUR(issActor__Update, void, (rex::MappedPtr<IssActor_t> actor)) {
+REX_DETOUR(issActor__Update, void, (rex::memory::MappedPtr<IssActor_t> actor)) {
   auto *evt = DrivenEvent(actor.GetGuestAddress());
   IssActor_t *act = evt ? actor.GetHostPtr() : nullptr;
   if (act) {
@@ -1753,8 +1752,8 @@ REX_DETOUR(bdAnimationUpdate, void,
   bool hold = false;
   f32 length = 0.0f;
   if (vo && u32(vo->loopFlag) != 0) {
-    auto *animSlot = vo->anim.get();
-    auto *clip = animSlot ? animSlot->clip.get() : nullptr;
+    auto *animSlot = vo->anim.GetHost();
+    auto *clip = animSlot ? animSlot->clip.GetHost() : nullptr;
     if (clip) {
       length = f32(u16(clip->length));
       const f32 cursor = vo->cursor;
@@ -1920,7 +1919,7 @@ struct EffParticle_t;
 
 struct EffSystem_t {
   /* 0x00 */ u8 _pad000[0x0C];
-  /* 0x0C */ rex::be_ptr<EffEmitter_t> emitters;
+  /* 0x0C */ rex::kernel::be_ptr<EffEmitter_t> emitters;
 };
 static_assert(offsetof(EffSystem_t, emitters) == 0x0C);
 
@@ -1932,14 +1931,14 @@ static_assert(offsetof(EffTask_t, system) == 0x14);
 
 struct EffEmitter_t {
   /* 0x000 */ u8 _pad000[0x04];
-  /* 0x004 */ rex::be_ptr<EffEmitter_t> next;
+  /* 0x004 */ rex::kernel::be_ptr<EffEmitter_t> next;
   /* 0x008 */ u8 _pad008[0xB0 - 0x08];
   /* 0x0B0 */ be_f32 worldPos[3];
   /* 0x0BC */ u8 _pad0BC[0xD0 - 0xBC];
-  /* 0x0D0 */ rex::be_ptr<EffEffect_t> effect;
-  /* 0x0D4 */ rex::be_ptr<EffEmitterDef_t> def;
+  /* 0x0D0 */ rex::kernel::be_ptr<EffEffect_t> effect;
+  /* 0x0D4 */ rex::kernel::be_ptr<EffEmitterDef_t> def;
   /* 0x0D8 */ u8 _pad0D8[0xDC - 0xD8];
-  /* 0x0DC */ rex::be_ptr<EffParticle_t> particles;
+  /* 0x0DC */ rex::kernel::be_ptr<EffParticle_t> particles;
 };
 static_assert(offsetof(EffEmitter_t, next) == 0x04);
 static_assert(offsetof(EffEmitter_t, worldPos) == 0xB0);
@@ -1957,8 +1956,8 @@ struct EffEffect_t {
   /* 0x00 */ u8 _pad000[0x04];
   /* 0x04 */ be_u32 emitterDefs;
   /* 0x08 */ u8 _pad008[0x1C - 0x08];
-  /* 0x1C */ rex::be_ptr<be_u32> curveMasks;
-  /* 0x20 */ rex::be_ptr<EffCurve_t> curves;
+  /* 0x1C */ rex::kernel::be_ptr<be_u32> curveMasks;
+  /* 0x20 */ rex::kernel::be_ptr<EffCurve_t> curves;
 };
 static_assert(offsetof(EffEffect_t, emitterDefs) == 0x04);
 static_assert(offsetof(EffEffect_t, curveMasks) == 0x1C);
@@ -1966,7 +1965,7 @@ static_assert(offsetof(EffEffect_t, curves) == 0x20);
 
 struct EffCurve_t {
   /* 0x00 */ be_u32 count;
-  /* 0x04 */ rex::be_ptr<be_f32> keys;
+  /* 0x04 */ rex::kernel::be_ptr<be_f32> keys;
 };
 static_assert(sizeof(EffCurve_t) == 0x08);
 
@@ -1978,7 +1977,7 @@ struct EffEmitterView {
 
 struct EffParticle_t {
   /* 0x000 */ u8 _pad000[0x04];
-  /* 0x004 */ rex::be_ptr<EffParticle_t> next;
+  /* 0x004 */ rex::kernel::be_ptr<EffParticle_t> next;
   /* 0x008 */ u8 _pad008[0x10 - 0x08];
   /* 0x010 */ be_f32 life;
   /* 0x014 */ be_f32 age;
@@ -2051,16 +2050,16 @@ template <typename F> void ForEachEffEmitter(const EffSystem_t *sys, F &&fn) {
   if (!sys)
     return;
   u32 emitterEA = sys->emitters.GetAddress();
-  auto *emitter = sys->emitters.get();
+  auto *emitter = sys->emitters.GetHost();
   for (int e = 0; emitter && e < kMaxEffEmitters; ++e) {
     fn(emitterEA, *emitter);
     emitterEA = emitter->next.GetAddress();
-    emitter = emitter->next.get();
+    emitter = emitter->next.GetHost();
   }
 }
 
 const EffCurve_t *EffUVCurves(const EffEmitter_t &e) {
-  const auto *effect = e.effect.get();
+  const auto *effect = e.effect.GetHost();
   if (!effect)
     return nullptr;
   const u32 defEA = e.def.GetAddress();
@@ -2074,7 +2073,7 @@ const EffCurve_t *EffUVCurves(const EffEmitter_t &e) {
                          ? bd::mem::try_at<const be_u32>(
                                effect->curveMasks.GetAddress() + index * 4)
                          : nullptr;
-  const auto *curves = effect->curves.get();
+  const auto *curves = effect->curves.GetHost();
   if (!mask || !curves || (u32(*mask) & kEffCurveMaskUV) == 0)
     return nullptr;
   return curves + (kEffCurvesPerEmitter * index + kEffCurveUV);
@@ -2086,7 +2085,7 @@ bool EvalEffCurve(const EffCurve_t *curve, float t, float &out) {
   const u32 count = curve->count;
   if (count < 2 || count > kMaxEffCurveKeys)
     return false;
-  const auto *keys = curve->keys.get();
+  const auto *keys = curve->keys.GetHost();
   if (!keys)
     return false;
   out = 0.0f;
@@ -2107,15 +2106,15 @@ template <typename F> void ForEachEffParticle(const EffSystem_t *sys, F &&fn) {
   ForEachEffEmitter(sys, [&](u32 emitterEA, EffEmitter_t &emitter) {
     EffEmitterView em;
     em.ea = emitterEA;
-    if (auto *def = emitter.def.get())
+    if (auto *def = emitter.def.GetHost())
       em.flags = def->flags;
     em.uvCurves = EffUVCurves(emitter);
     u32 particleEA = emitter.particles.GetAddress();
-    auto *particle = emitter.particles.get();
+    auto *particle = emitter.particles.GetHost();
     for (int p = 0; particle && p < kMaxEffParticles; ++p) {
       fn(em, particleEA, *particle);
       particleEA = particle->next.GetAddress();
-      particle = particle->next.get();
+      particle = particle->next.GetHost();
     }
   });
 }

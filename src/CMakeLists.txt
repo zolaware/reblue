@@ -8,6 +8,7 @@ set(reblue_backend_only
     gpu/draw.cpp
     gpu/draw_framebuffer.cpp
     gpu/dred.cpp
+    gpu/frame_gpu_timer.cpp
     gpu/frame_ring.cpp
     gpu/gpu_profiling.cpp
     gpu/hooks/shader.cpp

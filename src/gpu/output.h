@@ -11,11 +11,6 @@
 #pragma once
 
 #include <rex/types.h>
-#include <rex/ui.h>
-
-namespace rex::ui {
-class IWindow;
-}
 
 namespace bd::gpu {
 
@@ -33,7 +28,7 @@ constexpr double kDesignCanvasAspectEpsilon = 0.01;
 
 class Output {
 public:
-  static void Init(rex::ui::IWindow &window);
+  static void Init(u32 window_w, u32 window_h);
 
   static bool Recompute();
   static u32 Generation();
@@ -48,7 +43,8 @@ public:
   static double ConfiguredAspect();
 
   // The window shape bd_aspect_ratio asks for, kStretch for Auto and Stretch.
-  static rex::ui::AspectRatio ConfiguredAspectRatio();
+  // The ui.aspect_ratio value that shapes the window to the chosen output.
+  static const char *ConfiguredWindowAspect();
 
   static bool StretchToFill();
 

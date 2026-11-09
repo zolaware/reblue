@@ -17,8 +17,8 @@
 #include <unordered_map>
 #include <vector>
 
-#include <rex/memory/byte_swap.h>
-#include <rex/string/utf8.h>
+#include <rex/memory/endian.h>
+#include <rex/string/text.h>
 
 namespace bd::engine {
 namespace {
@@ -97,7 +97,7 @@ Table Parse(const std::vector<u8> &bytes, bool flat) {
     wide.erase(0, 1);
 
   Table table;
-  const std::string text = rex::ToUTF8(wide);
+  const std::string text = rex::string::ToUTF8(wide);
   size_t pos = 0;
   while (pos <= text.size()) {
     size_t end = text.find('\n', pos);
@@ -143,10 +143,10 @@ const Table *GetOrLoadTable(const Source &src, const char *code) {
 
   Table &slot = g_tables.emplace(id, std::move(loaded)).first->second;
   if (slot.empty()) {
-    REXLOG_WARN(bd, "i18n no borrowable terms in {}", id);
+    REXBD_WARN("i18n no borrowable terms in {}", id);
     return nullptr;
   }
-  REXLOG_INFO(bd, "i18n borrowed {} terms from {}", slot.size(), id);
+  REXBD_INFO("i18n borrowed {} terms from {}", slot.size(), id);
   return &slot;
 }
 

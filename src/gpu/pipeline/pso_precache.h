@@ -38,8 +38,6 @@ private:
 
 using TokenPtr = std::shared_ptr<CompileToken>;
 
-bool PrecacheEnabled();
-
 // 'state' MUST already be sanitized (SanitizePipelineState) so its dedup hash
 // matches the cache key. Auto-attaches to the thread's active load capture
 // (BeginLoadCapture), which routes the work to the priority lane so it

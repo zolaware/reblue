@@ -14,6 +14,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <rex/platform/native_window.h>
 #include <rex/types.h>
 #include <string>
 #include <unordered_map>
@@ -25,10 +26,6 @@
 #include "gpu/deferred_destroy.h"
 #include "gpu/pipeline/pipeline_state.h"
 #include "gpu/resources.h"
-
-namespace rex::ui {
-class IWindow;
-}
 
 namespace bd::gpu {
 
@@ -45,7 +42,8 @@ public:
   }
 
   // Host setup runs pre-Runtime, and the guest tail completes after.
-  static bool CreateHostDevice(rex::ui::IWindow &window);
+  static bool CreateHostDevice(const rex::NativeWindow &window, u32 window_w,
+                               u32 window_h);
 
   // Shutdown stage 1: atomic store only, so it cannot deadlock against a guest
   // thread parked inside the renderer. After it returns BeginCommandList
@@ -136,6 +134,10 @@ public:
   // UINT32_MAX / sentinels.
   static void FreeBindlessTextureSlot(u32 slot);
 
+  // FreeBindlessTextureSlot for a caller that already has exclusive
+  // VideoState, like the overlay pass under a parked Present. Takes no lock.
+  static void FreeBindlessTextureSlotLocked(u32 slot);
+
   // Invoked from Present after the gamma composite, while the back buffer is
   // still COLOR_WRITE and bound. No-op if unset.
   using OverlayDrawHook = std::function<void(
@@ -157,23 +159,12 @@ public:
 
   static plume::RenderFormat SceneColorFormat();
 
-  struct VideoMemory {
-    u64 used = 0;
-    u64 budget = 0;
-  };
-  static VideoMemory MemoryUsage();
-
   // Live swapchain dimensions, or 0 if no swapchain yet.
   static u32 OutputWidth();
   static u32 OutputHeight();
 
-  static std::string GetDeviceName();
-
   // "D3D12" / "Vulkan", known before any device exists.
   static const char *BackendName();
-
-  // "D3D12 12_2" / "Vulkan 1.3.294". Empty until the device is up.
-  static const std::string &GetBackendInfo();
 
   // bd_msaa (0/2/4/8) clamped to supported_sample_mask, or COUNT_1 when off or
   // unsupported. Boot-latched, so runtime writes apply on the next reboot.
@@ -200,6 +191,13 @@ public:
   static void ParkTextureUntilFence(std::unique_ptr<plume::RenderTexture> tex);
   static void
   ParkTextureUntilFence(std::unique_ptr<plume::RenderTextureView> view);
+
+  // The ParkTextureUntilFence pair for a caller that already has exclusive
+  // VideoState. Take no lock.
+  static void
+  ParkTextureUntilFenceLocked(std::unique_ptr<plume::RenderTexture> tex);
+  static void
+  ParkTextureUntilFenceLocked(std::unique_ptr<plume::RenderTextureView> view);
 
   // Same one-extra-cycle deferral for an owned VB/IB's RenderBuffer: DrainSlot
   // only awaited the reused slot's fence, but the other in-flight list can

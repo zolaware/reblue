@@ -8,8 +8,7 @@
 
 #include <cstddef>
 
-#include <rex/hook.h>
-#include <rex/ppc/detour.h>
+#include <rex/ppc/hook.h>
 
 #include "core/memory_helpers.h"
 #include "engine/events.h"

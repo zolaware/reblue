@@ -9,7 +9,7 @@
 #include "engine/script.h"
 #include "engine/settings.h"
 
-#include <rex/ppc.h>
+#include <rex/ppc/context.h>
 #include <rex/types.h>
 #include <rex/ppc/midasm.h>
 

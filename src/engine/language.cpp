@@ -13,7 +13,7 @@
 #include "installer/installer.h"
 #include "vfs/vfs.h"
 
-#include <rex/ppc.h>
+#include <rex/ppc/context.h>
 #include <rex/ppc/midasm.h>
 
 #include <algorithm>

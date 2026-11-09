@@ -8,19 +8,36 @@
 
 #include "core/build_info.h"
 
+#include <algorithm>
 #include <charconv>
 #include <system_error>
 
+#include <filesystem>
+#include <functional>
+#include <memory>
 #include <vector>
 
-#include <rex/cvar.h>
+#include <rex/settings_registry.h>
+#include <rex/title.h>
+#include <rex/ui/ui_system.h>
+
+#include "platform/host_ui.h"
 
 namespace bd {
 namespace {
 
-std::vector<rex::cvar::CallbackHandle> g_callbacks;
+SettingWatches g_callbacks;
+std::vector<SettingWatches *> g_watch_lists;
 
-rex::cvar::ICvarRegistry *g_registry = nullptr;
+template <typename T>
+void WatchAs(SettingWatches &handles, rex::SettingBase &base,
+             std::shared_ptr<std::function<void(std::string_view,
+                                                std::string_view)>> fn) {
+  auto &typed = static_cast<rex::Setting<T> &>(base);
+  handles.push_back(typed.OnChange([fn, &base](const T &) {
+    (*fn)(base.GetName(), base.GetText());
+  }));
+}
 
 UpdateChannel ChannelOfName(const std::string &name) {
   return name == ToString(UpdateChannel::Nightly) ? UpdateChannel::Nightly
@@ -29,9 +46,108 @@ UpdateChannel ChannelOfName(const std::string &name) {
 
 } // namespace
 
-rex::cvar::ICvarRegistry &Cvars() { return *g_registry; }
+rex::SettingBase *FindSetting(std::string_view name) {
+  auto found = rex::GetSettingsRegistry().Find(name);
+  return found ? *found : nullptr;
+}
 
-void SetCvars(rex::cvar::ICvarRegistry *registry) { g_registry = registry; }
+bool CvarSet(std::string_view name, std::string_view value) {
+  return rex::GetSettingsRegistry().SetText(name, value).has_value();
+}
+
+std::string CvarGet(std::string_view name) {
+  const rex::SettingBase *setting = FindSetting(name);
+  return setting ? setting->GetText() : std::string();
+}
+
+bool CvarIsSet(std::string_view name) {
+  const rex::SettingBase *setting = FindSetting(name);
+  return setting && setting->GetLayer() > rex::SettingLayer::kTitle;
+}
+
+f64 CvarDouble(std::string_view name, f64 fallback) {
+  const std::string text = CvarGet(name);
+  f64 out = fallback;
+  auto r = std::from_chars(text.data(), text.data() + text.size(), out);
+  return r.ec == std::errc() ? out : fallback;
+}
+
+i32 CvarInt(std::string_view name, i32 fallback) {
+  const std::string text = CvarGet(name);
+  i32 out = fallback;
+  auto r = std::from_chars(text.data(), text.data() + text.size(), out);
+  return r.ec == std::errc() ? out : fallback;
+}
+
+void CvarUnwatchAll() {
+  for (SettingWatches *handles : g_watch_lists)
+    handles->clear();
+  g_watch_lists.clear();
+}
+
+void CvarWatch(SettingWatches &handles, std::string_view name,
+               std::function<void(std::string_view, std::string_view)> fn) {
+  rex::SettingBase *base = FindSetting(name);
+  if (!base)
+    return;
+  if (std::find(g_watch_lists.begin(), g_watch_lists.end(), &handles) ==
+      g_watch_lists.end())
+    g_watch_lists.push_back(&handles);
+  auto shared = std::make_shared<
+      std::function<void(std::string_view, std::string_view)>>(std::move(fn));
+  switch (base->GetType()) {
+  case rex::SettingType::kBool:
+    return WatchAs<bool>(handles, *base, shared);
+  case rex::SettingType::kI32:
+    return WatchAs<i32>(handles, *base, shared);
+  case rex::SettingType::kI64:
+    return WatchAs<i64>(handles, *base, shared);
+  case rex::SettingType::kU32:
+    return WatchAs<u32>(handles, *base, shared);
+  case rex::SettingType::kU64:
+    return WatchAs<u64>(handles, *base, shared);
+  case rex::SettingType::kF64:
+    return WatchAs<f64>(handles, *base, shared);
+  case rex::SettingType::kString:
+    return WatchAs<std::string>(handles, *base, shared);
+  case rex::SettingType::kPath:
+    return WatchAs<std::filesystem::path>(handles, *base, shared);
+  }
+}
+
+std::filesystem::path CacheRoot() {
+  return std::filesystem::path(CvarGet("app.cache_root"));
+}
+
+bool CvarReset(std::string_view name) {
+  return rex::GetSettingsRegistry().Reset(name).has_value();
+}
+
+bool CvarResolution(i32 &w, i32 &h) {
+  rex::ui::IUISystem *ui = platform::UI();
+  const bool configured = !CvarGet("ui.resolution").empty() ||
+                          CvarIsSet("ui.video_mode_width") ||
+                          CvarIsSet("ui.video_mode_height");
+  if (!ui || !configured)
+    return false;
+  const rex::VideoMode mode = ui->GetVideoMode();
+  w = static_cast<i32>(mode.width);
+  h = static_cast<i32>(mode.height);
+  return w > 0 && h > 0;
+}
+
+rex::Result<void> SaveConfig(const std::filesystem::path &file) {
+  return rex::GetSettingsRegistry().Save(file);
+}
+
+namespace cvars {
+
+Table &Table::Get() {
+  static Table *table = new Table();
+  return *table;
+}
+
+} // namespace cvars
 
 std::string FormatCvar(i32 v) { return std::to_string(v); }
 std::string FormatCvar(bool v) { return v ? "true" : "false"; }
@@ -58,28 +174,27 @@ Settings &Settings::Get() {
 }
 
 void Settings::AdoptDevmode() {
-  devmode_ = REXCVAR_GET(bd::cvars::devmode);
+  devmode_ = bd::cvars::Get().devmode.Get();
   if (devmodeApplier_)
     devmodeApplier_();
 }
-void Settings::AdoptLanguage() { language_ = REXCVAR_GET(bd::cvars::language); }
-void Settings::AdoptI18nKeys() { i18nKeys_ = REXCVAR_GET(bd::cvars::i18n_keys); }
+void Settings::AdoptLanguage() { language_ = bd::cvars::Get().language.Get(); }
+void Settings::AdoptI18nKeys() { i18nKeys_ = bd::cvars::Get().i18n_keys.Get(); }
 void Settings::AdoptLanguagePath() {
-  languagePath_ = REXCVAR_GET(bd::cvars::lang_path);
+  languagePath_ = bd::cvars::Get().lang_path.Get();
 }
-void Settings::AdoptProfiler() { profiler_ = REXCVAR_GET(bd::cvars::profiler); }
-void Settings::AdoptShutdownTimeoutMs() {
-  shutdownTimeoutMs_ = REXCVAR_GET(bd::cvars::shutdown_timeout_ms);
+void Settings::AdoptPerfOverlay() {
+  perfOverlay_ = bd::cvars::Get().perf_overlay.Get();
 }
 void Settings::AdoptUpdateCheck() {
-  updateCheck_ = REXCVAR_GET(bd::cvars::update_check);
+  updateCheck_ = bd::cvars::Get().update_check.Get();
 }
 void Settings::AdoptUpdateBase() {
-  updateBase_ = REXCVAR_GET(bd::cvars::update_base);
+  updateBase_ = bd::cvars::Get().update_base.Get();
   ComposeUpdateUrl();
 }
 void Settings::AdoptUpdateChannel() {
-  updateChannel_ = ChannelOfName(REXCVAR_GET(bd::cvars::update_channel));
+  updateChannel_ = ChannelOfName(bd::cvars::Get().update_channel.Get());
   ComposeUpdateUrl();
 }
 
@@ -90,8 +205,8 @@ void Settings::ComposeUpdateUrl() {
                          ".toml";
 }
 
-void Settings::AdoptSavesPath() { savesPath_ = REXCVAR_GET(bd::cvars::saves_path); }
-void Settings::AdoptCachePath() { cachePath_ = REXCVAR_GET(bd::cvars::cache_path); }
+void Settings::AdoptSavesPath() { savesPath_ = bd::cvars::Get().saves_path.Get(); }
+void Settings::AdoptCachePath() { cachePath_ = bd::cvars::Get().cache_path.Get(); }
 
 // Each hands the value to the cvar layer and lets the registered change
 // callback adopt it back. The registry keeps the range check, the restart
@@ -112,12 +227,8 @@ bool Settings::SetLanguage(const std::string &v) {
   return bd::CvarSet("bd.language", v);
 }
 
-bool Settings::SetI18nKeys(bool v) {
-  return bd::CvarSet("bd.i18n_keys", FormatCvar(v));
-}
-
-bool Settings::SetShutdownTimeoutMs(i32 v) {
-  return bd::CvarSet("bd.shutdown_timeout_ms", FormatCvar(v));
+bool Settings::SetPerfOverlay(bool v) {
+  return bd::CvarSet("bd.perf_overlay", FormatCvar(v));
 }
 
 bool Settings::SetUpdateCheck(bool v) {
@@ -133,8 +244,7 @@ void Settings::AdoptCvars() {
   AdoptLanguage();
   AdoptI18nKeys();
   AdoptLanguagePath();
-  AdoptProfiler();
-  AdoptShutdownTimeoutMs();
+  AdoptPerfOverlay();
   AdoptUpdateCheck();
   AdoptUpdateBase();
   AdoptUpdateChannel();
@@ -155,8 +265,7 @@ void Settings::Init() {
   reg("bd.language", &Settings::AdoptLanguage);
   reg("bd.i18n_keys", &Settings::AdoptI18nKeys);
   reg("bd.lang_path", &Settings::AdoptLanguagePath);
-  reg("bd.profiler", &Settings::AdoptProfiler);
-  reg("bd.shutdown_timeout_ms", &Settings::AdoptShutdownTimeoutMs);
+  reg("bd.perf_overlay", &Settings::AdoptPerfOverlay);
   reg("bd.update_check", &Settings::AdoptUpdateCheck);
   reg("bd.update_base", &Settings::AdoptUpdateBase);
   reg("bd.update_channel", &Settings::AdoptUpdateChannel);

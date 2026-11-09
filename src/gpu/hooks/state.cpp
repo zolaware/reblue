@@ -10,9 +10,8 @@
  */
 #include <cstring>
 
-#include <rex/hook.h>
-#include <rex/ppc/detour.h>
-#include <rex/runtime.h>
+#include <rex/ppc/hook.h>
+#include <rex/kernel/title_runtime.h>
 #include <rex/types.h>
 
 #include <plume_render_interface.h>
@@ -32,8 +31,8 @@ namespace {
 using bd::gpu::ResolveGuestBufferVa;
 
 void D3DDevice_SetViewport_hook(
-    rex::MappedPtr<bd::gpu::D3DDevice> pDevice,
-    rex::MappedPtr<bd::gpu::D3DViewport9> pViewport) {
+    rex::memory::MappedPtr<bd::gpu::D3DDevice> pDevice,
+    rex::memory::MappedPtr<bd::gpu::D3DViewport9> pViewport) {
   if (!pViewport) {
     return;
   }
@@ -74,8 +73,8 @@ void D3DDevice_SetViewport_hook(
 }
 
 void D3DDevice_SetRenderTarget_hook(
-    rex::MappedPtr<bd::gpu::D3DDevice> pDevice, u32 RenderTargetIndex,
-    rex::MappedPtr<bd::gpu::D3DSurface> pRenderTarget) {
+    rex::memory::MappedPtr<bd::gpu::D3DDevice> pDevice, u32 RenderTargetIndex,
+    rex::memory::MappedPtr<bd::gpu::D3DSurface> pRenderTarget) {
   auto *surface = bd::gpu::HostResourceHeap::FromGuest<bd::gpu::GuestTexture>(
       pRenderTarget.GetGuestAddress());
 
@@ -119,8 +118,8 @@ void D3DDevice_SetRenderTarget_hook(
 }
 
 void D3DDevice_SetDepthStencilSurface_hook(
-    rex::MappedPtr<bd::gpu::D3DDevice> pDevice,
-    rex::MappedPtr<bd::gpu::D3DSurface> pZStencilSurface) {
+    rex::memory::MappedPtr<bd::gpu::D3DDevice> pDevice,
+    rex::memory::MappedPtr<bd::gpu::D3DSurface> pZStencilSurface) {
   auto *surface = bd::gpu::HostResourceHeap::FromGuest<bd::gpu::GuestTexture>(
       pZStencilSurface.GetGuestAddress());
   // Shadow for the recompiled D3DDevice_GetDepthStencilSurface (+0x2F98). Raw
@@ -162,8 +161,8 @@ void D3DDevice_SetDepthStencilSurface_hook(
 }
 
 void D3DDevice_SetScissorRect_hook(
-    rex::MappedPtr<bd::gpu::D3DDevice> /*pDevice*/,
-    rex::MappedPtr<bd::gpu::D3DRect> pRect) {
+    rex::memory::MappedPtr<bd::gpu::D3DDevice> /*pDevice*/,
+    rex::memory::MappedPtr<bd::gpu::D3DRect> pRect) {
   if (!pRect) {
     return;
   }

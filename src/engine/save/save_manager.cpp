@@ -11,7 +11,8 @@
 
 #include "core/logging.h"
 
-#include <rex/filesystem.h>
+#include <rex/filesystem/file_system.h>
+#include <rex/logging/log_category.h>
 
 #include <system_error>
 
@@ -39,7 +40,7 @@ void MountSaves(rex::filesystem::IFileSystem *fs,
   if (g_fs)
     return;
   if (!fs) {
-    REXLOG_ERROR(bd, "savestore no file system to mount on");
+    REXBD_ERROR("savestore no file system to mount on");
     return;
   }
 
@@ -47,22 +48,22 @@ void MountSaves(rex::filesystem::IFileSystem *fs,
   std::error_code ec;
   std::filesystem::create_directories(g_saves_root, ec);
   if (ec) {
-    REXLOG_ERROR(bd, "savestore cannot create saves root '{}': {}",
+    REXBD_ERROR("savestore cannot create saves root '{}': {}",
              g_saves_root.string(), ec.message());
     return;
   }
 
   using rex::filesystem::MountFlags;
   auto mounted = fs->Mount({std::string(kSaveMountPath),
-                            rex::filesystem::ProviderKind::kHostDirectory,
+                            rex::filesystem::ProviderType::kHostDirectory,
                             g_saves_root,
                             MountFlags::kWritable});
   if (!mounted) {
-    REXLOG_ERROR(bd, "savestore mount failed: {}", mounted.error().message);
+    REXBD_ERROR("savestore mount failed: {}", mounted.error().message);
     return;
   }
   g_fs = fs;
-  REXLOG_INFO(bd, "savestore mounted save: -> {}", g_saves_root.string());
+  REXBD_INFO("savestore mounted save: -> {}", g_saves_root.string());
 }
 
 void SetCurrentSaveSlot(std::string_view slot) {
@@ -72,14 +73,14 @@ void SetCurrentSaveSlot(std::string_view slot) {
   // Link keeps the first link with a name, so drop the old one first.
   (void)g_fs->Unlink(kSaveSymlink);
   if (auto linked = g_fs->Link(kSaveSymlink, target); !linked)
-    REXLOG_ERROR(bd, "savestore link failed: {}", linked.error().message);
+    REXBD_ERROR("savestore link failed: {}", linked.error().message);
 }
 
 bool CreateSaveSlotDir(std::string_view slot) {
   std::error_code ec;
   std::filesystem::create_directories(SlotDir(slot), ec);
   if (ec) {
-    REXLOG_ERROR(bd, "savestore failed to create slot dir '{}': {}", slot,
+    REXBD_ERROR("savestore failed to create slot dir '{}': {}", slot,
              ec.message());
     return false;
   }

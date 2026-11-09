@@ -20,6 +20,7 @@
 
 #define MINIZ_HEADER_FILE_ONLY
 #include <miniz.h>
+#include <xxhash.h>
 
 namespace bd::vfs {
 
@@ -142,7 +143,7 @@ bool ForEachIPKRecord(const std::filesystem::path &path, Fn &&fn) {
   f.read(reinterpret_cast<char *>(&header), sizeof(header));
   if (static_cast<size_t>(f.gcount()) != sizeof(header) ||
       std::memcmp(header.magic, "IPK1", sizeof(header.magic)) != 0) {
-    REXLOG_WARN(bd, "vfs not an IPK1 archive: {}", path.string());
+    REXBD_WARN("vfs not an IPK1 archive: {}", path.string());
     return false;
   }
 
@@ -208,7 +209,7 @@ LooseMount::Scan(const std::filesystem::path &root) {
     mount->Set(Key::FromRelative(relative.string()), entry.path());
   }
   if (walk_ec)
-    REXLOG_ERROR(bd, "vfs error walking {}: {}", root.string(), walk_ec.message());
+    REXBD_ERROR("vfs error walking {}: {}", root.string(), walk_ec.message());
 
   return mount;
 }
@@ -225,7 +226,7 @@ std::optional<u64> LooseMount::Stat(const Key &key) const {
   std::error_code ec;
   const auto size = std::filesystem::file_size(it->second, ec);
   if (ec || size == 0) {
-    REXLOG_ERROR(bd, "vfs indexed file unreadable: {}", it->second.string());
+    REXBD_ERROR("vfs indexed file unreadable: {}", it->second.string());
     return std::nullopt;
   }
   return size;
@@ -340,7 +341,7 @@ ShippedPackMount::Scan(const std::filesystem::path &game_root,
     mount->SaveIndex(index_cache, stamp);
   }
 
-  REXLOG_INFO(bd, "vfs {} shipped archive(s), {} record name(s) under {} ({})",
+  REXBD_INFO("vfs {} shipped archive(s), {} record name(s) under {} ({})",
           mount->archives_.size(), mount->entries_.size(), pack_root.string(),
           cached ? "cached index" : "read from archives");
   return mount;
@@ -385,7 +386,7 @@ u64 ShippedPackMount::ScanArchives(const std::filesystem::path &pack_root,
     found.push_back(std::move(archive));
   }
   if (walk_ec)
-    REXLOG_ERROR(bd, "vfs error walking {}: {}", pack_root.string(),
+    REXBD_ERROR("vfs error walking {}: {}", pack_root.string(),
              walk_ec.message());
 
   // Sorted so that a record name two archives share always resolves to the
@@ -552,7 +553,7 @@ void ShippedPackMount::SaveIndex(const std::filesystem::path &path,
             static_cast<std::streamsize>(entries_.size() * sizeof(Entry)));
     f.write(blob_.data(), static_cast<std::streamsize>(blob_.size()));
     if (!f) {
-      REXLOG_WARN(bd, "vfs pack index not written: {}", temp.string());
+      REXBD_WARN("vfs pack index not written: {}", temp.string());
       f.close();
       std::filesystem::remove(temp, ec);
       return;
@@ -561,7 +562,7 @@ void ShippedPackMount::SaveIndex(const std::filesystem::path &path,
 
   std::filesystem::rename(temp, path, ec);
   if (ec) {
-    REXLOG_WARN(bd, "vfs pack index not replaced: {}", ec.message());
+    REXBD_WARN("vfs pack index not replaced: {}", ec.message());
     std::filesystem::remove(temp, ec);
   }
 }

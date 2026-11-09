@@ -19,7 +19,7 @@ namespace xe = rex::xenos;
 void WarnUnmapped(const char *what, u32 value) {
   static std::atomic<u32> logged{0};
   if (logged.fetch_add(1, std::memory_order_relaxed) < 8) {
-    REXLOG_WARN(bd, "{}: no plume mapping for value {}, using the neutral default",
+    REXBD_WARN("{}: no plume mapping for value {}, using the neutral default",
             what, value);
   }
 }
@@ -206,7 +206,7 @@ plume::RenderFormat ConvertGuestFormat(u32 guest_format) {
   default:
     // Never invent a format: callers make RT capability decisions off the
     // result. UNKNOWN forces a clean failure at the actual problem site.
-    REXLOG_ERROR(bd, 
+    REXBD_ERROR(
         "ConvertGuestFormat: unknown guest format 0x{:08X}, returning UNKNOWN",
         guest_format);
     return plume::RenderFormat::UNKNOWN;

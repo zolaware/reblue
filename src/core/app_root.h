@@ -14,10 +14,6 @@
 
 namespace bd {
 
-// True when running from a read-only/self-contained application package rather
-// than a loose developer build.
-bool IsPackagedApplication();
-
 // The exe dir for loose builds. AppImage and macOS app bundle runs use a
 // writable per-user location instead of modifying their package contents.
 std::filesystem::path AppRootFolder();
@@ -33,9 +29,5 @@ std::filesystem::path CacheRootFor(const std::filesystem::path &root);
 // XDG_CONFIG_HOME or ~/.config with reblue's folder appended. Empty when
 // neither is set, and on Windows, which anchors this data in HKCU.
 std::filesystem::path UserConfigFolder();
-
-// True when a file can be created in dir. A read-only mount and a package
-// both answer false.
-bool DirectoryWritable(const std::filesystem::path &dir);
 
 } // namespace bd

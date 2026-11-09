@@ -14,10 +14,9 @@
 #include <string>
 #include <vector>
 
-#include <rex/api.h>
-#include <rex/app.h>
-#include <rex/cvar.h>
-#include <rex/logging.h>
+#include <rex/app/app.h>
+#include <rex/filesystem/file_system.h>
+#include <rex/logging/log_category.h>
 
 namespace bd::platform {
 namespace {
@@ -40,9 +39,9 @@ void SetProfileContext(std::string profile_name,
 }
 
 void RequestWarmReboot() {
-  if (auto saved = rex::SaveConfigFile(bd::Cvars(), ConfigFilePath()); !saved)
-    REXLOG_WARN(bd, "config save failed: {}", saved.error().message);
-  rex::RequestRestart(ProfileArgs());
+  if (auto saved = bd::SaveConfig(ConfigFilePath()); !saved)
+    REXBD_WARN("config save failed: {}", saved.error().message);
+  rex::app::RequestRestart(ProfileArgs());
 }
 
 std::vector<std::string> ProfileArgs() {

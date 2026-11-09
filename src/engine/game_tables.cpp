@@ -56,8 +56,8 @@ constexpr u32 kTableScanCap = 8192;
 constexpr u32 kMaxNameChars = 128;
 
 template <typename Record, u32 RootAddress, u32 CountAddress>
-u32 FindRecord(rex::GuestGlobal<be_u32, RootAddress> rootGlobal,
-               rex::GuestGlobal<be_u32, CountAddress> countGlobal, u32 id) {
+u32 FindRecord(rex::kernel::GuestGlobal<be_u32, RootAddress> rootGlobal,
+               rex::kernel::GuestGlobal<be_u32, CountAddress> countGlobal, u32 id) {
   const u32 root = mem::global_load(rootGlobal);
   const u32 count = mem::global_load(countGlobal);
   if (!root || !count || count > kTableScanCap)

@@ -15,8 +15,8 @@
 #include <vector>
 
 #include <plume_render_interface_builders.h>
-#include <rex/dbg.h>
-#include <rex/runtime.h>
+#include <rex/platform/perf.h>
+#include <rex/kernel/title_runtime.h>
 #include <rex/types.h>
 
 #include "core/logging.h"
@@ -118,13 +118,13 @@ bool CreateChunk(UploadChunk &chunk) {
                                 plume::RenderBufferFlag::DEVICE_ADDRESSABLE),
       "cb-upload-chunk");
   if (!chunk.buffer) {
-    REXLOG_ERROR(bd, "constant_buffers: createBuffer({} MiB chunk) failed",
+    REXBD_ERROR("constant_buffers: createBuffer({} MiB chunk) failed",
              kUploadChunkSize / (1024 * 1024));
     return false;
   }
   chunk.mapped = reinterpret_cast<u8 *>(chunk.buffer->map());
   if (!chunk.mapped) {
-    REXLOG_ERROR(bd, "constant_buffers: RenderBuffer::map() returned null");
+    REXBD_ERROR("constant_buffers: RenderBuffer::map() returned null");
     chunk.buffer.reset();
     return false;
   }
@@ -136,7 +136,7 @@ ConstantAllocation Allocate(UploadState &s, u32 size, u32 alignment) {
   if (!s.ready)
     return {};
   if (size > kUploadChunkSize) {
-    REXLOG_ERROR(bd, "constant_buffers: single allocation {} exceeds chunk size {}",
+    REXBD_ERROR("constant_buffers: single allocation {} exceeds chunk size {}",
              size, kUploadChunkSize);
     return {};
   }
@@ -156,7 +156,7 @@ ConstantAllocation Allocate(UploadState &s, u32 size, u32 alignment) {
     const u32 total = up.chunkIndex + 1;
     if (total > up.peakChunkCount) {
       up.peakChunkCount = total;
-      REXLOG_DEBUG(bd, "constant_buffers: slot {} grew to {} chunk(s) ({} MiB total)",
+      REXBD_DEBUG("constant_buffers: slot {} grew to {} chunk(s) ({} MiB total)",
                s.cursor, total, total * (kUploadChunkSize / (1024 * 1024)));
     }
   }
@@ -505,7 +505,7 @@ ConstantAllocation UploadGuestBytes(u32 guest_va, u32 size, u32 alignment) {
     return {};
   const auto *src = bd::mem::at<const u8>(guest_va);
   if (!src) {
-    REXLOG_WARN(bd, "constant_buffers: UploadGuestBytes translate failed for "
+    REXBD_WARN("constant_buffers: UploadGuestBytes translate failed for "
             "guest_va={:#x}",
             guest_va);
     return {};

@@ -33,7 +33,7 @@
 #include <miniz.h>
 
 #include <rex/types.h>
-#include <rex/string/utf8.h>
+#include <rex/string/text.h>
 
 namespace bd::engine {
 
@@ -181,7 +181,7 @@ void SaveAndReload() {
   auto &mods = vfs::VFS::Get().Mods();
   mods.Flush();
   mods.Reload();
-  REXLOG_DEBUG(bd, "config mod config saved and reloaded");
+  REXBD_DEBUG("config mod config saved and reloaded");
 }
 
 void FlipMod(int index) {
@@ -201,7 +201,7 @@ bool InstallModFromFolder(const std::filesystem::path &src,
                           const std::filesystem::path &mods_dir,
                           vfs::ModCatalog &mods) {
   if (!std::filesystem::exists(src / "mod.toml")) {
-    REXLOG_WARN(bd, "config selected folder has no mod.toml: {}", src.string());
+    REXBD_WARN("config selected folder has no mod.toml: {}", src.string());
     return false;
   }
 
@@ -209,7 +209,7 @@ bool InstallModFromFolder(const std::filesystem::path &src,
   auto dest = mods_dir / folder_name;
 
   if (std::filesystem::exists(dest)) {
-    REXLOG_WARN(bd, "config mod folder already exists: {}", dest.string());
+    REXBD_WARN("config mod folder already exists: {}", dest.string());
     return false;
   }
 
@@ -217,11 +217,11 @@ bool InstallModFromFolder(const std::filesystem::path &src,
   std::filesystem::copy(src, dest, std::filesystem::copy_options::recursive,
                         ec);
   if (ec) {
-    REXLOG_ERROR(bd, "config failed to copy mod: {}", ec.message());
+    REXBD_ERROR("config failed to copy mod: {}", ec.message());
     return false;
   }
 
-  REXLOG_DEBUG(bd, "config installed mod '{}' from {}", folder_name, src.string());
+  REXBD_DEBUG("config installed mod '{}' from {}", folder_name, src.string());
 
   // Enable in the active profile's loadout (order file), then reload.
   mods.Enable(folder_name);
@@ -233,7 +233,7 @@ bool InstallModFromZip(const std::filesystem::path &zip_path,
                        vfs::ModCatalog &mods) {
   mz_zip_archive zip{};
   if (!mz_zip_reader_init_file(&zip, zip_path.string().c_str(), 0)) {
-    REXLOG_ERROR(bd, "config failed to open zip: {}", zip_path.string());
+    REXBD_ERROR("config failed to open zip: {}", zip_path.string());
     return false;
   }
 
@@ -275,7 +275,7 @@ bool InstallModFromZip(const std::filesystem::path &zip_path,
   }
 
   if (!found_mod_toml) {
-    REXLOG_WARN(bd, "config zip has no mod.toml: {}", zip_path.string());
+    REXBD_WARN("config zip has no mod.toml: {}", zip_path.string());
     mz_zip_reader_end(&zip);
     return false;
   }
@@ -289,7 +289,7 @@ bool InstallModFromZip(const std::filesystem::path &zip_path,
 
   auto dest = mods_dir / folder_name;
   if (std::filesystem::exists(dest)) {
-    REXLOG_WARN(bd, "config mod folder already exists: {}", dest.string());
+    REXBD_WARN("config mod folder already exists: {}", dest.string());
     mz_zip_reader_end(&zip);
     return false;
   }
@@ -309,7 +309,7 @@ bool InstallModFromZip(const std::filesystem::path &zip_path,
       relative = name.substr(prefix.size());
 
     if (IsUnsafeArchivePath(relative)) {
-      REXLOG_ERROR(bd, "config unsafe entry '{}' in zip {}", name,
+      REXBD_ERROR("config unsafe entry '{}' in zip {}", name,
                zip_path.string());
       extract_ok = false;
       break;
@@ -319,7 +319,7 @@ bool InstallModFromZip(const std::filesystem::path &zip_path,
     std::filesystem::create_directories(out_path.parent_path());
 
     if (!mz_zip_reader_extract_to_file(&zip, i, out_path.string().c_str(), 0)) {
-      REXLOG_ERROR(bd, "config failed to extract: {}", name);
+      REXBD_ERROR("config failed to extract: {}", name);
       extract_ok = false;
       break;
     }
@@ -333,7 +333,7 @@ bool InstallModFromZip(const std::filesystem::path &zip_path,
     return false;
   }
 
-  REXLOG_DEBUG(bd, "config installed mod '{}' from zip {}", folder_name,
+  REXBD_DEBUG("config installed mod '{}' from zip {}", folder_name,
            zip_path.string());
 
   // Enable in the active profile's loadout (order file), then reload.
@@ -348,12 +348,12 @@ bool InstallMod() {
       {.title = "Select Mod (zip or mod.toml)",
        .filters = {{"Mod files (*.zip, mod.toml)", "zip;toml"}}});
   if (!selected || selected->empty()) {
-    REXLOG_DEBUG(bd, "mod install canceled");
+    REXBD_DEBUG("mod install canceled");
     return false;
   }
 
   auto &path = selected->front();
-  const auto ext = rex::utf8_lower_ascii(path.extension().string());
+  const auto ext = rex::string::utf8_lower_ascii(path.extension().string());
 
   auto &mods = vfs::VFS::Get().Mods();
   auto mods_dir = vfs::VFS::Get().Paths().Mods();
@@ -369,12 +369,12 @@ bool InstallDLC() {
   auto selected = bd::platform::UI()->ShowFileDialog(
       {.title = "Select DLC Package"});
   if (!selected || selected->empty()) {
-    REXLOG_INFO(bd, "dlc install canceled");
+    REXBD_INFO("dlc install canceled");
     return false;
   }
 
   if (!vfs::VFS::Get().DLC().Install(selected->front())) {
-    REXLOG_ERROR(bd, "dlc installation failed");
+    REXBD_ERROR("dlc installation failed");
     return false;
   }
 
@@ -503,7 +503,7 @@ LanguageAddResult AddLanguageSources(std::string &detail) {
   detail.clear();
 
   auto chosen = bd::platform::UI()->ShowFileDialog(
-      {.mode = rex::ui::FileDialogDesc::Mode::kOpenFiles,
+      {.mode = rex::ui::FileDialogConfig::Mode::kOpenFiles,
        .title = i18n::Text("installer.dialog.select_source"),
        .filters = {{i18n::Text("installer.filter.any"), "*"},
                    {i18n::Text("installer.filter.iso"), "iso"}}});
@@ -513,7 +513,7 @@ LanguageAddResult AddLanguageSources(std::string &detail) {
   for (const auto &file : picked) {
     auto image = installer::DiscImage::Open(file);
     if (!image) {
-      REXLOG_WARN(bd, "config not a readable disc image: {}", file.string());
+      REXBD_WARN("config not a readable disc image: {}", file.string());
       continue;
     }
 
@@ -527,7 +527,7 @@ LanguageAddResult AddLanguageSources(std::string &detail) {
         slot = file;
     }
     if (!carried)
-      REXLOG_WARN(bd, "config image carries no Blue Dragon disc: {}", file.string());
+      REXBD_WARN("config image carries no Blue Dragon disc: {}", file.string());
   }
 
   if (picked.empty()) {
@@ -555,7 +555,7 @@ LanguageAddResult AddLanguageSources(std::string &detail) {
         installer::DiscImage::Open(s_lang_sources[static_cast<size_t>(n)]);
     const auto *root = image ? image->Root(n + 1) : nullptr;
     if (!root) {
-      REXLOG_ERROR(bd, "config disc {} image became unreadable", n + 1);
+      REXBD_ERROR("config disc {} image became unreadable", n + 1);
       detail = i18n::Text("installer.status.bad_image");
       ClearLanguageSources();
       return LanguageAddResult::Failed;
@@ -591,7 +591,7 @@ LanguageAddResult AddLanguageSources(std::string &detail) {
     return LanguageAddResult::NothingNew;
   }
 
-  REXLOG_INFO(bd, "config disc set offers {} language(s)", s_lang_offer.size());
+  REXBD_INFO("config disc set offers {} language(s)", s_lang_offer.size());
   return LanguageAddResult::Picked;
 }
 
@@ -617,7 +617,7 @@ std::string LanguageOfferMovies() {
   for (const auto &code : s_lang_movie_codes) {
     if (!codes.empty())
       codes += ", ";
-    codes += rex::utf8_upper_ascii(code);
+    codes += rex::string::utf8_upper_ascii(code);
   }
   return i18n::Fmt("menu.language.movies_set", codes);
 }
@@ -651,13 +651,13 @@ bool StartLanguageJob(const std::vector<bool> &accepted, bool movies,
     s_lang_thread = installer::Installer::AddLanguagesAsync(
         s_lang_sources, game, selection, s_lang_progress);
   } catch (const std::system_error &e) {
-    REXLOG_ERROR(bd, "config language install failed to spawn worker: {}", e.what());
+    REXBD_ERROR("config language install failed to spawn worker: {}", e.what());
     detail = i18n::Fmt("installer.error.spawn", e.what());
     ClearLanguageSources();
     return false;
   }
 
-  REXLOG_INFO(bd, "config adding languages: {} (movies {})", s_lang_names,
+  REXBD_INFO("config adding languages: {} (movies {})", s_lang_names,
           movies ? "yes" : "no");
   return true;
 }
@@ -678,11 +678,11 @@ bool RemoveLanguage(int index) {
     s_lang_thread =
         installer::Installer::RemoveLanguageAsync(game, code, s_lang_progress);
   } catch (const std::system_error &e) {
-    REXLOG_ERROR(bd, "config language removal failed to spawn worker: {}", e.what());
+    REXBD_ERROR("config language removal failed to spawn worker: {}", e.what());
     return false;
   }
 
-  REXLOG_INFO(bd, "config removing language: {}", name);
+  REXBD_INFO("config removing language: {}", name);
   return true;
 }
 

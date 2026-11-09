@@ -20,7 +20,7 @@
 
 #include <toml++/toml.hpp>
 
-#include <rex/cvar.h>
+#include <rex/settings_registry.h>
 #include <rex/types.h>
 
 #include "core/cvar_table.h"
@@ -39,8 +39,8 @@ struct Step {
 };
 
 bool ConfigWasLoaded() {
-  for (const rex::cvar::VarBase *var : Cvars().Enumerate()) {
-    if (Cvars().GetSource(var->GetDesc().name) == rex::cvar::CvarSource::kConfig)
+  for (const rex::SettingBase *setting : rex::GetSettingsRegistry().Enumerate()) {
+    if (setting->GetLayer() == rex::SettingLayer::kFile)
       return true;
   }
   return false;
@@ -71,12 +71,10 @@ constexpr Step kSteps[] = {
     {2, "post and reflection cost held at what it was",
      PreserveUngatedPostAndReflections}};
 
-// SDK names before sub-project 5 of the ReXGlue 1.0 program and the scoped
-// name each became. An empty new name is a setting no build reads any more.
+// Flat names the SDK has no alias for and the scoped name each became. An empty
+// new name is a setting no build reads any more. The SDK alias table covers the
+// rest, so a flat key it knows stays flat for the loader to resolve.
 constexpr std::pair<std::string_view, std::string_view> kSdkRenames[] = {
-    {"audio_maxqframes", "apu.max_queued_frames"},
-    {"audio_mute", "apu.mute"},
-    {"ffmpeg_verbose", "runtime.ffmpeg_verbose"},
     {"max_file_size_bytes", ""},
     {"progress_log_frequency", ""},
     {"max_discovery_iterations", ""},
@@ -89,51 +87,14 @@ constexpr std::pair<std::string_view, std::string_view> kSdkRenames[] = {
     {"backward_scan_limit", ""},
     {"max_jump_table_entries", ""},
     {"max_blocks_per_function", ""},
-    {"clock_no_scaling", "clock.no_scaling"},
     {"clock_source_raw", ""},
-    {"log_level", "log.level"},
-    {"log_file", "log.file"},
-    {"log_verbose", "log.verbose"},
-    {"log_noisy", "log.noisy"},
-    {"log_flush_interval", "log.flush_interval"},
+    {"log_verbose", ""},
+    {"log_noisy", ""},
     {"perf_log_csv", ""},
     {"dump_source", ""},
     {"dump_path", ""},
     {"allow_game_relative_writes", ""},
     {"input_backend", ""},
-    {"guide_button", "hid.guide_button"},
-    {"vibration", "hid.vibration"},
-    {"left_stick_deadzone_percentage", "hid.left_stick_deadzone"},
-    {"right_stick_deadzone_percentage", "hid.right_stick_deadzone"},
-    {"mnk_mode", "hid.mnk_mode"},
-    {"mnk_mouse", "hid.mnk_mouse"},
-    {"mnk_sensitivity", "hid.mnk_sensitivity"},
-    {"mnk_passthrough", "hid.mnk_passthrough"},
-    {"keybind_a", "hid.keybind_a"},
-    {"keybind_b", "hid.keybind_b"},
-    {"keybind_x", "hid.keybind_x"},
-    {"keybind_y", "hid.keybind_y"},
-    {"keybind_left_trigger", "hid.keybind_left_trigger"},
-    {"keybind_right_trigger", "hid.keybind_right_trigger"},
-    {"keybind_left_shoulder", "hid.keybind_left_shoulder"},
-    {"keybind_right_shoulder", "hid.keybind_right_shoulder"},
-    {"keybind_lstick_up", "hid.keybind_lstick_up"},
-    {"keybind_lstick_down", "hid.keybind_lstick_down"},
-    {"keybind_lstick_left", "hid.keybind_lstick_left"},
-    {"keybind_lstick_right", "hid.keybind_lstick_right"},
-    {"keybind_lstick_press", "hid.keybind_lstick_press"},
-    {"keybind_rstick_up", "hid.keybind_rstick_up"},
-    {"keybind_rstick_down", "hid.keybind_rstick_down"},
-    {"keybind_rstick_left", "hid.keybind_rstick_left"},
-    {"keybind_rstick_right", "hid.keybind_rstick_right"},
-    {"keybind_rstick_press", "hid.keybind_rstick_press"},
-    {"keybind_dpad_up", "hid.keybind_dpad_up"},
-    {"keybind_dpad_down", "hid.keybind_dpad_down"},
-    {"keybind_dpad_left", "hid.keybind_dpad_left"},
-    {"keybind_dpad_right", "hid.keybind_dpad_right"},
-    {"keybind_back", "hid.keybind_back"},
-    {"keybind_start", "hid.keybind_start"},
-    {"keybind_guide", "hid.keybind_guide"},
     {"hid_mappings_file", ""},
     {"rexcrt_heap_enable", ""},
     {"rexcrt_heap_size_mb", ""},
@@ -151,24 +112,9 @@ constexpr std::pair<std::string_view, std::string_view> kSdkRenames[] = {
     {"update_data_root", ""},
     {"cache_root", ""},
     {"metadata_root", ""},
-    {"writable_code_segments", "runtime.writable_code_segments"},
-    {"protect_zero", "runtime.protect_zero"},
-    {"protect_on_release", "runtime.protect_on_release"},
-    {"scribble_heap", "runtime.scribble_heap"},
-    {"ignore_thread_priorities", "runtime.ignore_thread_priorities"},
-    {"ignore_thread_affinities", "runtime.ignore_thread_affinities"},
     {"echo", "console.echo"},
     {"find", "console.find"},
-    {"window_width", "ui.window_width"},
-    {"window_height", "ui.window_height"},
-    {"fullscreen", "ui.fullscreen"},
-    {"fullscreen_exclusive", "ui.fullscreen_exclusive"},
-    {"monitor", "ui.monitor"},
     {"video_driver", ""},
-    {"video_mode_width", "ui.video_mode_width"},
-    {"video_mode_height", "ui.video_mode_height"},
-    {"resolution", "ui.resolution"},
-    {"video_mode_refresh_rate", "ui.video_mode_refresh_rate"},
     {"bd_cursor_hide_seconds", "ui.cursor_timeout"},
 };
 
@@ -205,7 +151,7 @@ void SettingsMigration::RewriteFile(const std::filesystem::path &file) {
   try {
     parsed = toml::parse_file(file.string());
   } catch (const toml::parse_error &error) {
-    REXLOG_WARN(bd, "config {} not rewritten: {}", file.string(),
+    REXBD_WARN("config {} not rewritten: {}", file.string(),
             error.description());
     return;
   }
@@ -239,6 +185,12 @@ void SettingsMigration::RewriteFile(const std::filesystem::path &file) {
     }
     const std::string name = ScopedName(key.str());
     if (name.empty()) {
+      if (rex::GetSettingsRegistry().IsAlias(key.str())) {
+        node.visit([&](auto &value) {
+          out.insert_or_assign(std::string(key.str()), value);
+        });
+        continue;
+      }
       dropped.emplace_back(key.str());
       continue;
     }
@@ -259,16 +211,16 @@ void SettingsMigration::RewriteFile(const std::filesystem::path &file) {
   std::ofstream os(file, std::ios::binary | std::ios::trunc);
   os << out;
   if (!os) {
-    REXLOG_WARN(bd, "config {} could not be rewritten", file.string());
+    REXBD_WARN("config {} could not be rewritten", file.string());
     return;
   }
-  REXLOG_INFO(bd, "config {} rewritten with scoped keys", file.string());
+  REXBD_INFO("config {} rewritten with scoped keys", file.string());
   for (const std::string &key : dropped)
-    REXLOG_INFO(bd, "config dropped '{}', no longer a setting", key);
+    REXBD_INFO("config dropped '{}', no longer a setting", key);
 }
 
 void SettingsMigration::Apply() {
-  const i32 from = REXCVAR_GET(bd::cvars::config_version);
+  const i32 from = bd::cvars::Get().config_version.Get();
   if (from >= kConfigVersion)
     return;
   if (ConfigWasLoaded()) {
@@ -276,7 +228,7 @@ void SettingsMigration::Apply() {
       if (step.version <= from)
         continue;
       step.Apply();
-      REXLOG_INFO(bd, "config migrated to v{}: {}", step.version, step.what);
+      REXBD_INFO("config migrated to v{}: {}", step.version, step.what);
     }
   }
   CvarSet("bd.config_version", std::to_string(kConfigVersion));

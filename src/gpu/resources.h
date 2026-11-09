@@ -136,7 +136,7 @@ struct GuestBuffer {
   plume::RenderBuffer *blockBuffer = nullptr;
   u32 blockOffset = 0;
   // Guest memory scratch the engine Locks into. Host VB/IB: a reblue
-  // SystemHeapAlloc owned here (ownsMirror), freed on destroy. Physical
+  // System heap block owned here (ownsMirror), freed on destroy. Physical
   // buffers: aliases the engine's own base address (!ownsMirror).
   u32 guestMirrorVa = 0;
   bool ownsMirror = false;
@@ -208,10 +208,10 @@ struct GuestVertexDeclaration {
   u32 swappedTangents = 0;
   u32 swappedBlendWeights = 0;
   u32 swappedPositions = 0;
-  // Per-TEXCOORD bit for SHORT2/SHORT4 (non-normalized) elements. Those IA
-  // slots bind R16G16(B16A16)_UINT so sintTexcoord() sign-extends and casts
-  // back to the X360 raw-int-as-float vfetch the shader math (e.g. (uv+1)/512)
-  // expects. SHORT2N/4N stay SNORM and leave the bit clear.
+  // Per-TEXCOORD bit for SHORT2/SHORT4 (non-normalized) elements on D3D12.
+  // Those IA slots bind R16G16(B16A16)_UINT so sintTexcoord() sign-extends
+  // and casts back to the X360 raw-int-as-float vfetch the shader math (e.g.
+  // (uv+1)/512) expects. SHORT2N/4N stay SNORM and leave the bit clear.
   u32 sintTexcoords = 0;
   bool hasR11G11B10Normal = false;
   bool vertexStreams[16]{};

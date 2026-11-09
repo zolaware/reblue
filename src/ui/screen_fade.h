@@ -12,12 +12,11 @@
 #include <mutex>
 
 #include <rex/types.h>
-#include <rex/ui/imgui_dialog.h>
+#include <rex/ui/ui_system.h>
 
 struct ImGuiIO;
 
 namespace rex::ui {
-struct OverlayContext;
 } // namespace rex::ui
 
 namespace bd::ui {
@@ -49,13 +48,12 @@ private:
   f32 rate_ = 0.0f;
 };
 
-class FadeOverlay final : public rex::ui::ImGuiDialog {
+class FadeOverlay final : public rex::ui::DialogBase {
 public:
-  explicit FadeOverlay(const rex::ui::OverlayContext &context);
+  explicit FadeOverlay(rex::ui::IUISystem &ui);
   ~FadeOverlay();
 
-protected:
-  void OnDraw(ImGuiIO &io) override;
+  bool Draw(ImGuiIO &io) override;
 };
 
 } // namespace bd::ui

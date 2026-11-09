@@ -8,35 +8,49 @@
 #include <atomic>
 #include <optional>
 
-#include <rex/memory.h>
-#include <rex/runtime.h>
-#include <rex/runtime/xmemory.h>
+#include <cstring>
+
+#include <rex/kernel/title_runtime.h>
 
 namespace bd::mem {
 
 namespace {
 
-std::atomic<rex::Runtime *> s_runtime{nullptr};
-
-rex::Runtime *runtime() { return s_runtime.load(std::memory_order_acquire); }
+std::atomic<rex::kernel::GuestMemory *> s_memory{nullptr};
 
 } // namespace
 
-void Bind(rex::Runtime *runtime) {
-  s_runtime.store(runtime && runtime->GetMemory() ? runtime : nullptr,
-                  std::memory_order_release);
+void Bind(rex::kernel::TitleRuntime *title) {
+  s_memory.store(title ? &title->GetGuestMemory() : nullptr,
+                 std::memory_order_release);
 }
 
-rex::runtime::Memory *memory() {
-  rex::Runtime *rt = runtime();
-  return rt ? rt->GetMemory() : nullptr;
-}
+rex::kernel::GuestMemory *memory() { return s_memory.load(std::memory_order_acquire); }
 
-std::optional<rex::runtime::MemoryView> view() {
-  rex::runtime::Memory *mem = memory();
+std::optional<rex::kernel::MemoryView> view() {
+  rex::kernel::GuestMemory *mem = memory();
   if (!mem)
     return std::nullopt;
-  return rex::runtime::MemoryView(*mem);
+  return mem->GetView();
+}
+
+u32 SystemAlloc(u32 size, u32 alignment) {
+  rex::kernel::GuestMemory *mem = memory();
+  if (!mem)
+    return 0;
+  auto block = mem->Allocate(size, alignment, rex::kernel::GuestProtect::kReadWrite,
+                                rex::kernel::GuestHeap::kSystem);
+  return block ? *block : 0;
+}
+
+void SystemFree(u32 address) {
+  if (rex::kernel::GuestMemory *mem = memory(); mem && address)
+    (void)mem->Free(address);
+}
+
+void Zero(u32 address, u32 length) {
+  if (auto *p = at<u8>(address))
+    std::memset(p, 0, length);
 }
 
 } // namespace bd::mem

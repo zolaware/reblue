@@ -46,7 +46,9 @@ struct Config_t {
   // Write 0 to force off.
   /* 0x16C */ be_u32 hddCache;
 
-  /* 0x170 */ u8 _pad170[0x08];
+  // NNN in the engine pad log file name, pad_log_NNN.pad.
+  /* 0x170 */ be_u32 padLogSlot;
+  /* 0x174 */ u8 _pad174[0x04];
 
   // bdGetCurrentMapPath substitutes the default control row when this is set
   // and the player is on control type A.
@@ -83,6 +85,7 @@ static_assert(offsetof(Config_t, newTables) == 0x164);
 static_assert(offsetof(Config_t, hddCache) == 0x16C);
 static_assert(offsetof(Config_t, altMap) == 0x178);
 static_assert(offsetof(Config_t, debugMindows) == 0x2B0);
+static_assert(offsetof(Config_t, padLogSlot) == 0x170);
 static_assert(offsetof(Config_t, debugInputKey) == 0x2B4);
 static_assert(offsetof(Config_t, debugInputPad) == 0x2B8);
 static_assert(offsetof(Config_t, debugLabels) == 0x300);
@@ -107,6 +110,14 @@ bool Config::SetHddCache(u32 v) {
   if (!self)
     return false;
   self->hddCache = v;
+  return true;
+}
+
+bool Config::SetPadLogSlot(u32 v) {
+  auto *self = Self<Config_t>();
+  if (!self)
+    return false;
+  self->padLogSlot = v;
   return true;
 }
 

@@ -9,7 +9,7 @@
 #include <cstddef>
 #include <cstdio>
 
-#include <rex/string/utf8.h>
+#include <rex/string/text.h>
 
 #include "core/memory_helpers.h"
 
@@ -100,7 +100,7 @@ std::string StageDisplayName(u32 cat, u32 num) {
         break;
       name.push_back(static_cast<char16_t>(static_cast<u16>(unit)));
     }
-    return rex::ToUTF8(name);
+    return rex::string::ToUTF8(name);
   }
   return {};
 }

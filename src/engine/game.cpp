@@ -5,11 +5,12 @@
  */
 #include "engine/game.h"
 
-#include <rex/runtime.h>
+#include <rex/kernel/title_runtime.h>
 
 #include "core/guest_global.h"
 #include "core/memory_helpers.h"
 #include "engine/state_layout.h"
+#include "platform/host_ui.h"
 
 namespace bd::engine {
 
@@ -43,8 +44,8 @@ const char *ToString(EngineMode mode) {
 }
 
 bool Game::IsReady() const {
-  const rex::Runtime *runtime = rex::GetProcessRuntime();
-  return runtime && runtime->IsTitleLaunched();
+  const rex::kernel::TitleRuntime *title = bd::platform::Title();
+  return title && title->IsRunning();
 }
 
 bool Game::FieldGameplayActive() const {

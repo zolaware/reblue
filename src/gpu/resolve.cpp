@@ -17,8 +17,7 @@
 #include <vector>
 
 #include <plume_render_interface.h>
-#include <rex/cvar.h>
-#include <rex/dbg.h>
+#include <rex/platform/perf.h>
 
 
 #include "core/logging.h"
@@ -70,7 +69,7 @@ bool CopySurfaceToTextureLocked(VideoState &s, GuestTexture *src,
   if (dst->sampleCount != plume::RenderSampleCount::COUNT_1) {
     static std::atomic<u32> s_warn{0};
     if (s_warn.fetch_add(1, std::memory_order_relaxed) < 8) {
-      REXLOG_WARN(bd, "{}: MSAA destination {}x{} rejected (resolve targets must be "
+      REXBD_WARN("{}: MSAA destination {}x{} rejected (resolve targets must be "
               "single-sample)",
               reason, dst->width, dst->height);
     }
@@ -119,7 +118,7 @@ bool CopySurfaceToTextureLocked(VideoState &s, GuestTexture *src,
   } else if (dst_is_cube) {
     static std::atomic<u32> s_warn{0};
     if (s_warn.fetch_add(1, std::memory_order_relaxed) < 8) {
-      REXLOG_WARN(bd, "{}: cube resolve dst needs convert/scale (src={}x{} fmt={} "
+      REXBD_WARN("{}: cube resolve dst needs convert/scale (src={}x{} fmt={} "
               "dst fmt={} scale={}), no per-face RTV, skipping",
               reason, src->width, src->height, static_cast<int>(src->format),
               static_cast<int>(dst->format), resolve_scale);
@@ -132,7 +131,7 @@ bool CopySurfaceToTextureLocked(VideoState &s, GuestTexture *src,
     if (src->descriptorIndex == kInvalidDescriptorIndex) {
       static std::atomic<u32> s_warn{0};
       if (s_warn.fetch_add(1, std::memory_order_relaxed) < 8) {
-        REXLOG_ERROR(bd, "{}: source RT 0x{:x} not in bindless heap, can't "
+        REXBD_ERROR("{}: source RT 0x{:x} not in bindless heap, can't "
                  "shader-resolve",
                  reason, reinterpret_cast<uintptr_t>(src));
       }
@@ -143,7 +142,7 @@ bool CopySurfaceToTextureLocked(VideoState &s, GuestTexture *src,
     if (!depth_dst && !IsRenderTargetCapable(dst->format)) {
       static std::atomic<u32> s_warn{0};
       if (s_warn.fetch_add(1, std::memory_order_relaxed) < 8) {
-        REXLOG_ERROR(bd, "{}: dst format {} is not RT-capable, skipping shader "
+        REXBD_ERROR("{}: dst format {} is not RT-capable, skipping shader "
                  "resolve (src={}x{} fmt={} dst={}x{} fmt={})",
                  reason, static_cast<int>(dst->format), src->width, src->height,
                  static_cast<int>(src->format), dst->width, dst->height,
@@ -173,7 +172,7 @@ bool CopySurfaceToTextureLocked(VideoState &s, GuestTexture *src,
       if (!fb) {
         static std::atomic<u32> s_warn{0};
         if (s_warn.fetch_add(1, std::memory_order_relaxed) < 8) {
-          REXLOG_ERROR(bd, "{}: createFramebuffer failed (depth_dst={}), skipping "
+          REXBD_ERROR("{}: createFramebuffer failed (depth_dst={}), skipping "
                    "shader resolve (src={}x{} dst={}x{})",
                    reason, depth_dst ? 1 : 0, src->width, src->height,
                    dst->width, dst->height);
@@ -222,7 +221,7 @@ bool CopySurfaceToTextureLocked(VideoState &s, GuestTexture *src,
     if (!pipeline) {
       static std::atomic<u32> s_warn{0};
       if (s_warn.fetch_add(1, std::memory_order_relaxed) < 8) {
-        REXLOG_ERROR(bd, "{}: createGraphicsPipeline failed for dst format {}", reason,
+        REXBD_ERROR("{}: createGraphicsPipeline failed for dst format {}", reason,
                  static_cast<int>(dst->format));
       }
       return false;

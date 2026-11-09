@@ -8,9 +8,8 @@
 
 #include <cstddef>
 
-#include <rex/hook.h>
-#include <rex/ppc.h>
-#include <rex/ppc/detour.h>
+#include <rex/ppc/hook.h>
+#include <rex/ppc/context.h>
 #include <rex/ppc/midasm.h>
 
 #include "core/memory_helpers.h"

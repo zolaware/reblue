@@ -9,7 +9,7 @@
  */
 #pragma once
 
-#include <rex/runtime/guest_global.h>
+#include <rex/kernel/memory_view.h>
 #include <rex/types.h>
 
 #include "core/memory_helpers.h"
@@ -22,18 +22,18 @@ namespace bd::mem {
 // the guest address space is not up.
 
 template <typename T, u32 Address>
-inline T global_load(rex::GuestGlobal<rex::BE<T>, Address> global,
+inline T global_load(rex::kernel::GuestGlobal<rex::BE<T>, Address> global,
                      T fallback = T{}) {
   const auto v = view();
-  const rex::BE<T> *value = v ? global.TryGet(*v) : nullptr;
+  const rex::BE<T> *value = v ? global.TryGetHost(*v) : nullptr;
   return value ? static_cast<T>(*value) : fallback;
 }
 
 template <typename T, u32 Address>
-inline bool global_store(rex::GuestGlobal<rex::BE<T>, Address> global,
+inline bool global_store(rex::kernel::GuestGlobal<rex::BE<T>, Address> global,
                          T value) {
   const auto v = view();
-  rex::BE<T> *slot = v ? global.TryGet(*v) : nullptr;
+  rex::BE<T> *slot = v ? global.TryGetHost(*v) : nullptr;
   if (!slot)
     return false;
   *slot = value;
@@ -41,19 +41,19 @@ inline bool global_store(rex::GuestGlobal<rex::BE<T>, Address> global,
 }
 
 template <typename T, u32 Address>
-inline T global_load_fast(rex::GuestGlobal<rex::BE<T>, Address> global,
+inline T global_load_fast(rex::kernel::GuestGlobal<rex::BE<T>, Address> global,
                           T fallback = T{}) {
   const auto v = view();
-  return v ? static_cast<T>(*global.get(*v)) : fallback;
+  return v ? static_cast<T>(*global.GetHost(*v)) : fallback;
 }
 
 template <typename T, u32 Address>
-inline bool global_store_fast(rex::GuestGlobal<rex::BE<T>, Address> global,
+inline bool global_store_fast(rex::kernel::GuestGlobal<rex::BE<T>, Address> global,
                               T value) {
   const auto v = view();
   if (!v)
     return false;
-  *global.get(*v) = value;
+  *global.GetHost(*v) = value;
   return true;
 }
 

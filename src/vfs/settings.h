@@ -22,10 +22,8 @@ public:
   void AdoptCvars();
 
   bool ModLog() const { return modLog_; }
-  bool SetModLog(bool v);
 
   bool DiscPrefetch() const { return discPrefetch_; }
-  bool SetDiscPrefetch(bool v);
 
   // Both are read when the log opens at boot.
   i32 ModLogKeep() const { return modLogKeep_; }

@@ -68,10 +68,6 @@ int SettingsSlotToRow(SettingsPage page, int slot);
 // Where a row is drawn.
 int SettingsRowToSlot(SettingsPage page, int row);
 
-// True when the row's value belongs to the stock game options, and so
-// participates in the per-save override.
-bool SettingsSaveScoped(SettingsPage page, int index);
-
 // Grays out every restart-bound row, for a surface that cannot act on one.
 // The in-game menu sets this, the title screen clears it. The rows stay in
 // the counts and indices above, so both surfaces page identically and the
@@ -89,9 +85,6 @@ SettingAction SettingsRowAction(SettingsPage page, int index);
 bool SettingsPageHasRestart(SettingsPage page);
 
 bool SettingsDisabled(SettingsPage page, int index);
-
-// True when the row is a continuous slider (RowUi::Slider).
-bool SettingsIsSlider(SettingsPage page, int index);
 
 // Discrete rows (Buttons / SliderSteps): option list and selected index.
 int SettingsOptionCount(SettingsPage page, int index);

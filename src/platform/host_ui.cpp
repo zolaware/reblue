@@ -10,28 +10,53 @@
 #include <atomic>
 #include <string>
 
-#include <rex/system.h>
+#include <rex/platform/process.h>
 
 namespace bd::platform {
 namespace {
 
-std::atomic<rex::ui::IUserInterface *> g_ui{nullptr};
+std::atomic<rex::ui::IUISystem *> g_ui{nullptr};
+
+std::atomic<rex::gpu::IGraphicsSystem *> g_graphics{nullptr};
+std::atomic<rex::kernel::TitleRuntime *> g_title{nullptr};
 
 } // namespace
 
-rex::ui::IUserInterface *UI() { return g_ui.load(std::memory_order_acquire); }
+rex::ui::IUISystem *UI() { return g_ui.load(std::memory_order_acquire); }
 
-void SetUI(rex::ui::IUserInterface *ui) {
+void SetUI(rex::ui::IUISystem *ui) {
   g_ui.store(ui, std::memory_order_release);
 }
 
+rex::kernel::TitleRuntime *Title() { return g_title.load(std::memory_order_acquire); }
+
+void SetTitle(rex::kernel::TitleRuntime *title) {
+  g_title.store(title, std::memory_order_release);
+}
+
+PPCFunc *FindTitleFunction(u32 address) {
+  rex::kernel::TitleRuntime *title = Title();
+  if (!title)
+    return nullptr;
+  auto found = title->FindFunction(address);
+  return found ? *found : nullptr;
+}
+
+rex::gpu::IGraphicsSystem *Graphics() {
+  return g_graphics.load(std::memory_order_acquire);
+}
+
+void SetGraphics(rex::gpu::IGraphicsSystem *graphics) {
+  g_graphics.store(graphics, std::memory_order_release);
+}
+
 void ShowFatal(std::string_view title, std::string_view body) {
-  if (rex::ui::IUserInterface *ui = UI()) {
-    ui->ShowMessage(rex::ui::MessageKind::kError, title, body);
+  if (rex::ui::IUISystem *ui = UI()) {
+    ui->ShowMessage(rex::MessageType::kError, title, body);
     return;
   }
-  rex::ShowSimpleMessageBox(rex::SimpleMessageBoxType::kError,
-                            std::string(title) + "\n\n" + std::string(body));
+  rex::ShowMessageBox(rex::MessageType::kError,
+                      std::string(title) + "\n\n" + std::string(body));
 }
 
 } // namespace bd::platform

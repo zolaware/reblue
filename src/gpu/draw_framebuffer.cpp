@@ -45,7 +45,7 @@ plume::RenderFramebuffer *GetFramebuffer(VideoState &s, GuestTexture *rt,
     desc.depthAttachment = ds->texture;
   auto fb = s.device->createFramebuffer(desc);
   if (!fb) {
-    REXLOG_ERROR(bd, "createFramebuffer failed for (rt={} ds={})",
+    REXBD_ERROR("createFramebuffer failed for (rt={} ds={})",
              static_cast<void *>(rt), static_cast<void *>(ds));
     return nullptr;
   }
@@ -170,7 +170,7 @@ void SeedFreshColorTarget(VideoState &s, GuestTexture *rt, bool full_screen) {
     u32 n;
     if (DiagShouldLog(6, rt, &n)) {
       if (::bd::Settings::Get().Devmode()) {
-        REXLOG_WARN(bd, "composite-seed #{} fullscreen {}x{} composite DISCARDED "
+        REXBD_WARN("composite-seed #{} fullscreen {}x{} composite DISCARDED "
                     "({})",
                     n, rt->width, rt->height,
                     starved ? starved : "seed copy failed");
@@ -213,7 +213,7 @@ bool Video::BindDrawFramebufferLocked(bool color_clear_follows) {
     u32 n;
     if (DiagShouldLog(5, s.render_target, &n)) {
       if (::bd::Settings::Get().Devmode()) {
-        REXLOG_WARN(bd, "draw-diag #{} draw dropped: no effective RT/DS "
+        REXBD_WARN("draw-diag #{} draw dropped: no effective RT/DS "
                     "(s.render_target={} s.depth_stencil={})",
                     n, static_cast<void *>(s.render_target),
                     static_cast<void *>(s.depth_stencil));

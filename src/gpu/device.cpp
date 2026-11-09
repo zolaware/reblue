@@ -28,9 +28,9 @@
 #else
 #include <plume_vulkan.h>
 #endif
-#include <rex/cvar.h>
-#include <rex/runtime.h>
-#include <rex/ui/user_interface.h>
+#include <rex/kernel/title_runtime.h>
+#include <rex/kernel/memory_view.h>
+#include <rex/ui/ui_driver.h>
 
 #include "gpu/gpu_profiling.h"
 
@@ -47,9 +47,11 @@
 #include "gpu/host_resource_heap.h"
 #include "gpu/output.h"
 #include "gpu/pipeline/pso_recorder.h"
+#include "gpu/pipeline/vulkan_pipeline_cache.h"
 #include "gpu/settings.h"
 #include "gpu/surface_registry.h"
 #include "platform/platform.h"
+#include "platform/host_ui.h"
 
 namespace plume {
 #if defined(REBLUE_D3D12)
@@ -85,7 +87,7 @@ bool BuildFramebuffers(VideoState &s) {
     plume::RenderFramebufferDesc desc(color_attachments, 1);
     auto fb = s.device->createFramebuffer(desc);
     if (!fb) {
-      REXLOG_ERROR(bd, "Plume createFramebuffer failed for back buffer {}", i);
+      REXBD_ERROR("Plume createFramebuffer failed for back buffer {}", i);
       s.framebuffers.clear(); // never leave a partial set, Present's empty()
                               // gate is all-or-nothing
       return false;
@@ -105,7 +107,7 @@ bool BuildPresentSemaphores(VideoState &s) {
   for (u32 i = 0; i < count; ++i) {
     auto sem = s.device->createCommandSemaphore();
     if (!sem) {
-      REXLOG_ERROR(bd, "Plume createCommandSemaphore failed for present semaphore {}",
+      REXBD_ERROR("Plume createCommandSemaphore failed for present semaphore {}",
                i);
       s.render_semaphores.clear();
       return false;
@@ -292,16 +294,6 @@ PickDepthStencilFormat([[maybe_unused]] plume::RenderDevice *device) {
   return plume::RenderFormat::D32_FLOAT_S8_UINT;
 }
 
-plume::RenderFormat PickSceneColorFormat(plume::RenderDevice *device) {
-  if (Settings::Get().SceneColorR11G11B10() &&
-      (device->getSampleCountsSupported(
-           plume::RenderFormat::R11G11B10_FLOAT) &
-       plume::RenderSampleCount::COUNT_1)) {
-    return plume::RenderFormat::R11G11B10_FLOAT;
-  }
-  return plume::RenderFormat::R16G16B16A16_FLOAT;
-}
-
 } // namespace
 
 // Never destroyed: globals that own plume objects free them during static
@@ -314,7 +306,8 @@ VideoState &state() {
 // Registered by the app (ReblueApp::OnPreLaunchModule), invoked from Present.
 Video::OverlayDrawHook g_overlay_draw_hook;
 
-bool Video::CreateHostDevice(rex::ui::IWindow &window) {
+bool Video::CreateHostDevice(const rex::NativeWindow &window, u32 window_w,
+                             u32 window_h) {
   auto &s = state();
   std::lock_guard lock(s.mutex);
   if (s.ready) {
@@ -322,7 +315,7 @@ bool Video::CreateHostDevice(rex::ui::IWindow &window) {
   }
 
   if (!s.device) { // pre-Runtime path: no guest memory required
-    Output::Init(window);
+    Output::Init(window_w, window_h);
     plume::RenderWindow render_window{};
     if (!bd::platform::GetNativeRenderWindow(window, render_window)) {
       return false;
@@ -335,7 +328,7 @@ bool Video::CreateHostDevice(rex::ui::IWindow &window) {
 #if defined(REBLUE_D3D12)
     s.render_iface = plume::CreateD3D12Interface();
     if (!s.render_iface) {
-      REXLOG_ERROR(bd, "Plume CreateD3D12Interface failed");
+      REXBD_ERROR("Plume CreateD3D12Interface failed");
       return false;
     }
     // After the interface, before the device: asking earlier can bind the
@@ -345,23 +338,25 @@ bool Video::CreateHostDevice(rex::ui::IWindow &window) {
 #else
     s.render_iface = plume::CreateVulkanInterface();
     if (!s.render_iface) {
-      REXLOG_ERROR(bd, "Plume CreateVulkanInterface failed");
+      REXBD_ERROR("Plume CreateVulkanInterface failed");
       return false;
     }
 #endif
     s.device = s.render_iface->createDevice();
     if (!s.device) {
-      REXLOG_ERROR(bd, "Plume RenderInterface::createDevice failed");
+      REXBD_ERROR("Plume RenderInterface::createDevice failed");
       return false;
     }
 #if defined(REBLUE_D3D12)
     DenyExpectedDebugMessages(s.device.get());
+#else
+    InitVulkanPipelineCache(s.device.get());
 #endif
     s.backend_info = DescribeBackend(s.device.get());
     // bd_msaa is clamped to the color/depth intersection. Everything
     // shader-resolves, so no hardware resolve capability is needed.
     s.depth_stencil_format = PickDepthStencilFormat(s.device.get());
-    s.scene_color_format = PickSceneColorFormat(s.device.get());
+    s.scene_color_format = plume::RenderFormat::R16G16B16A16_FLOAT;
     const auto color_counts =
         s.device->getSampleCountsSupported(s.scene_color_format);
     const auto depth_counts =
@@ -382,7 +377,7 @@ bool Video::CreateHostDevice(rex::ui::IWindow &window) {
     [[maybe_unused]] const bool dred_breadcrumbs = PrepareDredCommandObjects();
 
     const bool upload_caps = s.device->getCapabilities().gpuUploadHeap;
-    const bool upload_on = upload_caps && Settings::Get().GeometryGPUUpload();
+    const bool upload_on = upload_caps;
     std::string caps = std::format(
         "GPU caps: {} on {} | scene {} {} | MSAA color=0x{:X} depth=0x{:X} "
         "usable=0x{:X} | geometry GPU_UPLOAD {}",
@@ -394,16 +389,14 @@ bool Video::CreateHostDevice(rex::ui::IWindow &window) {
             ? "D24S8"
             : "D32S8",
         color_counts, depth_counts, s.supported_sample_mask,
-        upload_on      ? "on"
-        : !upload_caps ? "unsupported"
-                       : "off (bd_geometry_gpu_upload)");
+        upload_on ? "on" : "unsupported");
 #if defined(REBLUE_D3D12)
     const char *dred_state = !dred_armed        ? "off"
                              : dred_breadcrumbs ? "on"
                                                 : "armed, no breadcrumb writes";
     caps += std::format(" | DRED {}", dred_state);
 #endif
-    REXLOG_INFO(bd, "{}", caps);
+    REXBD_INFO("{}", caps);
 
     // kNumFrames + 1: a flip model swapchain needs one back buffer beyond the
     // frames in flight so acquiring N+1 never waits on scanout.
@@ -420,7 +413,7 @@ bool Video::CreateHostDevice(rex::ui::IWindow &window) {
     }
 #endif
     if (!s.swap_chain || s.swap_chain->isEmpty()) {
-      REXLOG_ERROR(bd, "Plume createSwapChain failed");
+      REXBD_ERROR("Plume createSwapChain failed");
       return false;
     }
     if (!BuildFramebuffers(s)) {
@@ -437,17 +430,17 @@ bool Video::CreateHostDevice(rex::ui::IWindow &window) {
     }
     // overlay drawer uploads textures through this
     if (!TryInit()) {
-      REXLOG_ERROR(bd, "TryInit failed, shader constants disabled");
+      REXBD_ERROR("TryInit failed, shader constants disabled");
     }
   }
 
-  if (!rex::GetProcessRuntime()) {
+  if (!bd::platform::Title()) {
     return true; // guest tail waits for the post-Runtime call
   }
 
   // Must precede any HostResourceHeap::Alloc.
   if (!bd::gpu::HostHeap::Get().Init()) {
-    REXLOG_ERROR(bd, "HostHeap init failed");
+    REXBD_ERROR("HostHeap init failed");
     return false;
   }
 
@@ -458,13 +451,13 @@ bool Video::CreateHostDevice(rex::ui::IWindow &window) {
     auto *bb = bd::gpu::HostResourceHeap::Alloc<bd::gpu::GuestTexture>(
         bd::gpu::ResourceType::RenderTarget);
     if (!bb) {
-      REXLOG_ERROR(bd, "HostResourceHeap::Alloc for back-buffer GuestTexture failed");
+      REXBD_ERROR("HostResourceHeap::Alloc for back-buffer GuestTexture failed");
       return false;
     }
     u32 bb_w = 0, bb_h = 0;
     GuestBackBufferDims(bb_w, bb_h);
     if (!CreateBackBufferTexture(s, bb, bb_w, bb_h)) {
-      REXLOG_ERROR(bd, "Plume createTexture for back-buffer failed");
+      REXBD_ERROR("Plume createTexture for back-buffer failed");
       return false;
     }
 
@@ -472,7 +465,7 @@ bool Video::CreateHostDevice(rex::ui::IWindow &window) {
     // the per-Present blit can sample this back buffer.
     const u32 slot = AllocateSlot(s);
     if (slot == kInvalidDescriptorIndex) {
-      REXLOG_ERROR(bd, "Back-buffer SRV bind failed: bindless heap full");
+      REXBD_ERROR("Back-buffer SRV bind failed: bindless heap full");
       return false;
     }
     s.texture_descriptor_set->setTexture(
@@ -491,7 +484,7 @@ bool Video::CreateHostDevice(rex::ui::IWindow &window) {
                   static_cast<plume::D3D12CommandQueue *>(s.queue.get())->d3d);
 #endif
   s.ready = true;
-  REXLOG_DEBUG(bd, "Plume backend ready: {}x{} ({} buffers, {} bindless slots)",
+  REXBD_DEBUG("Plume backend ready: {}x{} ({} buffers, {} bindless slots)",
            static_cast<u32>(s.viewport.width),
            static_cast<u32>(s.viewport.height),
            static_cast<u32>(s.framebuffers.size()), kBindlessTextureCount);
@@ -527,7 +520,7 @@ void Video::SyncBackBufferSizeLocked() {
   }
 
   if (!CreateBackBufferTexture(s, bb, w, h)) {
-    REXLOG_ERROR(bd, "Back-buffer resize to {}x{} failed", w, h);
+    REXBD_ERROR("Back-buffer resize to {}x{} failed", w, h);
     return;
   }
   if (bb->descriptorIndex != kInvalidDescriptorIndex) {
@@ -538,7 +531,7 @@ void Video::SyncBackBufferSizeLocked() {
   s.viewport.width = static_cast<float>(w);
   s.viewport.height = static_cast<float>(h);
   s.dirtyStates.viewport = true;
-  REXLOG_INFO(bd, "output-res back buffer -> {}x{}", w, h);
+  REXBD_INFO("output-res back buffer -> {}x{}", w, h);
 }
 
 void Video::ResizeTexture(GuestTexture *tex, u32 width, u32 height) {
@@ -604,7 +597,7 @@ void Video::ApplyHostScaleChange() {
     s.draw_framebuffer_bound = false;
     s.dirtyStates.viewport = true;
   }
-  REXLOG_INFO(bd,
+  REXBD_INFO(
               "host scale -> {:.3f}x{:.3f}: {} texture(s), {} surface(s), {} "
               "cpu-written left at the old scale",
               kx, ky, textures, surfaces, cpu_written);
@@ -636,7 +629,7 @@ void Video::PromoteForGPUWrite(GuestTexture *tex) {
   tex->scaleX = kx;
   tex->scaleY = ky;
   RecreateTexture(tex);
-  REXLOG_DEBUG(bd, "host scale promoted {}x{} fmt {} to {}x{}", tex->width,
+  REXBD_DEBUG("host scale promoted {}x{} fmt {} to {}x{}", tex->width,
                tex->height, static_cast<int>(tex->format), tex->hostWidth,
                tex->hostHeight);
 }
@@ -673,7 +666,7 @@ void Video::RecreateTexture(GuestTexture *tex) {
   tex->textureHolder = CreateHostTexture(device, desc, "resized-texture");
   tex->texture = tex->textureHolder.get();
   if (!tex->texture) {
-    REXLOG_ERROR(bd, "Texture resize to {}x{} failed", width, height);
+    REXBD_ERROR("Texture resize to {}x{} failed", width, height);
     return;
   }
   tex->SetSize(width, height);
@@ -693,6 +686,10 @@ void Video::BeginShutdown() {
 void Video::Shutdown() {
   auto &s = state();
 
+#if !defined(REBLUE_D3D12)
+  ShutdownVulkanPipelineCache();
+#endif
+
   // Bounded, not a plain lock: a ReX thread terminated while it held s.mutex
   // leaves it held. Skipping the drain beats a shutdown that hangs.
   using Clock = std::chrono::steady_clock;
@@ -700,7 +697,7 @@ void Video::Shutdown() {
   std::unique_lock lock(s.mutex, std::defer_lock);
   while (!lock.try_lock()) {
     if (Clock::now() >= deadline) {
-      REXLOG_WARN(bd, "Shutdown: renderer busy, skipping GPU drain");
+      REXBD_WARN("Shutdown: renderer busy, skipping GPU drain");
       return;
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(2));
@@ -711,7 +708,7 @@ void Video::Shutdown() {
   // Fences never signal on a removed device, and the swap chain is already
   // invalid, so flushing anything here would just hang until the watchdog.
   if (DeviceIsLost()) {
-    REXLOG_WARN(bd, "Shutdown: device lost, skipping GPU drain");
+    REXBD_WARN("Shutdown: device lost, skipping GPU drain");
     return;
   }
 
@@ -779,7 +776,7 @@ GuestTexture *GetOrCreateDebugTexture() {
   desc.committed = true; // avoid placed-resource uninit GBV debug fill
   t->textureHolder = CreateHostTexture(s.device.get(), desc, "debug-fallback");
   if (!t->textureHolder) {
-    REXLOG_ERROR(bd, 
+    REXBD_ERROR(
         "GetOrCreateDebugTexture: createTexture for fallback texture failed");
     delete t;
     return nullptr;
@@ -794,7 +791,7 @@ GuestTexture *GetOrCreateDebugTexture() {
 
   const u32 slot = AllocateSlot(s);
   if (slot == kInvalidDescriptorIndex) {
-    REXLOG_ERROR(bd, "GetOrCreateDebugTexture: bindless heap full, fallback texture "
+    REXBD_ERROR("GetOrCreateDebugTexture: bindless heap full, fallback texture "
              "dropped");
     delete t;
     return nullptr;
@@ -845,7 +842,7 @@ const plume::RenderIndexBufferView *Video::QuadlistExpansionIBView() {
       return;
     auto *mapped = static_cast<u32 *>(s_buffer->map());
     if (!mapped) {
-      REXLOG_ERROR(bd, "QuadlistExpansionIBView: map() null (resource null-backed?), "
+      REXBD_ERROR("QuadlistExpansionIBView: map() null (resource null-backed?), "
                "quad-list draws will be unindexed");
       s_buffer.reset();
       return;
@@ -874,7 +871,7 @@ std::unique_ptr<plume::RenderBuffer>
 CreateHostBuffer(plume::RenderDevice *device,
                  const plume::RenderBufferDesc &desc, const char *tag) {
   if (!device) {
-    REXLOG_ERROR(bd, "CreateHostBuffer({}): no host device", tag ? tag : "?");
+    REXBD_ERROR("CreateHostBuffer({}): no host device", tag ? tag : "?");
     return nullptr;
   }
   auto buffer = device->createBuffer(desc);
@@ -888,7 +885,7 @@ CreateHostBuffer(plume::RenderDevice *device,
       || static_cast<plume::VulkanBuffer *>(buffer.get())->vk == VK_NULL_HANDLE
 #endif
   ) {
-    REXLOG_ERROR(bd, 
+    REXBD_ERROR(
         "CreateHostBuffer({}) failed: backend resource null (size={} bytes)",
         tag ? tag : "?", desc.size);
     // A whole-device failure (driver reset/TDR/sleep) nulls every create, so
@@ -904,7 +901,7 @@ std::unique_ptr<plume::RenderTexture>
 CreateHostTexture(plume::RenderDevice *device,
                   const plume::RenderTextureDesc &desc, const char *tag) {
   if (!device) {
-    REXLOG_ERROR(bd, "CreateHostTexture({}): no host device", tag ? tag : "?");
+    REXBD_ERROR("CreateHostTexture({}): no host device", tag ? tag : "?");
     return nullptr;
   }
   auto texture = device->createTexture(desc);
@@ -916,7 +913,7 @@ CreateHostTexture(plume::RenderDevice *device,
       static_cast<plume::VulkanTexture *>(texture.get())->vk == VK_NULL_HANDLE
 #endif
   ) {
-    REXLOG_ERROR(bd, 
+    REXBD_ERROR(
         "CreateHostTexture({}) failed: backend resource null ({}x{} fmt={})",
         tag ? tag : "?", desc.width, desc.height,
         static_cast<u32>(desc.format));
@@ -931,7 +928,7 @@ CreateHostGraphicsPipeline(plume::RenderDevice *device,
                            const plume::RenderGraphicsPipelineDesc &desc,
                            const char *tag) {
   if (!device) {
-    REXLOG_ERROR(bd, "CreateHostGraphicsPipeline({}): no host device", tag ? tag : "?");
+    REXBD_ERROR("CreateHostGraphicsPipeline({}): no host device", tag ? tag : "?");
     return nullptr;
   }
   auto pipeline = device->createGraphicsPipeline(desc);
@@ -947,7 +944,7 @@ CreateHostGraphicsPipeline(plume::RenderDevice *device,
              VK_NULL_HANDLE
 #endif
   ) {
-    REXLOG_ERROR(bd, "CreateHostGraphicsPipeline({}) failed: backend pipeline null",
+    REXBD_ERROR("CreateHostGraphicsPipeline({}) failed: backend pipeline null",
              tag ? tag : "?");
     CheckDeviceRemoved(tag ? tag : "pipeline");
     return nullptr;
@@ -961,7 +958,7 @@ plume::RenderHeapType GeometryHeapType(plume::RenderDevice *device,
   // APU-only there. On D3D12 it also covers ReBAR discrete.
   const bool caps_ok =
       device != nullptr && device->getCapabilities().gpuUploadHeap;
-  const bool gpu_upload_ok = caps_ok && Settings::Get().GeometryGPUUpload();
+  const bool gpu_upload_ok = caps_ok;
   return gpu_upload_ok && cls == GeometryClass::Static
              ? plume::RenderHeapType::GPU_UPLOAD
              : plume::RenderHeapType::UPLOAD;
@@ -981,42 +978,6 @@ plume::RenderFormat Video::SceneColorFormat() {
   return state().scene_color_format;
 }
 
-Video::VideoMemory Video::MemoryUsage() {
-  VideoMemory m;
-  auto *device = state().device.get();
-  if (!device)
-    return m;
-#if defined(REBLUE_D3D12)
-  auto *dev = static_cast<plume::D3D12Device *>(device);
-  IDXGIAdapter3 *adapter = nullptr;
-  if (!dev->adapter ||
-      dev->adapter->QueryInterface(IID_PPV_ARGS(&adapter)) < 0)
-    return m;
-  DXGI_QUERY_VIDEO_MEMORY_INFO info = {};
-  if (adapter->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL,
-                                    &info) >= 0) {
-    m.used = info.CurrentUsage;
-    m.budget = info.Budget;
-  }
-  adapter->Release();
-#else
-  auto *dev = static_cast<plume::VulkanDevice *>(device);
-  if (!dev->allocator)
-    return m;
-  const VkPhysicalDeviceMemoryProperties *props = nullptr;
-  vmaGetMemoryProperties(dev->allocator, &props);
-  VmaBudget budgets[VK_MAX_MEMORY_HEAPS] = {};
-  vmaGetHeapBudgets(dev->allocator, budgets);
-  for (u32 i = 0; i < props->memoryHeapCount; ++i) {
-    if (props->memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) {
-      m.used += budgets[i].usage;
-      m.budget += budgets[i].budget;
-    }
-  }
-#endif
-  return m;
-}
-
 u32 Video::OutputWidth() {
   auto &s = state();
   return s.swap_chain ? s.swap_chain->getWidth() : 0;
@@ -1027,11 +988,6 @@ u32 Video::OutputHeight() {
   return s.swap_chain ? s.swap_chain->getHeight() : 0;
 }
 
-std::string Video::GetDeviceName() {
-  auto &s = state();
-  return s.device ? s.device->getDescription().name : std::string("unknown");
-}
-
 const char *Video::BackendName() {
 #if defined(REBLUE_D3D12)
   return "D3D12";
@@ -1039,8 +995,6 @@ const char *Video::BackendName() {
   return "Vulkan";
 #endif
 }
-
-const std::string &Video::GetBackendInfo() { return state().backend_info; }
 
 plume::RenderPipelineLayout *Video::MainPipelineLayout() {
   return state().pipeline_layout.get();

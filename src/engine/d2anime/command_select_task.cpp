@@ -8,7 +8,7 @@
 
 #include <cstddef>
 
-#include <rex/runtime/xtypes.h>
+#include <rex/kernel/types/memory.h>
 #include <rex/types.h>
 
 #include "core/memory_helpers.h"
@@ -85,11 +85,11 @@ struct CommandSelectTask_t {
   /* 0x08C */ be_u16 gridRows;
   /* 0x08E */ be_u16 gridCols;
   /* 0x090 */ u8 _pad090[0x04]; // entries vector base
-  /* 0x094 */ rex::be_vector<CmdSelectEntry_t> entries;
+  /* 0x094 */ rex::kernel::GuestVector<CmdSelectEntry_t> entries;
   /* 0x0A0 */ u8 _pad0A0[0x04]; // visible vector base
   // The page the scroll window is over, rebuilt every frame. cursorRow and
   // cursorCol index this, not entries.
-  /* 0x0A4 */ rex::be_vector<CmdSelectEntry_t> visible;
+  /* 0x0A4 */ rex::kernel::GuestVector<CmdSelectEntry_t> visible;
   /* 0x0B0 */ be_u32 cursorIndex; // into entries
   // In pages: an entry index is scrollOffset times the page's minor dimension
   // plus its place on the page.

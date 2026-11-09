@@ -142,7 +142,6 @@ public:
   bool SetAnisotropy(i32 v);
 
   bool NTSCFilter() const { return ntscFilter_; }
-  bool SetNTSCFilter(bool v);
 
   // Fraction of BD's own depth-of-field blur to keep, 1 being all of it.
   f64 DOFStrength() const { return dofStrength_; }
@@ -178,10 +177,6 @@ public:
 
   // Restart-bound: read once when the device and its targets are built.
   i32 ShadowDimension() const { return shadowDimension_; }
-  bool PSOPrecache() const { return psoPrecache_; }
-  bool GeometryGPUUpload() const { return geometryGPUUpload_; }
-  bool DRED() const { return dred_; }
-  bool SceneColorR11G11B10() const { return sceneColorR11G11B10_; }
   i32 SuperSampling() const { return superSampling_; }
   bool SetSuperSampling(i32 v);
   i32 MSAA() const { return msaa_; }
@@ -217,10 +212,6 @@ private:
   void AdoptAspectRatio();
   void AdoptFOVOffset();
   void AdoptShadowDimension();
-  void AdoptPSOPrecache();
-  void AdoptGeometryGPUUpload();
-  void AdoptDRED();
-  void AdoptSceneColorR11G11B10();
   void AdoptSuperSampling();
   void AdoptMSAA();
   void AdoptPostQuality();
@@ -241,10 +232,6 @@ private:
   i32 aspectRatio_ = static_cast<i32>(AspectMode::Auto);
   i32 fovOffset_ = 0;
   bool vsync_ = true;
-  bool psoPrecache_ = true;
-  bool geometryGPUUpload_ = true;
-  bool dred_ = true;
-  bool sceneColorR11G11B10_ = false;
 };
 
 } // namespace bd::gpu

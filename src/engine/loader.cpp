@@ -8,7 +8,7 @@
 
 #include <cstddef>
 
-#include <rex/ppc.h>
+#include <rex/ppc/context.h>
 #include <rex/ppc/midasm.h>
 
 #include "engine/sofdec_player.h"

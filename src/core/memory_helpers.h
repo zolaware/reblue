@@ -13,11 +13,13 @@
 #include <string>
 #include <type_traits>
 
-#include <rex/runtime/memory_view.h>
+#include <rex/kernel/guest_memory.h>
+#include <rex/kernel/memory_view.h>
 #include <rex/types.h>
 
 namespace rex {
-class Runtime;
+class GuestMemory;
+class TitleRuntime;
 } // namespace rex
 
 namespace bd {
@@ -27,14 +29,19 @@ template <typename T> using be = rex::BE<T>;
 
 namespace mem {
 
-void Bind(rex::Runtime *runtime);
-rex::runtime::Memory *memory();
-std::optional<rex::runtime::MemoryView> view();
+void Bind(rex::kernel::TitleRuntime *title);
+rex::kernel::GuestMemory *memory();
+std::optional<rex::kernel::MemoryView> view();
+
+// System heap blocks, which the title never allocates from. Zero on failure.
+u32 SystemAlloc(u32 size, u32 alignment);
+void SystemFree(u32 address);
+void Zero(u32 address, u32 length);
 
 // T is the type as stored in memory, a be<> scalar for byte-swapped fields.
 // at() swaps nothing itself. Null when the kernel is down or va is 0.
 template <typename T> inline T *at(u32 va) {
-  const std::optional<rex::runtime::MemoryView> v = view();
+  const std::optional<rex::kernel::MemoryView> v = view();
   if (!v || !va)
     return nullptr;
   return v->template TranslateVirtual<T *>(va);
@@ -60,7 +67,7 @@ inline constexpr size_t kMaxCStringBytes = 260;
 // A guest C string copied out, empty when va is 0 or unreadable. The copy ends
 // at max_length bytes, at the terminator, or where readable memory ends.
 inline std::string cstr(u32 va, size_t max_length = kMaxCStringBytes) {
-  const std::optional<rex::runtime::MemoryView> v = view();
+  const std::optional<rex::kernel::MemoryView> v = view();
   if (!v)
     return {};
   const auto text = v->TryGetCString(va, max_length);
@@ -77,12 +84,12 @@ inline std::string cstr(u32 va, size_t max_length = kMaxCStringBytes) {
 // off the guest thread: the console, the UI, the state readers. Guest thread
 // sites that know their pointer is live can stay on at()/load().
 //
-// These are defined out of line, since the validation needs rex::Runtime and
+// These are defined out of line, since the validation needs the title memory and
 // this header is included nearly everywhere.
 
 template <typename T> inline T *try_at(u32 va) {
-  rex::runtime::Memory *m = memory();
-  return m ? m->template TryTranslateVirtual<T *>(va) : nullptr;
+  const std::optional<rex::kernel::MemoryView> v = view();
+  return v ? v->template TryTranslateVirtual<T *>(va) : nullptr;
 }
 
 template <typename T> inline T try_load(u32 va, T fallback = T{}) {

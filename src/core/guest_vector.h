@@ -1,6 +1,6 @@
 /**
  * @file    core/guest_vector.h
- * @brief   Element reads for rex::be_vector that work on any thread.
+ * @brief   Element reads for rex::kernel::GuestVector that work on any thread.
  *
  * @copyright Copyright (c) 2026 Tom Clay <tomc@tctechstuff.com>
  *            All rights reserved.
@@ -10,8 +10,10 @@
 #pragma once
 
 #include <cstddef>
+#include <optional>
 
-#include <rex/runtime/xtypes.h>
+#include <rex/kernel/types/memory.h>
+#include <rex/kernel/memory_view.h>
 #include <rex/types.h>
 
 #include "core/memory_helpers.h"
@@ -21,13 +23,10 @@ namespace bd::mem {
 // Element index of a guest vector of scalars in host order. The fallback comes
 // back past the end, for a null vector, and when the element is unreadable.
 template <typename T>
-inline T vec_at(const rex::be_vector<rex::BE<T>> &vec, size_t index,
+inline T vec_at(const rex::kernel::GuestVector<T> &vec, size_t index,
                 T fallback = T{}) {
-  const std::optional<rex::runtime::MemoryView> v = view();
-  if (!v)
-    return fallback;
-  const rex::BE<T> *element = vec.TryAt(index, *v);
-  return element ? static_cast<T>(*element) : fallback;
+  const std::optional<rex::kernel::MemoryView> v = view();
+  return v ? vec.TryGet(index, *v).value_or(fallback) : fallback;
 }
 
 } // namespace bd::mem

@@ -8,7 +8,7 @@
 
 #include <cstddef>
 
-#include <rex/hook.h>
+#include <rex/ppc/hook.h>
 #include <rex/types.h>
 
 #include "core/guest_vector.h"
@@ -58,10 +58,10 @@ struct AnimeMenu_t {
   /* 0x0A8 */ be_u32 gridDimY; // cols
   /* 0x0AC */ u8 _pad0AC[0x04];
   // Entry data. CheckConfirmInput is gated on it.
-  /* 0x0B0 */ rex::be_vector<be_u32> entryData;
+  /* 0x0B0 */ rex::kernel::GuestVector<u32> entryData;
   /* 0x0BC */ u8 _pad0BC[0x04]; // visibleItems vector base
   // The scroll window over the entry list, one element per drawn slot.
-  /* 0x0C0 */ rex::be_vector<be_u32> itemData;
+  /* 0x0C0 */ rex::kernel::GuestVector<u32> itemData;
   /* 0x0CC */ be_u32 cursorIndex;
   // Sixteen bits wide, not thirty-two. Reading a word here picks the halfword
   // at 0x0D2 up in the low bits, so the offset comes back as garbage whenever
@@ -81,7 +81,7 @@ struct AnimeMenu_t {
   /* 0x100 */ be_u32 deselectAll;
   /* 0x104 */ be_u32 hasWndType;
   /* 0x108 */ u8 _pad108[0x50];
-  /* 0x158 */ rex::be_vector<be_u32> templates; // vector<D2AnimeTask*>
+  /* 0x158 */ rex::kernel::GuestVector<u32> templates; // vector<D2AnimeTask*>
   /* 0x164 */ be_u32 enableColor;  // packed ARGB (A<<24|R<<16|G<<8|B)
   /* 0x168 */ be_u32 disableColor; // packed ARGB
   /* 0x16C */ be_u32 needsRebuild;

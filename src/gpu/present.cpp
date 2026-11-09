@@ -18,16 +18,19 @@
 
 #include <plume_render_interface.h>
 
-#include <rex/dbg.h>
+#include <rex/platform/perf.h>
 
 #include "gpu/gpu_profiling.h"
 
+#include "core/frame_meter.h"
 #include "core/logging.h"
 #include "engine/engine.h"
 #include "gpu/backend.h"
 #include "gpu/constant_buffers.h"
+#include "gpu/frame_gpu_timer.h"
 #include "gpu/output.h"
 #include "gpu/settings.h"
+#include "platform/host_ui.h"
 
 namespace bd::gpu {
 
@@ -87,7 +90,7 @@ void RebuildSwapChain(VideoState &s) {
   if (!s.swap_chain->resize() || !BuildFramebuffers(s) ||
       !BuildPresentSemaphores(s)) {
     if (s.swap_chain->getWidth() && s.swap_chain->getHeight())
-      REXLOG_ERROR(bd, "Swap chain resize failed");
+      REXBD_ERROR("Swap chain resize failed");
     return;
   }
   if (static_cast<AspectMode>(Settings::Get().AspectRatio()) ==
@@ -277,7 +280,7 @@ void Video::Present(GuestTexture *frontBuffer) {
     static std::atomic<u32> s_log{0};
     const u32 n = s_log.fetch_add(1, std::memory_order_relaxed);
     if (n < 5) {
-      REXLOG_ERROR(bd, "Present #{} skipped: no drawable RT", n);
+      REXBD_ERROR("Present #{} skipped: no drawable RT", n);
     }
     AbandonFrame(s, lock);
     return;
@@ -287,6 +290,7 @@ void Video::Present(GuestTexture *frontBuffer) {
   RecordPresentPass(s, rt, back, back_fb);
 
   const u32 cur = s.frame.load(std::memory_order_relaxed);
+  GpuTimerEnd(s.command_list, cur);
   s.command_lists[cur]->end();
   s.command_list_open = false;
 
@@ -315,6 +319,9 @@ void Video::Present(GuestTexture *frontBuffer) {
   const u32 reclaimed = s.frame.load(std::memory_order_relaxed);
   s.frame_present_committed = true;
   REX_PROFILE_FRAME();
+  FrameMeterPresent();
+  if (rex::gpu::IGraphicsSystem *graphics = bd::platform::Graphics())
+    graphics->ReportFrame();
   Video::SyncBackBufferSizeLocked();
   lock.unlock();
   {
@@ -361,7 +368,7 @@ void Video::PresentOverlayFrame() {
     if (!s.swap_chain->resize() || !BuildFramebuffers(s) ||
         !BuildPresentSemaphores(s)) {
       if (s.swap_chain->getWidth() && s.swap_chain->getHeight())
-        REXLOG_ERROR(bd, "Swap chain resize failed");
+        REXBD_ERROR("Swap chain resize failed");
     }
   }
   if (s.framebuffers.empty())

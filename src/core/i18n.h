@@ -27,9 +27,6 @@ u32 CurrentLocale();
 // else the OS. Safe before the guest exists, which is how the installer picks.
 void SyncLocale();
 
-// Fires after SetLocale changes the catalog, so open menus can rebuild.
-void OnLocaleChanged(std::function<void()> cb);
-
 // Text for a dotted key ("settings.display.vsync.label"). An unknown key reads
 // "#key", which a screenshot shows and a blank row does not. The reference
 // stays valid until the next SetLocale.

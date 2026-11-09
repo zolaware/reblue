@@ -8,11 +8,11 @@
 #include <string>
 
 #include <rex/types.h>
-#include <rex/hid/virtual_key.h>
+#include <rex/input_keys.h>
 
 namespace bd::platform {
 
-using VK = rex::hid::VirtualKey;
+using VK = rex::VirtualKey;
 
 inline constexpr VK kBindableKeys[] = {
     VK::kLButton, VK::kRButton, VK::kMButton, VK::kA, VK::kB, VK::kC, VK::kD,
@@ -37,6 +37,9 @@ inline constexpr VK kBindableKeys[] = {
 inline constexpr size_t kBindableKeyCount =
     sizeof(kBindableKeys) / sizeof(kBindableKeys[0]);
 
+
+// Drops the capture before the input system goes away.
+void ShutdownKeyCapture();
 
 void SetCapturePadButtons(u32 buttons);
 

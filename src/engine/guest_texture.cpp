@@ -8,9 +8,8 @@
 #include "engine/guest_texture.h"
 
 #include <rex/math.h>
-#include <rex/xenos/texture_conversion.h>
-#include <rex/xenos/texture_layout.h>
-#include <rex/xenos/xenos.h>
+#include <rex/xenos/texture.h>
+#include <rex/xenos/format.h>
 
 namespace bd::engine {
 

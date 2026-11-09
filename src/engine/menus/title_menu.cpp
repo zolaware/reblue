@@ -11,7 +11,7 @@
 
 #include "core/i18n.h"
 #include "core/logging.h"
-#include <rex/app.h>
+#include <rex/app/app.h>
 #include "engine/d2anime/anime_hittest.h"
 #include "engine/d2anime/anime_input.h"
 #include "engine/d2anime/anime_mouse.h"
@@ -35,15 +35,14 @@
 #include <map>
 #include <string>
 
-#include <rex/hook.h>
-#include <rex/ppc.h>
-#include <rex/ppc/detour.h>
+#include <rex/ppc/hook.h>
+#include <rex/logging/log_category.h>
+#include <rex/ppc/context.h>
 #include <rex/ppc/stack.h>
-#include <rex/runtime.h>
-#include <rex/string.h>
+#include <rex/kernel/title_runtime.h>
+#include <rex/string/text.h>
 #include <rex/types.h>
 #include <rex/ppc/midasm.h>
-#include <rex/string/utf8.h>
 
 using bd::engine::Action;
 using bd::engine::ActionButton;
@@ -111,7 +110,7 @@ const std::u16string &RowLabel(const char *key) {
   }
   auto it = cache.find(key);
   if (it == cache.end())
-    it = cache.emplace(key, rex::ToUTF16(bd::i18n::Text(key))).first;
+    it = cache.emplace(key, rex::string::ToUTF16(bd::i18n::Text(key))).first;
   return it->second;
 }
 
@@ -251,7 +250,7 @@ float TitleRowTextY(u32 index) {
 // Draw a centered custom menu label at the given cursor row.
 void DrawTitleLabel(u32 index, std::u16string_view text) {
   char16_t str[24];
-  const int len = static_cast<int>(rex::CopyTruncating(str, text, std::size(str)));
+  const int len = static_cast<int>(rex::string::CopyTruncating(str, text, std::size(str)));
 
   float yPos = TitleRowTextY(index);
 
@@ -372,7 +371,7 @@ REX_MIDASM_BRANCH(bdTitleModsDispatchHook, (PPCRegister &r31, PPCRegister &r11))
   }
 
   if (cursor == ExitIndex(title)) {
-    rex::RequestShutdown(0);
+    rex::app::RequestShutdown(0);
   }
 
   return false;
@@ -451,7 +450,7 @@ void TitleTaskUpdate_hook(u32 titleVA) {
                          &__imp__TitleTask_Update);
 
     if (!s_config_menu.IsActive()) {
-      REXLOG_ERROR(bd, "config Create failed, restoring the menu state");
+      REXBD_ERROR("config Create failed, restoring the menu state");
       title.SetState(kTitleStateMenu);
       bd::engine::UnregisterVFS();
       fade.FadeTo(0.0f, kFadeInSeconds);
@@ -462,9 +461,8 @@ void TitleTaskUpdate_hook(u32 titleVA) {
   }
 
   if (s_config_menu.IsActive()) {
-    auto *state = rex::runtime::ThreadState::Get();
-    s_config_menu.Update(*state->GetContext(),
-                         state->GetMemory()->GetVirtualMembase());
+    auto *state = rex::kernel::ThreadState::Get();
+    s_config_menu.Update(*state->GetContext());
 
     // The load is done: the finished screen cuts in from under the veil.
     if (s_config_fade == ConfigFade::Hold && s_config_menu.IsOnScreen()) {

@@ -9,7 +9,7 @@
  */
 #pragma once
 
-#include <rex/runtime/guest_global.h>
+#include <rex/kernel/memory_view.h>
 #include <rex/types.h>
 
 namespace bd::globals {

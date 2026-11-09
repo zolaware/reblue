@@ -17,10 +17,7 @@
 #include <iterator>
 #include <string>
 
-#include <rex/ui/resolution_preset.h>
-#include <rex/cvar.h>
 #include <rex/types.h>
-#include <rex/ui/video_mode.h>
 
 #include "audio/audio.h"
 #include "engine/engine.h"
@@ -54,19 +51,17 @@ double DisplayModeNum() {
 
 double RenderResolutionNum() {
   i32 w = 0, h = 0;
-  return rex::ui::TryGetResolutionPresetFromCvar(Cvars(), w, h)
+  return bd::CvarResolution(w, h)
              ? static_cast<double>(w)
              : 0.0;
 }
 
 bool SetRenderResolution(const char *preset) {
-  (void)Cvars().ResetToDefault("ui.video_mode_width");
-  (void)Cvars().ResetToDefault("ui.video_mode_height");
-  i32 w = 0, h = 0;
+  (void)CvarReset("ui.video_mode_width");
+  (void)CvarReset("ui.video_mode_height");
   bool ok = true;
-  if (!preset || !*preset ||
-      !rex::ui::TryParseResolutionPreset(preset, w, h)) {
-    (void)Cvars().ResetToDefault("ui.resolution");
+  if (!preset || !*preset) {
+    (void)CvarReset("ui.resolution");
   } else {
     ok = CvarSet("ui.resolution", preset);
   }
@@ -293,15 +288,13 @@ constexpr SettingRow kGameplaySettings[] = {
      .binding = OptInt<&engine::GameOptions::MsgSpeed,
                        &engine::GameOptions::SetMsgSpeed>(),
      .options = kTextSpeed,
-     .count = OptCount(kTextSpeed),
-     .saveScoped = true},
+     .count = OptCount(kTextSpeed)},
     {.label = "settings.gameplay.text_size.label",
      .group = "menu.header.text",
      .binding = OptInt<&engine::GameOptions::MsgSize,
                        &engine::GameOptions::SetMsgSize>(),
      .options = kTextSize,
      .count = OptCount(kTextSize),
-     .saveScoped = true,
      .hidden = TextSizeHidden},
     {.label = "settings.gameplay.ruby.label",
      .group = "menu.header.text",
@@ -309,15 +302,13 @@ constexpr SettingRow kGameplaySettings[] = {
          OptInt<&engine::GameOptions::Ruby, &engine::GameOptions::SetRuby>(),
      .options = kOnOff,
      .count = OptCount(kOnOff),
-     .saveScoped = true,
      .hidden = RubyHidden},
     {.label = "settings.gameplay.subtitles.label",
      .group = "menu.header.text",
      .binding = OptInt<&engine::GameOptions::Subtitles,
                        &engine::GameOptions::SetSubtitles>(),
      .options = kOnOff,
-     .count = OptCount(kOnOff),
-     .saveScoped = true},
+     .count = OptCount(kOnOff)},
     {.label = "settings.gameplay.ui_language.label",
      .group = "menu.header.text",
      .binding = {.setText =
@@ -333,29 +324,25 @@ constexpr SettingRow kGameplaySettings[] = {
                        &engine::GameOptions::SetVoiceType>(),
      .sliderUi = true,
      .special = SettingSpecial::VoiceLanguage,
-     .saveScoped = true,
      .hidden = VoiceLanguageHidden},
     {.label = "settings.gameplay.audio_hints.label",
      .group = "menu.header.assists",
      .binding = OptInt<&engine::GameOptions::AudioHints,
                        &engine::GameOptions::SetAudioHints>(),
      .options = kOnOff,
-     .count = OptCount(kOnOff),
-     .saveScoped = true},
+     .count = OptCount(kOnOff)},
     {.label = "settings.gameplay.battle_hints.label",
      .group = "menu.header.assists",
      .binding = OptInt<&engine::GameOptions::BattleHints,
                        &engine::GameOptions::SetBattleHints>(),
      .options = kOnOff,
-     .count = OptCount(kOnOff),
-     .saveScoped = true},
+     .count = OptCount(kOnOff)},
     {.label = "settings.gameplay.skip_events.label",
      .group = "menu.header.assists",
      .binding = OptInt<&engine::GameOptions::SkipEvents,
                        &engine::GameOptions::SetSkipEvents>(),
      .options = kOnOff,
-     .count = OptCount(kOnOff),
-     .saveScoped = true},
+     .count = OptCount(kOnOff)},
     {.label = "settings.gameplay.disable_tutorials.label",
      .group = "menu.header.assists",
      .binding = {.get =
@@ -375,8 +362,7 @@ constexpr SettingRow kGameplaySettings[] = {
      .binding = OptInt<&engine::GameOptions::TargetFirst,
                        &engine::GameOptions::SetTargetFirst>(),
      .options = kTargetFirst,
-     .count = OptCount(kTargetFirst),
-     .saveScoped = true},
+     .count = OptCount(kTargetFirst)},
     {.label = "settings.gameplay.save_anywhere.label",
      .group = "menu.header.battle_field",
      .binding = {.get =
@@ -558,8 +544,7 @@ constexpr SettingRow kDisplaySettings[] = {
      .smin = 0.0,
      .smax = 100.0,
      .sstep = kStockSliderStep,
-     .sfmt = "%.0f%%",
-     .saveScoped = true},
+     .sfmt = "%.0f%%"},
     {.label = "settings.display.fov.label",
      .group = "menu.header.picture",
      .binding = {.get =
@@ -738,8 +723,7 @@ constexpr SettingRow kAudioSettings[] = {
      .smin = 0.0,
      .smax = 100.0,
      .sstep = kStockSliderStep,
-     .sfmt = "%.0f%%",
-     .saveScoped = true},
+     .sfmt = "%.0f%%"},
     // One row, two buses: the stock screen steps the effect and voice levels
     // together and reblue keeps that rather than splitting them.
     {.label = "settings.audio.sound_effects.label",
@@ -750,13 +734,10 @@ constexpr SettingRow kAudioSettings[] = {
      .smin = 0.0,
      .smax = 100.0,
      .sstep = kStockSliderStep,
-     .sfmt = "%.0f%%",
-     .saveScoped = true},
+     .sfmt = "%.0f%%"},
     {.label = "settings.audio.master_volume.label",
      .group = "menu.header.volume",
-     .binding = {
-         .get = [] { return audio::Settings::Get().Gain(); },
-         .set = [](double v) { return audio::Settings::Get().SetGain(v); }},
+     .binding = {.cvar = "apu.gain"},
      .kind = SettingKind::Slider,
      .smin = 0.0,
      .smax = 2.0,
@@ -764,10 +745,7 @@ constexpr SettingRow kAudioSettings[] = {
      .sfmt = "%.2f"},
     {.label = "settings.audio.center_level.label",
      .group = "menu.header.surround",
-     .binding = {
-         .get = [] { return audio::Settings::Get().CenterLevel(); },
-         .set =
-             [](double v) { return audio::Settings::Get().SetCenterLevel(v); }},
+     .binding = {.cvar = "apu.center"},
      .kind = SettingKind::Slider,
      .smin = 0.0,
      .smax = 2.0,
@@ -775,11 +753,7 @@ constexpr SettingRow kAudioSettings[] = {
      .sfmt = "%.2f"},
     {.label = "settings.audio.surround_level.label",
      .group = "menu.header.surround",
-     .binding = {.get = [] { return audio::Settings::Get().SurroundLevel(); },
-                 .set =
-                     [](double v) {
-                       return audio::Settings::Get().SetSurroundLevel(v);
-                     }},
+     .binding = {.cvar = "apu.surround"},
      .kind = SettingKind::Slider,
      .smin = 0.0,
      .smax = 2.0,
@@ -787,9 +761,7 @@ constexpr SettingRow kAudioSettings[] = {
      .sfmt = "%.2f"},
     {.label = "settings.audio.lfe_level.label",
      .group = "menu.header.surround",
-     .binding = {
-         .get = [] { return audio::Settings::Get().LFELevel(); },
-         .set = [](double v) { return audio::Settings::Get().SetLFELevel(v); }},
+     .binding = {.cvar = "apu.lfe"},
      .kind = SettingKind::Slider,
      .smin = 0.0,
      .smax = 2.0,
@@ -803,8 +775,7 @@ constexpr SettingRow kControlsSettings[] = {
      .binding = OptInt<&engine::GameOptions::Camera,
                        &engine::GameOptions::SetCamera>(),
      .options = kCamera,
-     .count = OptCount(kCamera),
-     .saveScoped = true},
+     .count = OptCount(kCamera)},
     {.label = "settings.controls.camera_speed.label",
      .group = "menu.header.camera",
      .binding = {.get =

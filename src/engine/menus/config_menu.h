@@ -18,7 +18,8 @@
 #include <string>
 #include <vector>
 
-#include <rex/ppc/func.h>
+#include <rex/ppc/recompiled_code.h>
+#include <rex/ppc/context.h>
 #include <rex/types.h>
 
 struct PPCContext;
@@ -62,7 +63,7 @@ public:
   // persists and rewinds the state machine, while the task and its discovered
   // menus stay loaded and hidden so the next open skips the load entirely.
   void Dismiss();
-  void Update(PPCContext &ctx, u8 *base);
+  void Update(PPCContext &ctx);
   // Discovers the menus and puts the screen up, without taking a frame's
   // input. True once it is drawing, which lets a host that has to hide
   // something else do it on the same frame this one appears.

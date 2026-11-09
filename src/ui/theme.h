@@ -9,15 +9,14 @@
 #pragma once
 
 #include <imgui.h>
-#include <rex/color.h>
 #include <rex/ui/style.h>
 
 namespace bd::ui {
 
 struct Theme {
-  static constexpr rex::Color kSuccess = rex::Color::FromRGBA(0.30f, 0.90f, 0.30f);
-  static constexpr rex::Color kWarning = rex::Color::FromRGBA(0.90f, 0.70f, 0.30f);
-  static constexpr rex::Color kError = rex::Color::FromRGBA(0.90f, 0.40f, 0.30f);
+  static constexpr rex::ui::Color kSuccess = rex::ui::Color::FromRGBA(0.30f, 0.90f, 0.30f);
+  static constexpr rex::ui::Color kWarning = rex::ui::Color::FromRGBA(0.90f, 0.70f, 0.30f);
+  static constexpr rex::ui::Color kError = rex::ui::Color::FromRGBA(0.90f, 0.40f, 0.30f);
 
   static void Apply(rex::ui::Style &style);
 

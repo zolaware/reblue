@@ -15,12 +15,11 @@
 #include <string>
 #include <vector>
 
-#include <rex/hook.h>
-#include <rex/ppc/detour.h>
-#include <rex/ppc/function.h>
-#include <rex/runtime.h>
-#include <rex/runtime/function_dispatcher.h>
-#include <rex/runtime/thread_state.h>
+#include <rex/ppc/hook.h>
+#include <rex/ppc/call.h>
+#include <rex/kernel/title_runtime.h>
+#include <rex/kernel/function_dispatcher.h>
+#include <rex/kernel/thread_state.h>
 #include <rex/types.h>
 
 #include "core/logging.h"
@@ -28,6 +27,7 @@
 #include "vfs/access_log.h"
 #include "vfs/file_system.h"
 #include "vfs/vfs.h"
+#include "platform/host_ui.h"
 
 namespace {
 
@@ -131,7 +131,7 @@ void EnqueueDeferredCompletion(u32 request, u32 cb, u32 cbctx) {
     return; // simple readers pass cb==0, nothing to complete
   std::lock_guard lock(g_pendingMutex);
   g_pending.push_back(
-      {cb, cbctx, request, rex::runtime::ThreadState::GetBoundThreadID()});
+      {cb, cbctx, request, rex::kernel::ThreadState::GetBoundThreadID()});
   g_pendingCount.store(static_cast<u32>(g_pending.size()),
                        std::memory_order_release);
 }
@@ -139,12 +139,10 @@ void EnqueueDeferredCompletion(u32 request, u32 cb, u32 cbctx) {
 void DrainDeferredCompletions() {
   if (g_draining || g_pendingCount.load(std::memory_order_acquire) == 0)
     return;
-  auto *runtime = rex::GetProcessRuntime();
-  if (!runtime)
+  if (!bd::platform::Title())
     return;
   g_draining = true;
-  const u32 tid = rex::runtime::ThreadState::GetBoundThreadID();
-  auto *dispatcher = runtime->GetFunctionDispatcher();
+  const u32 tid = rex::kernel::ThreadState::GetBoundThreadID();
   for (;;) {
     PendingCompletion pc;
     {
@@ -160,7 +158,7 @@ void DrainDeferredCompletions() {
                            std::memory_order_release);
     }
     // cb(r3=request, r4=cbctx) on the thread's register file.
-    if (auto *fn = dispatcher->GetFunction(pc.cb))
+    if (auto *fn = bd::platform::FindTitleFunction(pc.cb))
       rex::ppc::HostToGuestCall<void>(fn, pc.request, pc.cbctx);
   }
   g_draining = false;
@@ -216,7 +214,7 @@ i32 bdFileReadStart_hook(u32 pathVA, u32 request, u32 cb, u32 cbctx) {
   // A serve failure falls through to the engine rather than failing the read,
   // so a broken overlay degrades to the shipped file instead of a load hang.
   if (hit && !ServeReadRequest(request, hit->bytes)) {
-    REXLOG_ERROR(bd, "vfs no guest buffer for '{}' ({} bytes) from mount '{}'",
+    REXBD_ERROR("vfs no guest buffer for '{}' ({} bytes) from mount '{}'",
              key.str(), hit->bytes.size(), hit->mount);
     hit.reset();
   }

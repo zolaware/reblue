@@ -22,19 +22,20 @@
 #include "engine/menus/config_layout.h"
 #include "engine/menus/config_menu_data.h"
 #include "engine/settings.h"
+#include "platform/hid.h"
 
 #include <algorithm>
 
 #include <rex/types.h>
-#include <rex/color.h>
+#include <rex/ui/style.h>
 
 namespace bd::engine {
 
 namespace {
 
-constexpr rex::Color kHighlightYellow = rex::Color::FromARGB8(0xFFFFDC00u);
-constexpr rex::Color kReorderGold = rex::Color::FromARGB8(0xFFFFD700u);
-constexpr rex::Color kFixedGray = rex::Color::FromARGB8(0xFFA0A0A0u);
+constexpr rex::ui::Color kHighlightYellow = rex::ui::Color::FromARGB8(0xFFFFDC00u);
+constexpr rex::ui::Color kReorderGold = rex::ui::Color::FromARGB8(0xFFFFD700u);
+constexpr rex::ui::Color kFixedGray = rex::ui::Color::FromARGB8(0xFFA0A0A0u);
 constexpr double kDimAlpha = 90.0, kFullAlpha = 255.0;
 
 // Wrapped to the two description lines above the footer, which start at x=325.
@@ -339,7 +340,7 @@ void ConfigMenu::RefreshSettingsVisuals() {
     vb.SetText("Name", SettingsLabel(page, i));
     vb.SetColor("LblCol",
                 (SettingsRestartBound(page, i) ? kHighlightYellow
-                                               : rex::colors::kWhite)
+                                               : rex::ui::colors::kWhite)
                     .ToARGB8());
     vb.SetFloat("Dim", DimFor(disabled));
     const int rowOpts =
@@ -384,7 +385,7 @@ void ConfigMenu::RefreshSettingsVisuals() {
       static bool warned;
       if (!warned) {
         warned = true;
-        REXLOG_WARN(bd, "config row '{}' has {} options, {} fit in a button strip",
+        REXBD_WARN("config row '{}' has {} options, {} fit in a button strip",
                 SettingsLabel(page, i), optCount,
                 SettingItemTemplate::kMaxOpts);
       }
@@ -464,7 +465,7 @@ void ConfigMenu::RefreshKeybindVisuals() {
       vb.SetString(vars.wndVar, on ? "BTN01_ON" : "BTN01_OF");
       vb.SetColor(vars.colorVar,
                   (on ? kHighlightYellow
-                      : fixed && !mouseInput ? kFixedGray : rex::colors::kWhite)
+                      : fixed && !mouseInput ? kFixedGray : rex::ui::colors::kWhite)
                       .ToARGB8());
 
       if (on) {
@@ -485,9 +486,9 @@ void ConfigMenu::RefreshKeybindVisuals() {
       }
 
       if (chip == kBindPadChip) {
-        const auto source = rex::hid::ParseInputSource(token);
+        const auto source = bd::platform::HID().ParseInputSource(token);
         UVRect uv;
-        if (source && source->kind == SourceKind::kPadButton &&
+        if (source && source->type == SourceKind::kPadButton &&
             Glyphs::Get().PadButtonUV(source->code, uv)) {
           setUv(kKeybindPadUvVar, uv);
           vb.SetFloat(kKeybindPadCapVar, 1.0);

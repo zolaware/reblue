@@ -7,7 +7,8 @@
  */
 #include "core/xcontent.h"
 
-#include <rex/filesystem/container.h>
+#include <rex/filesystem/file_system.h>
+#include <rex/filesystem/stfs.h>
 
 #include <algorithm>
 #include <fstream>
@@ -23,7 +24,7 @@ namespace {
 constexpr size_t kChunkSize = 1 << 20;
 
 template <typename Sink>
-bool ReadChunks(const rex::filesystem::Container &container,
+bool ReadChunks(const rex::filesystem::IContainerImage &container,
                 const rex::filesystem::ContainerNode &node, Sink &&sink) {
   std::vector<u8> buffer(
       std::min(kChunkSize, std::max<size_t>(node.info.size, 1)));
@@ -34,7 +35,7 @@ bool ReadChunks(const rex::filesystem::Container &container,
     auto read = container.Read(node, offset,
                                std::span<u8>(buffer.data(), to_read));
     if (!read || *read != to_read) {
-      REXLOG_ERROR(bd, "xcontent cannot read entry: {}", container.PathOf(node));
+      REXBD_ERROR("xcontent cannot read entry: {}", container.GetNodePath(node));
       return false;
     }
     if (!sink(buffer.data(), *read))
@@ -46,14 +47,14 @@ bool ReadChunks(const rex::filesystem::Container &container,
 
 } // namespace
 
-bool CopyEntry(const rex::filesystem::Container &container,
+bool CopyEntry(const rex::filesystem::IContainerImage &container,
                const rex::filesystem::ContainerNode &node,
                const std::filesystem::path &dest) {
   std::error_code ec;
   std::filesystem::create_directories(dest.parent_path(), ec);
   std::ofstream out(dest, std::ios::binary | std::ios::trunc);
   if (!out) {
-    REXLOG_ERROR(bd, "xcontent cannot write: {}", dest.string());
+    REXBD_ERROR("xcontent cannot write: {}", dest.string());
     return false;
   }
   const bool ok = ReadChunks(container, node, [&](const u8 *data, size_t size) {
@@ -65,7 +66,7 @@ bool CopyEntry(const rex::filesystem::Container &container,
   return ok && out.good();
 }
 
-std::string ReadEntry(const rex::filesystem::Container &container,
+std::string ReadEntry(const rex::filesystem::IContainerImage &container,
                       const rex::filesystem::ContainerNode &node) {
   std::string text;
   text.reserve(node.info.size);
@@ -77,9 +78,9 @@ std::string ReadEntry(const rex::filesystem::Container &container,
 }
 
 const rex::filesystem::ContainerNode *
-FindEntry(const rex::filesystem::Container &container,
+FindEntry(const rex::filesystem::IContainerImage &container,
           const rex::filesystem::ContainerNode &root, std::string_view path) {
-  const std::string prefix = container.PathOf(root);
+  const std::string prefix = container.GetNodePath(root);
   if (prefix.empty())
     return container.Find(path);
   return container.Find(prefix + "\\" + std::string(path));

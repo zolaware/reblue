@@ -56,14 +56,14 @@ void ProcessItem(WorkItem &item) {
       const size_t n =
           g_buildFailures.fetch_add(1, std::memory_order_relaxed) + 1;
       if (n == 1 || (n & 0x3FF) == 0)
-        REXLOG_WARN(bd, "pso_precache: GetOrCreatePipeline returned null ({} total, "
+        REXBD_WARN("pso_precache: GetOrCreatePipeline returned null ({} total, "
                 "possible device-loss/transient-alloc failure)",
                 n);
     }
   } catch (const std::exception &e) {
-    REXLOG_ERROR(bd, "pso_precache GetOrCreatePipeline exception: {}", e.what());
+    REXBD_ERROR("pso_precache GetOrCreatePipeline exception: {}", e.what());
   } catch (...) {
-    REXLOG_ERROR(bd, "pso_precache GetOrCreatePipeline unknown exception");
+    REXBD_ERROR("pso_precache GetOrCreatePipeline unknown exception");
   }
 
   // Release even on a nullptr build or thrown compile so the gate cannot hang.
@@ -98,9 +98,9 @@ void WorkerLoop(const std::stop_token &stop) {
     try {
       ProcessItem(item);
     } catch (const std::exception &e) {
-      REXLOG_ERROR(bd, "pso_precache worker exception: {}", e.what());
+      REXBD_ERROR("pso_precache worker exception: {}", e.what());
     } catch (...) {
-      REXLOG_ERROR(bd, "pso_precache worker unknown exception");
+      REXBD_ERROR("pso_precache worker unknown exception");
     }
   }
 }
@@ -116,7 +116,7 @@ void StartWorkerPool() {
     std::lock_guard<std::mutex> lock(g_queueMutex);
     for (unsigned i = 0; i < count; ++i)
       g_workers.emplace_back(WorkerLoop);
-    REXLOG_DEBUG(bd, "pso_precache: started {} compiler thread(s)", count);
+    REXBD_DEBUG("pso_precache: started {} compiler thread(s)", count);
   });
 }
 
@@ -132,8 +132,6 @@ void StopPSOPrecache() {
     worker.request_stop();
   g_queueCv.notify_all();
 }
-
-bool PrecacheEnabled() { return Settings::Get().PSOPrecache(); }
 
 namespace {
 
@@ -165,7 +163,7 @@ void EnqueueResolved(const PipelineState &state, TokenPtr token,
 } // namespace
 
 void EnqueuePipeline(const PipelineState &state) {
-  if (!PrecacheEnabled() || !Video::HostDevice())
+  if (!Video::HostDevice())
     return;
   TokenPtr token = t_currentLoadToken; // auto-attach to active load capture
   // Capture before the move: argument evaluation order is unspecified, and
@@ -175,7 +173,7 @@ void EnqueuePipeline(const PipelineState &state) {
 }
 
 void EnqueuePipelinePriority(const PipelineState &state) {
-  if (!PrecacheEnabled() || !Video::HostDevice())
+  if (!Video::HostDevice())
     return;
   EnqueueResolved(state, nullptr, true); // ignore t_currentLoadToken
 }
@@ -195,7 +193,7 @@ void EndLoadCapture() {
 
   // Pushed to the priority lane and warm ahead of background work, so a heavy
   // load spawn still can't freeze the load thread for hundreds of ms.
-  REXLOG_DEBUG(bd, "pso_precache: load queued {} priority pipeline(s) (cache total {})",
+  REXBD_DEBUG("pso_precache: load queued {} priority pipeline(s) (cache total {})",
            enqueued, PipelineCacheSize());
 }
 

@@ -15,7 +15,7 @@
 
 #include <string>
 
-#include <rex/string/utf8.h>
+#include <rex/string/text.h>
 
 namespace bd::platform {
 namespace {
@@ -24,7 +24,7 @@ namespace {
 // cannot reach one. A colon is the case that matters: 're:Blue.lnk' names an
 // alternate data stream on a file called 're'.
 std::wstring ShortcutFileName(std::string_view name) {
-  std::wstring out = rex::ToWideString(name);
+  std::wstring out = rex::string::ToWideString(name);
   std::erase_if(out, [](wchar_t c) {
     return c == L'<' || c == L'>' || c == L':' || c == L'"' || c == L'/' ||
            c == L'\\' || c == L'|' || c == L'?' || c == L'*' || c < 32;

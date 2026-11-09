@@ -15,11 +15,11 @@
 #include <cmath>
 #include <unordered_map>
 
-#include <rex/hook.h>
-#include <rex/ppc/detour.h>
-#include <rex/ppc.h>
-#include <rex/runtime.h>
-#include <rex/runtime/xtypes.h>
+#include <rex/ppc/hook.h>
+#include <rex/logging/log_category.h>
+#include <rex/memory/mapped_ptr.h>
+#include <rex/ppc/context.h>
+#include <rex/kernel/title_runtime.h>
 #include <rex/types.h>
 #include <rex/ppc/midasm.h>
 
@@ -141,7 +141,7 @@ REX_DETOUR(VisualRender__ctor, u32, (u32 self)) {
 }
 
 REX_MIDASM_HOOK(bdReflectionResolutionScaleHook,
-                (rex::MappedPtr<bd::gpu::PlaneReflectInfo> info)) {
+                (rex::memory::MappedPtr<bd::gpu::PlaneReflectInfo> info)) {
   if (!info)
     return;
 
@@ -347,7 +347,7 @@ REX_MIDASM_HOOK(bdPrimBeginDropWarnHook, (PPCRegister &f31)) {
   static u32 dropCount = 0;
   ++dropCount;
   if (dropCount <= 16 || (dropCount & 0x3FF) == 0)
-    REXLOG_WARN(bd, "bdPrimBegin: 2D prim dropped (z={}, {} total this session)",
+    REXBD_WARN("bdPrimBegin: 2D prim dropped (z={}, {} total this session)",
             f31.f64, dropCount);
 }
 REX_MIDASM_AT(bdPrimBeginDropWarnHook, 0x82146478, before, f31);

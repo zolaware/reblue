@@ -15,7 +15,7 @@
 
 #include <plume_render_interface.h>
 
-#include <rex/dbg.h>
+#include <rex/platform/perf.h>
 
 #include "core/logging.h"
 #include "core/settings.h"
@@ -222,7 +222,7 @@ bool Video::FlushRenderStateLocked(u32 device_guest) {
     u32 n;
     if (DiagShouldLog(3, s.render_target, &n)) {
       if (::bd::Settings::Get().Devmode()) {
-        REXLOG_WARN(bd, "draw-diag #{} draw dropped: vs={} decl={} ps={} rt={}x{}", n,
+        REXBD_WARN("draw-diag #{} draw dropped: vs={} decl={} ps={} rt={}x{}", n,
                static_cast<void *>(s.pipelineState.vertexShader),
                static_cast<void *>(s.pipelineState.vertexDeclaration),
                static_cast<void *>(s.pipelineState.pixelShader),
@@ -245,7 +245,7 @@ bool Video::FlushRenderStateLocked(u32 device_guest) {
       u32 n;
       if (DiagShouldLog(4, s.render_target, &n)) {
         if (::bd::Settings::Get().Devmode()) {
-          REXLOG_WARN(bd, "draw-diag #{} draw dropped: PSO build failed (vs={} ps={} "
+          REXBD_WARN("draw-diag #{} draw dropped: PSO build failed (vs={} ps={} "
                  "rt={}x{} fmt={})",
                  n, static_cast<void *>(s.pipelineState.vertexShader),
                  static_cast<void *>(s.pipelineState.pixelShader),

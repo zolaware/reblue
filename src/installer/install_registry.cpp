@@ -9,9 +9,10 @@
 
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 
 #include <rex/platform/file.h>
-#include <rex/string/utf8.h>
+#include <rex/string/text.h>
 #include <rex/types.h>
 #include <toml++/toml.h>
 
@@ -34,12 +35,12 @@ namespace fs = std::filesystem;
 void Migrate(InstallConfig &cfg) {
   const int stored = cfg.schema_version;
   if (stored > kInstallSchemaVersion) {
-    REXLOG_WARN(bd, "Install record schema {} was written by a newer build", stored);
+    REXBD_WARN("Install record schema {} was written by a newer build", stored);
     return;
   }
   cfg.schema_version = kInstallSchemaVersion;
   if (stored != kInstallSchemaVersion)
-    REXLOG_INFO(bd, "Install record migrated from schema {} to {}", stored,
+    REXBD_INFO("Install record migrated from schema {} to {}", stored,
             kInstallSchemaVersion);
 }
 
@@ -48,7 +49,7 @@ bool HasGameFiles(const InstallConfig &cfg) {
   std::error_code ec;
   if (fs::exists(default_xex, ec))
     return true;
-  REXLOG_WARN(bd, "Install record ({}) present but {} missing, treating as uninstalled",
+  REXBD_WARN("Install record ({}) present but {} missing, treating as uninstalled",
           ToString(cfg.connector), default_xex.string());
   return false;
 }
@@ -97,7 +98,7 @@ std::optional<InstallConfig> ReadRecordFile(const fs::path &path,
     cfg.schema_version = t["schema_version"].value_or(0);
     cfg.app_version = t["app_version"].value_or(std::string{});
   } catch (const toml::parse_error &e) {
-    REXLOG_WARN(bd, "Install record {} unreadable: {}", path.string(), e.what());
+    REXBD_WARN("Install record {} unreadable: {}", path.string(), e.what());
     return std::nullopt;
   }
   if (connector == InstallConnector::kPortableFile)
@@ -107,37 +108,14 @@ std::optional<InstallConfig> ReadRecordFile(const fs::path &path,
 
 bool WriteRecordFile(const fs::path &path, const toml::table &t) {
   if (path.empty()) {
-    REXLOG_ERROR(bd, "Install record: neither XDG_CONFIG_HOME nor HOME is set");
+    REXBD_ERROR("Install record: neither XDG_CONFIG_HOME nor HOME is set");
     return false;
   }
-  std::error_code ec;
-  fs::create_directories(path.parent_path(), ec);
-  if (ec) {
-    REXLOG_ERROR(bd, "Install record: cannot create {}: {}",
-             path.parent_path().string(), ec.message());
-    return false;
-  }
-
-  const auto tmp = path.parent_path() / (path.filename().string() + ".tmp");
-  {
-    std::ofstream out(tmp, std::ios::trunc);
-    if (!out) {
-      REXLOG_ERROR(bd, "Install record: cannot write {}", tmp.string());
-      return false;
-    }
-    out << t << '\n';
-    out.flush();
-    if (!out.good()) {
-      REXLOG_ERROR(bd, "Install record: write to {} failed", tmp.string());
-      fs::remove(tmp, ec);
-      return false;
-    }
-  }
-  fs::rename(tmp, path, ec);
-  if (ec) {
-    REXLOG_ERROR(bd, "Install record: rename to {} failed: {}", path.string(),
-             ec.message());
-    fs::remove(tmp, ec);
+  std::ostringstream text;
+  text << t << '\n';
+  if (auto written = rex::platform::WriteHostFile(path, text.str()); !written) {
+    REXBD_ERROR("Install record: cannot write {}: {}", path.string(),
+                written.error().message);
     return false;
   }
   return true;
@@ -205,7 +183,7 @@ std::optional<InstallConfig> ReadRegistry() {
 
   auto read_fp = [&](const wchar_t *name) -> std::string {
     auto w = ReadString(key, name);
-    return w ? rex::ToUTF8(*w) : std::string{};
+    return w ? rex::string::ToUTF8(*w) : std::string{};
   };
   for (int i = 0; i < kDiscCount; ++i)
     cfg.iso_fingerprints[i] =
@@ -220,7 +198,7 @@ std::optional<InstallConfig> ReadRegistry() {
   }
 
   if (auto v = ReadString(key, L"AppVersion"))
-    cfg.app_version = rex::ToUTF8(*v);
+    cfg.app_version = rex::string::ToUTF8(*v);
   cfg.connector = InstallConnector::kRegistry;
   return Finish(std::move(cfg));
 }
@@ -229,7 +207,7 @@ bool ClearRegistry() {
   LONG status = RegDeleteTreeW(HKEY_CURRENT_USER, kInstallKey);
   if (status == ERROR_SUCCESS || status == ERROR_FILE_NOT_FOUND)
     return true;
-  REXLOG_ERROR(bd, "RegDeleteTreeW failed: {}", status);
+  REXBD_ERROR("RegDeleteTreeW failed: {}", status);
   return false;
 }
 
@@ -239,7 +217,7 @@ bool WriteRegistry(const InstallConfig &config) {
                                        nullptr, REG_OPTION_NON_VOLATILE,
                                        KEY_WRITE, nullptr, &key, nullptr);
   if (create_status != ERROR_SUCCESS) {
-    REXLOG_ERROR(bd, "RegCreateKeyExW failed: {}", create_status);
+    REXBD_ERROR("RegCreateKeyExW failed: {}", create_status);
     return false;
   }
   {
@@ -250,14 +228,14 @@ bool WriteRegistry(const InstallConfig &config) {
     for (int i = 0; i < kDiscCount; ++i)
       ok &= WriteString(
           key, (L"Disc" + std::to_wstring(i + 1) + L"Fingerprint").c_str(),
-          rex::ToWideString(config.iso_fingerprints[i]));
+          rex::string::ToWideString(config.iso_fingerprints[i]));
     ok &= WriteString(key, L"SchemaVersion",
                       std::to_wstring(kInstallSchemaVersion));
     ok &= WriteString(key, L"AppVersion",
-                      rex::ToWideString(REBLUE_VERSION_STRING));
+                      rex::string::ToWideString(REBLUE_VERSION_STRING));
     if (ok)
       return true;
-    REXLOG_ERROR(bd, "Failed to write one or more values to install record");
+    REXBD_ERROR("Failed to write one or more values to install record");
   }
   // Partial write: clear so InstallConfig::Read sees nullopt and re-runs the
   // installer.
@@ -311,7 +289,7 @@ bool InstallConfig::Write() const {
     return WriteRecordFile(ConfigRecordPath(), Serialize(*this, true));
 #endif
   default:
-    REXLOG_ERROR(bd, "Install connector '{}' is not available on this platform",
+    REXBD_ERROR("Install connector '{}' is not available on this platform",
              ToString(connector));
     return false;
   }

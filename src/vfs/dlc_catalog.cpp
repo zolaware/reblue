@@ -17,9 +17,9 @@
 #include <toml++/toml.h>
 
 #include <rex/platform/file.h>
-#include <rex/runtime/xcontent_data.h>
+#include <rex/kernel/types/content.h>
 #include <rex/types.h>
-#include <rex/string/utf8.h>
+#include <rex/string/text.h>
 
 namespace bd::vfs {
 
@@ -63,7 +63,7 @@ ParseDLCStateTOML(const std::filesystem::path &path) {
       }
     }
   } catch (const toml::parse_error &e) {
-    REXLOG_ERROR(bd, "dlc failed to parse {}: {}", path.string(), e.what());
+    REXBD_ERROR("dlc failed to parse {}: {}", path.string(), e.what());
     return std::nullopt;
   }
   return state;
@@ -75,11 +75,11 @@ std::string DisplayNameFromHeader(const std::filesystem::path &header_path) {
   std::ifstream in(header_path, std::ios::binary);
   if (!in)
     return {};
-  rex::runtime::XCONTENT_AGGREGATE_DATA data{};
+  rex::kernel::XCONTENT_AGGREGATE_DATA data{};
   in.read(reinterpret_cast<char *>(&data), sizeof(data));
   if (in.gcount() != static_cast<std::streamsize>(sizeof(data)))
     return {};
-  return rex::ToUTF8(data.GetDisplayName());
+  return rex::string::ToUTF8(data.GetDisplayName());
 }
 
 // Prune metadata entries whose pack is no longer present on disk, then add
@@ -98,7 +98,7 @@ bool ReconcileDLCList(std::vector<DLCPackage> &list,
                                return p.first == it->name;
                              });
     if (!found) {
-      REXLOG_INFO(bd, "dlc pruning stale entry: {}", it->name);
+      REXBD_INFO("dlc pruning stale entry: {}", it->name);
       it = list.erase(it);
       changed = true;
     } else {
@@ -118,7 +118,7 @@ bool ReconcileDLCList(std::vector<DLCPackage> &list,
       if (info.display_name.empty())
         info.display_name = name;
       info.enabled = enabled;
-      REXLOG_INFO(bd, "dlc discovered pack: {}", name);
+      REXBD_INFO("dlc discovered pack: {}", name);
       list.push_back(std::move(info));
       changed = true;
     }
@@ -169,7 +169,7 @@ void DLCCatalog::ScanLocked() {
       }
     }
     if (pkg.download_dir.empty()) {
-      REXLOG_WARN(bd, "dlc '{}' has no Download dir, ignoring", name);
+      REXBD_WARN("dlc '{}' has no Download dir, ignoring", name);
       continue;
     }
 
@@ -178,7 +178,7 @@ void DLCCatalog::ScanLocked() {
 
     if (!std::filesystem::is_regular_file(pkg.download_dir / "DL_Param.ipk",
                                           ec))
-      REXLOG_WARN(bd, "dlc pack '{}' has no DL_Param.ipk", pkg.name);
+      REXBD_WARN("dlc pack '{}' has no DL_Param.ipk", pkg.name);
 
     auto it = enabled_map.find(pkg.name);
     pkg.enabled = it == enabled_map.end() ? true : it->second;
@@ -191,9 +191,9 @@ void DLCCatalog::ScanLocked() {
 
   auto enabled = std::count_if(packages_.begin(), packages_.end(),
                                [](const DLCPackage &p) { return p.enabled; });
-  REXLOG_INFO(bd, "dlc scanned {} pack(s), {} enabled", packages_.size(), enabled);
+  REXBD_INFO("dlc scanned {} pack(s), {} enabled", packages_.size(), enabled);
   for (const auto &pkg : packages_) {
-    REXLOG_DEBUG(bd, "dlc   pack '{}' package_id={} {}", pkg.name, pkg.package_id,
+    REXBD_DEBUG("dlc   pack '{}' package_id={} {}", pkg.name, pkg.package_id,
              pkg.enabled ? "enabled" : "disabled");
   }
 }
@@ -230,7 +230,7 @@ void DLCCatalog::LoadMetadataLocked() {
         }
       }
     } catch (const toml::parse_error &e) {
-      REXLOG_ERROR(bd, "dlc failed to parse dlc.toml: {}", e.what());
+      REXBD_ERROR("dlc failed to parse dlc.toml: {}", e.what());
     }
   }
 
@@ -274,16 +274,16 @@ void DLCCatalog::SaveMetadataLocked() {
 
   std::ofstream ofs(toml_path);
   if (!ofs) {
-    REXLOG_ERROR(bd, "dlc cannot open dlc.toml for write: {}", toml_path.string());
+    REXBD_ERROR("dlc cannot open dlc.toml for write: {}", toml_path.string());
     return;
   }
   ofs << root;
   if (!ofs) {
-    REXLOG_ERROR(bd, "dlc failed writing dlc.toml: {}", toml_path.string());
+    REXBD_ERROR("dlc failed writing dlc.toml: {}", toml_path.string());
     return;
   }
 
-  REXLOG_INFO(bd, "dlc saved dlc.toml ({} entries)", packages_.size());
+  REXBD_INFO("dlc saved dlc.toml ({} entries)", packages_.size());
 }
 
 std::map<std::string, bool> DLCCatalog::LoadEnabledState() const {
@@ -310,7 +310,7 @@ bool DLCCatalog::SaveEnabledState(
   root.insert("dlc", std::move(arr));
   std::ofstream ofs(profile_ / "dlc_state.toml");
   if (!ofs) {
-    REXLOG_ERROR(bd, "dlc cannot write dlc_state.toml in {}", profile_.string());
+    REXBD_ERROR("dlc cannot write dlc_state.toml in {}", profile_.string());
     return false;
   }
   ofs << root;
@@ -340,9 +340,9 @@ void DLCCatalog::FlushLocked() {
   for (const auto &pkg : packages_)
     state[pkg.name] = pkg.enabled;
   if (SaveEnabledState(state))
-    REXLOG_INFO(bd, "dlc saved dlc_state.toml ({} entries)", state.size());
+    REXBD_INFO("dlc saved dlc_state.toml ({} entries)", state.size());
   else
-    REXLOG_WARN(bd, 
+    REXBD_WARN(
         "dlc dlc_state.toml not saved (no profile bound or write failed)");
 }
 
@@ -368,7 +368,7 @@ bool DLCCatalog::SetEnabled(size_t i, bool on) {
   if (i >= packages_.size() || packages_[i].enabled == on)
     return false;
   packages_[i].enabled = on;
-  REXLOG_INFO(bd, "dlc '{}' -> {}", packages_[i].display_name,
+  REXBD_INFO("dlc '{}' -> {}", packages_[i].display_name,
           on ? "enabled" : "disabled");
   FlushLocked();
   return true;
@@ -377,17 +377,17 @@ bool DLCCatalog::SetEnabled(size_t i, bool on) {
 bool DLCCatalog::Remove(size_t i) {
   std::lock_guard lock(mutex_);
   if (i >= packages_.size()) {
-    REXLOG_ERROR(bd, "dlc Remove: index {} out of range", i);
+    REXBD_ERROR("dlc Remove: index {} out of range", i);
     return false;
   }
 
   const DLCPackage pkg = packages_[i];
   if (pkg.name.empty() || pkg.name.find_first_of("/\\") != std::string::npos) {
-    REXLOG_ERROR(bd, "dlc Remove: refusing suspicious pack name '{}'", pkg.name);
+    REXBD_ERROR("dlc Remove: refusing suspicious pack name '{}'", pkg.name);
     return false;
   }
 
-  REXLOG_INFO(bd, "dlc deleting '{}' ({})", pkg.display_name, pkg.name);
+  REXBD_INFO("dlc deleting '{}' ({})", pkg.display_name, pkg.name);
 
   // Before the delete: a mount holds its archive open, and one left registered
   // would go on answering for a pack that is gone.
@@ -396,7 +396,7 @@ bool DLCCatalog::Remove(size_t i) {
   std::error_code ec;
   std::filesystem::remove_all(root_ / pkg.name, ec);
   if (ec) {
-    REXLOG_ERROR(bd, "dlc failed to remove pack dir: {}", ec.message());
+    REXBD_ERROR("dlc failed to remove pack dir: {}", ec.message());
     return false;
   }
   std::filesystem::remove(root_ / ".headers" / (pkg.name + ".header"), ec);

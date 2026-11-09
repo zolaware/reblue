@@ -9,13 +9,13 @@
  */
 #pragma once
 
-#include <rex/ui/imgui_dialog.h>
+#include <rex/ui/ui_system.h>
 
 struct ImGuiIO;
 
 namespace bd::ui {
 
-class UpdateStatusOverlay final : public rex::ui::ImGuiDialog {
+class UpdateStatusOverlay final : public rex::ui::DialogBase {
 public:
   UpdateStatusOverlay() = default;
   ~UpdateStatusOverlay();
@@ -24,8 +24,7 @@ public:
   // this rather than keep drawing an empty overlay.
   static bool Finished();
 
-protected:
-  void OnDraw(ImGuiIO &io) override;
+  bool Draw(ImGuiIO &io) override;
 };
 
 } // namespace bd::ui

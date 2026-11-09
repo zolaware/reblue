@@ -12,11 +12,10 @@
 #include <mutex>
 #include <unordered_set>
 
-#include <rex/hook.h>
+#include <rex/ppc/hook.h>
 #include <rex/memory.h>
-#include <rex/memory/byte_swap.h>
-#include <rex/ppc/detour.h>
-#include <rex/runtime.h>
+#include <rex/memory/endian.h>
+#include <rex/kernel/title_runtime.h>
 #include <rex/types.h>
 
 #include <plume_render_interface.h>
@@ -94,7 +93,7 @@ bd::gpu::GuestTexture *D3DDevice_CreateTexture_hook(u32 width, u32 height,
   auto *texture =
       bd::gpu::HostResourceHeap::Alloc<bd::gpu::GuestTexture>(rtype);
   if (!texture) {
-    REXLOG_ERROR(bd, "CreateTexture: host resource heap exhausted");
+    REXBD_ERROR("CreateTexture: host resource heap exhausted");
     return nullptr;
   }
 
@@ -167,7 +166,7 @@ bd::gpu::GuestTexture *D3DDevice_CreateTexture_hook(u32 width, u32 height,
       bd::gpu::Video::BindTextureSRV(texture);
     }
   } else {
-    REXLOG_ERROR(bd, "CreateTexture fired before Video host device exists");
+    REXBD_ERROR("CreateTexture fired before Video host device exists");
   }
   texture->depth = depth;
   texture->mipLevels = levels;
@@ -185,18 +184,17 @@ bd::gpu::GuestBuffer *D3DDevice_CreateVertexBuffer_hook(u32 length,
   auto *b = bd::gpu::HostResourceHeap::Alloc<bd::gpu::GuestBuffer>(
       bd::gpu::ResourceType::VertexBuffer);
   if (!b) {
-    REXLOG_ERROR(bd, "CreateVertexBuffer: host resource heap exhausted");
+    REXBD_ERROR("CreateVertexBuffer: host resource heap exhausted");
     return nullptr;
   }
-  auto *memory = bd::mem::memory();
-  b->guestMirrorVa = memory->SystemHeapAlloc(length, 0x20);
+  b->guestMirrorVa = bd::mem::SystemAlloc(length, 0x20);
   if (!b->guestMirrorVa) {
-    REXLOG_ERROR(bd, "CreateVertexBuffer: mirror alloc failed ({} bytes)", length);
+    REXBD_ERROR("CreateVertexBuffer: mirror alloc failed ({} bytes)", length);
     bd::gpu::HostResourceHeap::Free(b);
     return nullptr;
   }
   b->ownsMirror = true;
-  memory->Zero(b->guestMirrorVa, length);
+  bd::mem::Zero(b->guestMirrorVa, length);
   b->dataSize = length;
   b->guestFormat = fvf;
   // X360 D3DVertexBuffer prefix: 24-byte D3DResource + 8-byte vertex fetch
@@ -216,18 +214,17 @@ bd::gpu::GuestBuffer *D3DDevice_CreateIndexBuffer_hook(u32 length,
   auto *b = bd::gpu::HostResourceHeap::Alloc<bd::gpu::GuestBuffer>(
       bd::gpu::ResourceType::IndexBuffer);
   if (!b) {
-    REXLOG_ERROR(bd, "CreateIndexBuffer: host resource heap exhausted");
+    REXBD_ERROR("CreateIndexBuffer: host resource heap exhausted");
     return nullptr;
   }
-  auto *memory = bd::mem::memory();
-  b->guestMirrorVa = memory->SystemHeapAlloc(length, 0x20);
+  b->guestMirrorVa = bd::mem::SystemAlloc(length, 0x20);
   if (!b->guestMirrorVa) {
-    REXLOG_ERROR(bd, "CreateIndexBuffer: mirror alloc failed ({} bytes)", length);
+    REXBD_ERROR("CreateIndexBuffer: mirror alloc failed ({} bytes)", length);
     bd::gpu::HostResourceHeap::Free(b);
     return nullptr;
   }
   b->ownsMirror = true;
-  memory->Zero(b->guestMirrorVa, length);
+  bd::mem::Zero(b->guestMirrorVa, length);
   b->dataSize = length;
   b->guestFormat = format;
   // X360 D3DIndexBuffer prefix: 24-byte D3DResource + FetchLo (base) + FetchHi
@@ -302,7 +299,7 @@ void UnlockGuestBuffer(bd::gpu::GuestBuffer *b, u32 stride_bytes) {
 
   void *mapped = b->buffer->map();
   if (!mapped) {
-    REXLOG_ERROR(bd, "UnlockGuestBuffer: map failed (size={}, {})", b->dataSize,
+    REXBD_ERROR("UnlockGuestBuffer: map failed (size={}, {})", b->dataSize,
              is_index ? "index" : "vertex");
     return;
   }
@@ -355,7 +352,7 @@ bool TakeSurfaceLevel(u32 va) {
 
 // Frees the struct to HostHeap at zero. Untracked VAs return 0 (matching the
 // unknown-resource path in D3DResource_Release_hook).
-u32 ReleaseSurfaceLevel(rex::MappedPtr<bd::gpu::D3DResource> res) {
+u32 ReleaseSurfaceLevel(rex::memory::MappedPtr<bd::gpu::D3DResource> res) {
   const u32 surface_va = res.GetGuestAddress();
   if (!IsSurfaceLevel(surface_va))
     return 0;
@@ -372,7 +369,7 @@ u32 ReleaseSurfaceLevel(rex::MappedPtr<bd::gpu::D3DResource> res) {
 }
 } // namespace
 
-u32 D3DResource_Release_hook(rex::MappedPtr<bd::gpu::D3DResource> res) {
+u32 D3DResource_Release_hook(rex::memory::MappedPtr<bd::gpu::D3DResource> res) {
   if (!res)
     return 0;
   bd::gpu::ResourceType type;
@@ -390,7 +387,7 @@ u32 D3DResource_Release_hook(rex::MappedPtr<bd::gpu::D3DResource> res) {
   return next;
 }
 
-u32 D3DResource_AddRef_hook(rex::MappedPtr<bd::gpu::D3DResource> res) {
+u32 D3DResource_AddRef_hook(rex::memory::MappedPtr<bd::gpu::D3DResource> res) {
   if (!res)
     return 0;
   bd::gpu::ResourceType ignored;
@@ -480,7 +477,7 @@ void WarnIfScaled(const bd::gpu::GuestTexture *tex, const char *what) {
     return;
   static std::atomic<bool> warned{false};
   if (!warned.exchange(true, std::memory_order_relaxed)) {
-    REXLOG_WARN(bd, "{} on a host-scaled texture {}x{} (host {}x{})", what,
+    REXBD_WARN("{} on a host-scaled texture {}x{} (host {}x{})", what,
                 tex->width, tex->height, tex->hostWidth, tex->hostHeight);
   }
 }
@@ -495,9 +492,8 @@ u32 FillLockedRectScratch(bd::gpu::GuestTexture *tex,
   const u32 slice_pitch = pitch * tex->height;
   if (!slice_pitch)
     return 0; // UNKNOWN format (e.g. BCn): no host pitch
-  auto *memory = bd::mem::memory();
   if (!tex->mappedMemory)
-    tex->mappedMemory = memory->SystemHeapAlloc(slice_pitch, 0x10);
+    tex->mappedMemory = bd::mem::SystemAlloc(slice_pitch, 0x10);
   if (!tex->mappedMemory)
     return 0;
   locked->Pitch = pitch;
@@ -505,8 +501,8 @@ u32 FillLockedRectScratch(bd::gpu::GuestTexture *tex,
   return pitch;
 }
 
-void D3DSurface_LockRect_hook(rex::MappedPtr<const bd::gpu::D3DSurface> surface,
-                              rex::MappedPtr<bd::gpu::D3DLockedRect> locked,
+void D3DSurface_LockRect_hook(rex::memory::MappedPtr<const bd::gpu::D3DSurface> surface,
+                              rex::memory::MappedPtr<bd::gpu::D3DLockedRect> locked,
                               u32 /*rect*/, u32 /*flags*/) {
   if (!locked)
     return;
@@ -525,7 +521,7 @@ void D3DSurface_LockRect_hook(rex::MappedPtr<const bd::gpu::D3DSurface> surface,
 // engine the same scratch mirror surfaces use. pLockedRect is the 3rd arg here
 // (textures carry a Level, surfaces don't).
 void D3DLineTexture_LockRect_hook(u32 texture_guest, u32 /*level*/,
-                                  rex::MappedPtr<bd::gpu::D3DLockedRect> locked,
+                                  rex::memory::MappedPtr<bd::gpu::D3DLockedRect> locked,
                                   u32 /*rect*/, u32 /*flags*/) {
   if (!locked)
     return;

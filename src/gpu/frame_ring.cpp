@@ -22,12 +22,13 @@
 #include <plume_d3d12.h>
 #endif
 
-#include <rex/dbg.h>
+#include <rex/platform/perf.h>
 
 #include "gpu/gpu_profiling.h"
 
 #include "core/logging.h"
 #include "gpu/constant_buffers.h"
+#include "gpu/frame_gpu_timer.h"
 #include "gpu/host_resource_heap.h"
 #include "gpu/native_texture_mirror.h"
 #include "gpu/physical_buffers.h"
@@ -62,6 +63,7 @@ void BeginCommandList(VideoState &s) {
   s.command_list->setGraphicsDescriptorSet(s.texture_descriptor_set.get(), 1);
   s.command_list->setGraphicsDescriptorSet(s.texture_descriptor_set.get(), 2);
   s.command_list->setGraphicsDescriptorSet(s.sampler_descriptor_set.get(), 3);
+  GpuTimerBegin(s.device.get(), s.command_list);
   s.command_list_open = true;
   s.dirtyStates.vertexStreamFirst = 0;
   s.dirtyStates.vertexStreamLast = 15;
@@ -129,7 +131,7 @@ u32 Video::RetireSlot(const char *what) {
     static std::atomic<u32> s_hits{0};
     const u32 n = s_hits.fetch_add(1, std::memory_order_relaxed);
     if (n < 16 || (n & 0xFF) == 0) {
-      REXLOG_WARN(bd, "retire-race #{} {} parked into slot {} while it is being "
+      REXBD_WARN("retire-race #{} {} parked into slot {} while it is being "
               "reclaimed, freed with no fence covering it",
               n, what, slot);
     }
@@ -152,7 +154,7 @@ void DrainTextureBacklog(VideoState &s) {
     if (pending > kTextureBacklogFlushAll) {
       static std::atomic<u32> s_logged{0};
       if (s_logged.fetch_add(1, std::memory_order_relaxed) < 8) {
-        REXLOG_WARN(bd, "texture free backlog reached {}, flushing it in one drain",
+        REXBD_WARN("texture free backlog reached {}, flushing it in one drain",
                 pending);
       }
     }
@@ -228,6 +230,7 @@ void AdvanceAndWaitReused(VideoState &s) {
   if (s.command_list_submitted[slot]) {
     s.queue->waitForCommandFence(s.fences[slot].get());
     s.command_list_submitted[slot] = false;
+    GpuTimerCollect(slot);
 #if defined(REXGLUE_ENABLE_PROFILING) && defined(REBLUE_D3D12)
     if (auto *ctx = GpuProfilerCtx()) {
       TracyD3D12NewFrame(ctx);

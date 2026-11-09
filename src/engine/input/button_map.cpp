@@ -3,16 +3,17 @@
 #include <algorithm>
 #include <chrono>
 
-#include <rex/hook.h>
+#include <rex/ppc/hook.h>
 #include <rex/memory.h>
 #include <rex/ppc/midasm.h>
-#include <rex/runtime.h>
-#include <rex/runtime/xmemory.h>
+#include <rex/kernel/title_runtime.h>
+#include <rex/kernel/heap.h>
 
 #include "core/logging.h"
 #include "core/memory_helpers.h"
 #include "engine/input/binding_registry.h"
 #include "gpu/gpu.h"
+#include "platform/host_ui.h"
 
 namespace bd::engine {
 
@@ -81,13 +82,8 @@ const u32 *ShippedMechat() {
 }
 
 bool MakeWritable(u32 va, u32 size) {
-  auto *memory = bd::mem::memory();
-  auto *heap = memory ? memory->LookupHeap(va) : nullptr;
-  if (!heap)
-    return false;
-  return heap->Protect(va, size,
-                       rex::runtime::kMemoryProtectRead |
-                           rex::runtime::kMemoryProtectWrite);
+  rex::kernel::GuestMemory *memory = bd::mem::memory();
+  return memory && memory->Protect(va, size, rex::kernel::GuestProtect::kReadWrite);
 }
 
 bool NeedsId(Action action) {
@@ -97,7 +93,7 @@ bool NeedsId(Action action) {
 
 int PadId(Action action) {
   for (const Source &source : Bindings::Get().Sources(action))
-    if (source.kind == SourceKind::kPadButton)
+    if (source.type == SourceKind::kPadButton)
       return static_cast<int>(source.code);
   return -1;
 }
@@ -158,7 +154,7 @@ void Assign(int (&id)[kActionCount]) {
     }
     if (id[i] < 0 && !g_warnedNoFreeId) {
       g_warnedNoFreeId = true;
-      REXLOG_WARN(bd, "input no free button id left for {}", ToString(action));
+      REXBD_WARN("input no free button id left for {}", ToString(action));
     }
   }
 }
@@ -189,8 +185,8 @@ void BuildRows(const int (&id)[kActionCount], u32 (&general)[kGeneralSlots],
 }
 
 bool TitleLaunched() {
-  const rex::Runtime *runtime = rex::GetProcessRuntime();
-  return runtime && runtime->IsTitleLaunched();
+  const rex::kernel::TitleRuntime *title = bd::platform::Title();
+  return title && title->IsRunning();
 }
 
 } // namespace
@@ -265,7 +261,7 @@ void ButtonMap::Install() {
     if (!rowVA_) {
       if (!g_warnedNoMemory) {
         g_warnedNoMemory = true;
-        REXLOG_WARN(bd, "input no engine memory for the button map, the shipped "
+        REXBD_WARN("input no engine memory for the button map, the shipped "
                 "rows stand");
       }
       return;
@@ -288,7 +284,7 @@ void ButtonMap::Install() {
   if (!g_imageWritable) {
     if (!g_warnedReadOnly) {
       g_warnedReadOnly = true;
-      REXLOG_ERROR(bd, "input the mechat map stayed read-only, it keeps the "
+      REXBD_ERROR("input the mechat map stayed read-only, it keeps the "
                "shipped buttons");
     }
     return;

@@ -31,17 +31,19 @@
 #include <unordered_map>
 
 #include <rex/platform/file.h>
-#include <rex/runtime.h>
+#include <rex/kernel/title_runtime.h>
 
 #include "gpu/pipeline/pso_predictor.h"
 #endif
 
+#include "core/cvar_table.h"
 #include "core/logging.h"
 #include "gpu/device.h"
 #include "gpu/pipeline/pipeline_cache.h"
 #include "gpu/pipeline/pso_precache.h"
 #include "gpu/shaders/shader_cache.h"
 #include "gpu/vertex_declaration.h"
+#include "platform/host_ui.h"
 
 namespace bd::gpu {
 
@@ -274,9 +276,7 @@ std::string CsvRow(const Entry &e) {
 // versions cannot pollute the dump. The aggregation tool accepts multiple CSVs.
 std::filesystem::path CsvFilePath() {
   static const std::filesystem::path path = [] {
-    std::filesystem::path root;
-    if (auto *rt = rex::GetProcessRuntime())
-      root = rt->cache_root();
+    std::filesystem::path root = bd::CacheRoot();
     if (root.empty())
       root = rex::platform::GetUserFolder();
     const auto now = std::chrono::floor<std::chrono::seconds>(
@@ -319,19 +319,19 @@ void WriteCSVIfDirty() {
   {
     std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
     if (!f) {
-      REXLOG_WARN(bd, "pso_recorder: cannot open {}", tmp.string());
+      REXBD_WARN("pso_recorder: cannot open {}", tmp.string());
       return;
     }
     f.write(out.data(), static_cast<std::streamsize>(out.size()));
     if (!f) {
-      REXLOG_WARN(bd, "pso_recorder: csv write failed: {}", tmp.string());
+      REXBD_WARN("pso_recorder: csv write failed: {}", tmp.string());
       return;
     }
   }
   std::error_code ec;
   std::filesystem::rename(tmp, path, ec); // atomic replace
   if (ec) {
-    REXLOG_WARN(bd, "pso_recorder: csv rename failed: {}", ec.message());
+    REXBD_WARN("pso_recorder: csv rename failed: {}", ec.message());
     std::filesystem::remove(tmp, ec);
   }
 }
@@ -348,7 +348,7 @@ void WriterLoop() {
 void StartWriterThread() {
   std::call_once(g_writerOnce, [] {
     std::thread(WriterLoop).detach(); // process exit is a hard kill, never join
-    REXLOG_DEBUG(bd, "pso_recorder: capturing predictor misses to {}",
+    REXBD_DEBUG("pso_recorder: capturing predictor misses to {}",
              CsvFilePath().string());
   });
 }
@@ -396,7 +396,7 @@ void RecordPipelineState(const PipelineState &state, u32 renderPassId,
       std::string table = DescribePair(vsHash, psHash);
       if (table.empty())
         table = "none";
-      REXLOG_DEBUG(bd, "pso_predict: draw pair vs=0x{:016X} ps=0x{:016X} pass={} "
+      REXBD_DEBUG("pso_predict: draw pair vs=0x{:016X} ps=0x{:016X} pass={} "
                "predicted={} table={}",
                vsHash, psHash, renderPassId,
                IsPairPredicted(vsHash, psHash) ? "yes" : "no", table);
@@ -425,15 +425,15 @@ void RecordPipelineState(const PipelineState &state, u32 renderPassId,
     //     background compile just lost the race to this draw (one-time compile,
     //     then cached).
     if (vsHash == 0) {
-      REXLOG_TRACE(bd, "pso: render-thread compile (hcg-HLSL, uncapturable) pass={} "
+      REXBD_TRACE("pso: render-thread compile (hcg-HLSL, uncapturable) pass={} "
                "ps=0x{:016X} decl=0x{:016X}",
                renderPassId, psHash, declHash);
     } else if (inResidual) {
-      REXLOG_DEBUG(bd, "pso: render-thread compile (residual race, covered) pass={} "
+      REXBD_DEBUG("pso: render-thread compile (residual race, covered) pass={} "
                "vs=0x{:016X} ps=0x{:016X} decl=0x{:016X}",
                renderPassId, vsHash, psHash, declHash);
     } else {
-      REXLOG_WARN(bd, "pso: render-thread compile (miss, not in residual) pass={} "
+      REXBD_WARN("pso: render-thread compile (miss, not in residual) pass={} "
               "vs=0x{:016X} ps=0x{:016X} decl=0x{:016X}",
               renderPassId, vsHash, psHash, declHash);
     }
@@ -449,11 +449,6 @@ void RecordPipelineState(const PipelineState &state, u32 renderPassId,
 }
 
 void ReplayBootCache() {
-  if (!PrecacheEnabled()) {
-    REXLOG_DEBUG(bd, 
-        "pso_recorder: precache disabled (bd_pso_precache=0), skipping replay");
-    return;
-  }
   std::lock_guard<std::mutex> lock(g_replayMutex);
   if (g_replayActive)
     return;

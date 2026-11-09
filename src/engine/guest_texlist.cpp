@@ -8,7 +8,7 @@
 #include <cstdio>
 #include <cstring>
 
-#include <rex/hook.h>
+#include <rex/ppc/hook.h>
 
 #include "core/logging.h"
 #include "core/memory_helpers.h"
@@ -98,12 +98,12 @@ bool Texlist::Request() {
   const u32 block =
       gpu::HostHeap::Get().AllocGuest(sizeof(TexlistRequest_t), 16);
   if (!block) {
-    REXLOG_WARN(bd, "no HostHeap space for the {} texlist", dir_);
+    REXBD_WARN("no HostHeap space for the {} texlist", dir_);
     return false;
   }
   auto *request = mem::try_at<TexlistRequest_t>(block);
   if (!request) {
-    REXLOG_WARN(bd, "texlist block 0x{:08X} did not resolve", block);
+    REXBD_WARN("texlist block 0x{:08X} did not resolve", block);
     gpu::HostHeap::Get().FreeGuest(block);
     return false;
   }
@@ -125,7 +125,7 @@ bool Texlist::Request() {
   TexlistRequest(block + offsetof(TexlistRequest_t, holder),
                  block + offsetof(TexlistRequest_t, dir),
                  block + offsetof(TexlistRequest_t, desc));
-  REXLOG_DEBUG(bd, "requested {} textures under {} at 0x{:08X}", count_, dir_, block);
+  REXBD_DEBUG("requested {} textures under {} at 0x{:08X}", count_, dir_, block);
   return true;
 }
 
@@ -165,7 +165,7 @@ bool Texlist::Poll() {
       ready_.store(true, std::memory_order_release);
       state_ = State::kReady;
     } else {
-      REXLOG_WARN(bd, "{}{}.dds did not load", dir_, names_[0]);
+      REXBD_WARN("{}{}.dds did not load", dir_, names_[0]);
       state_ = State::kFailed;
     }
     break;

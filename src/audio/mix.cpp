@@ -4,7 +4,7 @@
  *            All rights reserved.
  * @license   BSD 3-Clause - see LICENSE
  */
-#include "audio/settings.h"
+#include "core/cvar_table.h"
 #include "core/memory_helpers.h"
 #include "core/settings.h"
 #include "platform/platform.h"
@@ -13,9 +13,7 @@
 #include <cmath>
 #include <cstddef>
 
-#include <rex/hook.h>
-#include <rex/ppc.h>
-#include <rex/ppc/detour.h>
+#include <rex/ppc/hook.h>
 #include <rex/types.h>
 
 namespace bd::audio {
@@ -87,12 +85,15 @@ void ApplyGainRamp(u32 samplesVA, u32 channels, f32 from, f32 to) {
   }
 }
 
-bool MuteWanted() { return !bd::platform::HID().IsFocused(); }
+bool MuteWanted() {
+  const rex::ui::IUISystem *ui = bd::platform::UI();
+  return ui && !ui->IsFocused();
+}
 
 void GuardOutputFrame(u32 frameVA) {
   if (!frameVA)
     return;
-  const f64 limit = Settings::Get().OutputLimit();
+  const f64 limit = bd::cvars::Get().audio_limit.Get();
   const bool muted = MuteWanted();
   if (limit <= 0.0 && !muted && g_gain == 1.0f)
     return;

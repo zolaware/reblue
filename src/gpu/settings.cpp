@@ -12,7 +12,6 @@
 
 #include <vector>
 
-#include <rex/cvar.h>
 
 #include "core/logging.h"
 #include "core/cvar_table.h"
@@ -22,7 +21,7 @@
 namespace bd::gpu {
 namespace {
 
-std::vector<rex::cvar::CallbackHandle> g_callbacks;
+bd::SettingWatches g_callbacks;
 
 std::string FormatCvar(f64 v) {
   char buf[32];
@@ -42,55 +41,41 @@ Settings &Settings::Get() {
   return s;
 }
 
-void Settings::AdoptAnisotropy() { anisotropy_ = REXCVAR_GET(bd::cvars::anisotropy); }
-void Settings::AdoptNTSCFilter() { ntscFilter_ = REXCVAR_GET(bd::cvars::ntsc_filter); }
+void Settings::AdoptAnisotropy() { anisotropy_ = bd::cvars::Get().anisotropy.Get(); }
+void Settings::AdoptNTSCFilter() { ntscFilter_ = bd::cvars::Get().ntsc_filter.Get(); }
 void Settings::AdoptDOFStrength() {
-  dofStrength_ = REXCVAR_GET(bd::cvars::dof_strength);
+  dofStrength_ = bd::cvars::Get().dof_strength.Get();
 }
 void Settings::AdoptShadowDistance() {
-  shadowDistance_ = REXCVAR_GET(bd::cvars::shadow_distance);
+  shadowDistance_ = bd::cvars::Get().shadow_distance.Get();
 }
-void Settings::AdoptVsync() { vsync_ = REXCVAR_GET(bd::cvars::vsync); }
+void Settings::AdoptVsync() { vsync_ = bd::CvarGet("gpu.vsync") != "false"; }
 void Settings::AdoptAspectRatio() {
-  aspectRatio_ = REXCVAR_GET(bd::cvars::aspect_ratio);
+  aspectRatio_ = bd::cvars::Get().aspect_ratio.Get();
   Output::Recompute();
 }
-void Settings::AdoptFOVOffset() { fovOffset_ = REXCVAR_GET(bd::cvars::fov_offset); }
+void Settings::AdoptFOVOffset() { fovOffset_ = bd::cvars::Get().fov_offset.Get(); }
 void Settings::AdoptShadowDimension() {
-  shadowDimension_ = REXCVAR_GET(bd::cvars::shadow_dimension);
-}
-void Settings::AdoptPSOPrecache() {
-  psoPrecache_ = REXCVAR_GET(bd::cvars::pso_precache);
-}
-void Settings::AdoptGeometryGPUUpload() {
-  geometryGPUUpload_ = REXCVAR_GET(bd::cvars::geometry_gpu_upload);
-}
-void Settings::AdoptDRED() { dred_ = REXCVAR_GET(bd::cvars::dred); }
-void Settings::AdoptSceneColorR11G11B10() {
-  sceneColorR11G11B10_ = REXCVAR_GET(bd::cvars::scene_color_r11g11b10);
+  shadowDimension_ = bd::cvars::Get().shadow_dimension.Get();
 }
 void Settings::AdoptSuperSampling() {
-  superSampling_ = REXCVAR_GET(bd::cvars::supersampling);
+  superSampling_ = bd::cvars::Get().supersampling.Get();
 }
 void Settings::AdoptMSAA() {
   const i32 was = msaa_;
-  msaa_ = REXCVAR_GET(bd::cvars::msaa);
+  msaa_ = bd::cvars::Get().msaa.Get();
   if (msaa_ != was && msaa_ != 0)
     ReemitPredictions();
 }
 void Settings::AdoptPostQuality() {
-  postQuality_ = REXCVAR_GET(bd::cvars::post_quality);
+  postQuality_ = bd::cvars::Get().post_quality.Get();
 }
 void Settings::AdoptReflectionQuality() {
-  reflectionQuality_ = REXCVAR_GET(bd::cvars::reflection_quality);
+  reflectionQuality_ = bd::cvars::Get().reflection_quality.Get();
 }
 
 bool Settings::SetAnisotropy(i32 v) {
   return bd::CvarSet("bd.anisotropy", FormatCvar(v));
-}
-
-bool Settings::SetNTSCFilter(bool v) {
-  return bd::CvarSet("bd.ntsc_filter", FormatCvar(v));
 }
 
 bool Settings::SetDOFStrength(f64 v) {
@@ -109,7 +94,7 @@ bool Settings::SetShadowQuality(f64 distance, i32 dimension) {
 }
 
 bool Settings::SetVsync(bool v) {
-  return bd::CvarSet("bd.vsync", FormatCvar(v));
+  return bd::CvarSet("gpu.vsync", FormatCvar(v));
 }
 
 bool Settings::SetAspectRatio(i32 v) {
@@ -176,7 +161,7 @@ bool Settings::SetQualityPreset(gpu::QualityPreset preset) {
        ok;
   ok = SetPostQuality(static_cast<i32>(p.postQuality)) && ok;
   ok = SetReflectionQuality(static_cast<i32>(p.reflectionQuality)) && ok;
-  REXLOG_DEBUG(bd, "config quality preset = {}", ToString(preset));
+  REXBD_DEBUG("config quality preset = {}", ToString(preset));
   return ok;
 }
 
@@ -189,10 +174,6 @@ void Settings::AdoptCvars() {
   AdoptAspectRatio();
   AdoptFOVOffset();
   AdoptShadowDimension();
-  AdoptPSOPrecache();
-  AdoptGeometryGPUUpload();
-  AdoptDRED();
-  AdoptSceneColorR11G11B10();
   AdoptSuperSampling();
   AdoptMSAA();
   AdoptPostQuality();
@@ -212,14 +193,10 @@ void Settings::Init() {
   reg("bd.ntsc_filter", &Settings::AdoptNTSCFilter);
   reg("bd.dof_strength", &Settings::AdoptDOFStrength);
   reg("bd.shadow_distance", &Settings::AdoptShadowDistance);
-  reg("bd.vsync", &Settings::AdoptVsync);
+  reg("gpu.vsync", &Settings::AdoptVsync);
   reg("bd.aspect_ratio", &Settings::AdoptAspectRatio);
   reg("bd.fov_offset", &Settings::AdoptFOVOffset);
   reg("bd.shadow_dimension", &Settings::AdoptShadowDimension);
-  reg("bd.pso_precache", &Settings::AdoptPSOPrecache);
-  reg("bd.geometry_gpu_upload", &Settings::AdoptGeometryGPUUpload);
-  reg("bd.dred", &Settings::AdoptDRED);
-  reg("bd.scene_color_r11g11b10", &Settings::AdoptSceneColorR11G11B10);
   reg("bd.supersampling", &Settings::AdoptSuperSampling);
   reg("bd.msaa", &Settings::AdoptMSAA);
   reg("bd.post_quality", &Settings::AdoptPostQuality);

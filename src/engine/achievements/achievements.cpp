@@ -12,14 +12,15 @@
 #include <string_view>
 #include <vector>
 
-#include <rex/embedded_metadata.h>
-#include <rex/runtime.h>
-#include <rex/runtime/achievement_manager.h>
+#include <rex/ppc/image.h>
+#include <rex/kernel/title_runtime.h>
+#include <rex/xam/achievement_manager.h>
 
 #include "embedded.h"
 #include "core/logging.h"
 #include "engine/events.h"
 #include "engine/game.h"
+#include "platform/host_ui.h"
 
 namespace bd::engine {
 
@@ -51,7 +52,7 @@ constexpr u32 kGoldForCashman = 666;
 constexpr u32 kPooSnakeTypeId = 1;
 
 struct CustomAchievement {
-  rex::runtime::Achievement info;
+  rex::Achievement info;
   bool registered = false;
   bool done = false;
 };
@@ -99,9 +100,9 @@ void Unlock(u32 id) {
   if (!a || !a->registered || a->done)
     return;
   a->done = true;
-  if (auto *rt = rex::GetProcessRuntime())
+  if (auto *rt = bd::platform::Title())
     (void)rt->GetAchievementManager().UnlockAchievement(
-        a->info.id, rex::runtime::AchievementNotification::kShow);
+        a->info.id, rex::xam::AchievementNotification::kShow);
 }
 
 // The two predicates that describe a state rather than an edge. Both are
@@ -137,19 +138,19 @@ void EvaluateStageTriggered() {
 
 void Achievements::Register() {
   for (const EmbeddedAsset &icon : EmbeddedGroup("achievements"))
-    rex::RegisterEmbeddedMetadataAsset(icon.name, icon.data, icon.size);
-  rex::Runtime *runtime = rex::GetProcessRuntime();
+    rex::ppc::RegisterEmbeddedMetadataAsset(icon.name, icon.data, icon.size);
+  rex::kernel::TitleRuntime *runtime = bd::platform::Title();
   if (!runtime) {
-    REXLOG_WARN(bd, "achv runtime not ready, catalog registration deferred");
+    REXBD_WARN("achv runtime not ready, catalog registration deferred");
     return;
   }
   auto &manager = runtime->GetAchievementManager();
-  std::vector<rex::runtime::Achievement> infos;
+  std::vector<rex::Achievement> infos;
   infos.reserve(std::size(s_achievements));
   for (const CustomAchievement &a : s_achievements)
     infos.push_back(a.info);
   if (auto registered = manager.RegisterAchievements(infos); !registered) {
-    REXLOG_WARN(bd, "achv catalog not registered: {}", registered.error().message);
+    REXBD_WARN("achv catalog not registered: {}", registered.error().message);
     return;
   }
   for (CustomAchievement &a : s_achievements) {

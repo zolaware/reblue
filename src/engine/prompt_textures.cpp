@@ -12,7 +12,8 @@
 #include <mutex>
 #include <vector>
 
-#include <rex/ppc.h>
+#include <rex/logging/log_category.h>
+#include <rex/ppc/context.h>
 #include <rex/ppc/midasm.h>
 #include <stb_image.h>
 
@@ -213,7 +214,7 @@ const CapLibrary *Library() {
   if (!pixels || w <= 0 || h <= 0) {
     if (pixels)
       stbi_image_free(pixels);
-    REXLOG_ERROR(bd, "prompts the key cap library did not decode");
+    REXBD_ERROR("prompts the key cap library did not decode");
     return nullptr;
   }
 
@@ -234,7 +235,7 @@ const CapLibrary *Sheet() {
 
   s_sheet.rgba = Glyphs::SheetPixels();
   if (s_sheet.rgba.empty()) {
-    REXLOG_ERROR(bd, "[prompts] the glyph sheet did not decode");
+    REXBD_ERROR("[prompts] the glyph sheet did not decode");
     return nullptr;
   }
   s_sheet.cellPx = Glyphs::kSheetCellPx;
@@ -255,7 +256,7 @@ struct CapRef {
 // else from that pad's block on the glyph sheet.
 CapRef PadCap(Action action, u32 set) {
   for (const Source &s : Bindings::Get().Sources(action)) {
-    if (s.kind != SourceKind::kPadButton)
+    if (s.type != SourceKind::kPadButton)
       continue;
     const auto button = static_cast<Button>(s.code);
     switch (button) {
@@ -387,7 +388,7 @@ u32 PromptIconButton(u32 id) {
   if (isFace(id))
     return id;
   for (const Source &s : Bindings::Get().Sources(Action::Interact)) {
-    if (s.kind == SourceKind::kPadButton && isFace(s.code))
+    if (s.type == SourceKind::kPadButton && isFace(s.code))
       return s.code;
   }
   return u32(Button::A);
@@ -417,7 +418,7 @@ void PromptTextures::Publish() {
   published_ = true;
 
   if (!padArt_) {
-    REXLOG_WARN(bd, "prompts cap library has no pad button cells, composing only "
+    REXBD_WARN("prompts cap library has no pad button cells, composing only "
             "while a keyboard drives");
     return;
   }
@@ -446,7 +447,7 @@ void PromptTextures::SetEnabled(bool on) {
   if (!on) {
     enabled_ = false;
     LayoutMount::Remove(kMount);
-    REXLOG_DEBUG(bd, "prompts released, the shipped button art loads again");
+    REXBD_DEBUG("prompts released, the shipped button art loads again");
     return;
   }
   enabled_ = true;
@@ -455,7 +456,7 @@ void PromptTextures::SetEnabled(bool on) {
   for (const PromptTex &tex : kTextures)
     mount.AddRaw(tex.key, [t = &tex] { return Compose(*t); });
   mount.Publish(kMount);
-  REXLOG_DEBUG(bd, "prompts serving {} composed prompt textures",
+  REXBD_DEBUG("prompts serving {} composed prompt textures",
            std::size(kTextures));
 }
 

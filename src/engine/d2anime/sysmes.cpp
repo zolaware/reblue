@@ -13,9 +13,9 @@
 
 #include <cstddef>
 
-#include <rex/hook.h>
+#include <rex/ppc/hook.h>
 #include <rex/ppc/stack.h>
-#include <rex/runtime/thread_state.h>
+#include <rex/kernel/thread_state.h>
 #include <rex/types.h>
 #include "core/memory_helpers.h"
 
@@ -54,15 +54,9 @@ bool SysMesConfirm::Create(const Task &parent, const char *q1, const char *q2,
                            const char *q3, const char *a1, const char *a2,
                            int defaultSel) {
   if (task_) {
-    REXLOG_WARN(bd, "sysmes already active, killing previous");
+    REXBD_WARN("sysmes already active, killing previous");
     Kill();
   }
-
-  // Raw base: the call bridges address the PPC stack, not the heap.
-  const auto memory = bd::mem::view();
-  if (!memory)
-    return false;
-  auto *base = memory->GetVirtualMembase();
 
   // Engine stores these as wchar_t, and LoadStrings reads them back by RBDEL_
   // name.
@@ -76,29 +70,29 @@ bool SysMesConfirm::Create(const Task &parent, const char *q1, const char *q2,
   vb.SetText("RBDEL_SA2", a2 ? std::string_view(a2)
                              : std::string_view(i18n::Text("common.no")));
 
-  PPCContext &ctx = *rex::runtime::ThreadState::Get()->GetContext();
-  rex::ppc::StackFrame frame(ctx, base);
+  // The call bridges address the PPC stack of the calling title thread.
+  rex::ppc::StackFrame frame;
 
   const auto config = frame.Push<SelMesWinConfig_t>();
   const u32 configAddr = config.GetGuestAddress();
 
-  InitSelMesConfig(ctx, base, configAddr);
+  InitSelMesConfig(configAddr);
 
   u32 prefixAddr = frame.PushString("RBDEL").GetGuestAddress();
-  LoadSelMesStrings(ctx, base, configAddr, parentTask, prefixAddr);
+  LoadSelMesStrings(configAddr, parentTask, prefixAddr);
 
   config->defaultSel = static_cast<u32>(defaultSel);
 
-  task_ = SelMesWinTask(CreateSelMes(ctx, base, parentTask, configAddr));
+  task_ = SelMesWinTask(CreateSelMes(parentTask, configAddr));
 
   if (!task_ || !parent) {
-    REXLOG_ERROR(bd, "sysmes SelMesWinTask_Create gave no usable task");
+    REXBD_ERROR("sysmes SelMesWinTask_Create gave no usable task");
     task_.Reset();
     return false;
   }
   task_.SetNotifyParent(parent);
 
-  REXLOG_INFO(bd, "sysmes created SelMesWinTask at 0x{:08X} (parent=0x{:08X})",
+  REXBD_INFO("sysmes created SelMesWinTask at 0x{:08X} (parent=0x{:08X})",
           task_.Address(), parentTask);
   return true;
 }
@@ -130,36 +124,31 @@ bool SysMesNotice::Show(const Task &parent, std::string_view line1,
 
   const u32 parentTask = parent.Address();
 
-  const auto memory = bd::mem::view();
-  if (!memory)
-    return false;
-  auto *base = memory->GetVirtualMembase();
-
   AnimeData vb = D2AnimeTask(parentTask).AnimeData();
   vb.SetText("RBNOT_S1", line1);
   vb.SetText("RBNOT_S2", line2);
   vb.SetText("RBNOT_S3", line3);
 
-  PPCContext &ctx = *rex::runtime::ThreadState::Get()->GetContext();
-  rex::ppc::StackFrame frame(ctx, base);
+  // The call bridges address the PPC stack of the calling title thread.
+  rex::ppc::StackFrame frame;
 
   const u32 configAddr = frame.Push<NormMesWinConfig_t>().GetGuestAddress();
 
-  InitNormMesConfig(ctx, base, configAddr);
+  InitNormMesConfig(configAddr);
 
   u32 prefixAddr = frame.PushString("RBNOT").GetGuestAddress();
-  LoadNormMesStrings(ctx, base, configAddr, parentTask, prefixAddr);
+  LoadNormMesStrings(configAddr, parentTask, prefixAddr);
 
-  task_ = Task(CreateNormMes(ctx, base, parentTask, configAddr));
+  task_ = Task(CreateNormMes(parentTask, configAddr));
   if (!task_) {
-    REXLOG_ERROR(bd, "sysmes NormMesWinTask_Create gave no usable task");
+    REXBD_ERROR("sysmes NormMesWinTask_Create gave no usable task");
     return false;
   }
 
   shown1_ = line1;
   shown2_ = line2;
   shown3_ = line3;
-  REXLOG_DEBUG(bd, "sysmes created NormMesWinTask at 0x{:08X} (parent=0x{:08X})",
+  REXBD_DEBUG("sysmes created NormMesWinTask at 0x{:08X} (parent=0x{:08X})",
            task_.Address(), parentTask);
   return true;
 }
@@ -201,7 +190,7 @@ void SysMesConfirm::Kill() {
   if (!addr)
     return;
   task_.Kill();
-  REXLOG_INFO(bd, "sysmes killed SelMesWinTask at 0x{:08X}", addr);
+  REXBD_INFO("sysmes killed SelMesWinTask at 0x{:08X}", addr);
   task_.Reset();
 }
 

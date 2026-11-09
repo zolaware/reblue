@@ -31,10 +31,6 @@ double g_accum = 0.0;
 float g_alpha = 0.0f;
 bool g_tickDue = true;
 u64 g_tickCount = 0;
-double g_tps = 0.0;
-constexpr double kTpsWindow = 0.5;
-double g_tpsTicks = 0.0;
-double g_tpsSeconds = 0.0;
 constexpr int kDeltaWindow = 8;
 constexpr double kDeltaHitchRatio = 3.0;
 double g_deltaRing[kDeltaWindow] = {};
@@ -104,16 +100,8 @@ void Advance() {
     g_alpha = static_cast<float>(std::clamp(g_accum / kTick, 0.0, 0.9999));
   }
 
-  if (g_tickDue) {
+  if (g_tickDue)
     ++g_tickCount;
-    g_tpsTicks += 1.0;
-  }
-  g_tpsSeconds += dt;
-  if (g_tpsSeconds >= kTpsWindow) {
-    g_tps = g_tpsTicks / g_tpsSeconds;
-    g_tpsTicks = 0.0;
-    g_tpsSeconds = 0.0;
-  }
 }
 
 namespace {
@@ -150,7 +138,6 @@ float Alpha() {
   return t_renderThread ? g_render.alpha : g_alpha;
 }
 u64 TickCount() { return t_renderThread ? g_render.tick : g_tickCount; }
-double TicksPerSecond() { return g_tps; }
 double FrameTime() { return t_renderThread ? g_render.time : g_frameTime; }
 double FrameDelta() { return t_renderThread ? g_render.delta : g_lastDelta; }
 

@@ -50,15 +50,11 @@ public:
   bool SetLanguage(const std::string &v);
 
   bool I18nKeys() const { return i18nKeys_; }
-  bool SetI18nKeys(bool v);
 
   const std::string &LanguagePath() const { return languagePath_; }
 
-  // Read at startup only, and compiled out of playtest builds.
-  bool Profiler() const { return profiler_; }
-
-  i32 ShutdownTimeoutMs() const { return shutdownTimeoutMs_; }
-  bool SetShutdownTimeoutMs(i32 v);
+  bool PerfOverlay() const { return perfOverlay_; }
+  bool SetPerfOverlay(bool v);
 
   // The one startup network setting: it covers the release check and the
   // content packs the manifest names, since a player who declines one has
@@ -87,8 +83,7 @@ private:
   void AdoptLanguage();
   void AdoptI18nKeys();
   void AdoptLanguagePath();
-  void AdoptProfiler();
-  void AdoptShutdownTimeoutMs();
+  void AdoptPerfOverlay();
   void AdoptUpdateCheck();
   void AdoptUpdateBase();
   void AdoptUpdateChannel();
@@ -101,8 +96,7 @@ private:
   std::string language_ = "auto";
   bool i18nKeys_ = false;
   std::string languagePath_ = "lang";
-  bool profiler_ = false;
-  i32 shutdownTimeoutMs_ = 1500;
+  bool perfOverlay_ = false;
   bool updateCheck_ = true;
   std::string updateBase_;
   bd::UpdateChannel updateChannel_ = bd::UpdateChannel::Stable;

@@ -11,11 +11,9 @@
 #include <cmath>
 #include <cstddef>
 
-#include <rex/hook.h>
-#include <rex/ppc.h>
-#include <rex/ppc/detour.h>
+#include <rex/ppc/hook.h>
+#include <rex/kernel/types/memory.h>
 #include <rex/ppc/stack.h>
-#include <rex/runtime/xtypes.h>
 #include <rex/types.h>
 
 #include "core/memory_helpers.h"
@@ -52,7 +50,7 @@ static_assert(sizeof(Vec3_t) == 0x0C);
 
 struct BattleActor_t {
   /* 0x000 */ u8 _pad000[0x128];
-  /* 0x128 */ rex::be_vector<rex::be_ptr<BattleActor_t>> parts;
+  /* 0x128 */ rex::kernel::GuestVector<rex::kernel::be_ptr<BattleActor_t>> parts;
   /* 0x134 */ u8 _pad134[0x1B8 - 0x134];
   /* 0x1B8 */ Vec3_t worldPos;
 };
@@ -204,7 +202,7 @@ void UpdateBattleTargetHover(u32 taskVA) {
         const auto *slot =
             p == kPartBody ? nullptr : actor->parts.TryAt(size_t(p), *view);
         const auto *object =
-            p == kPartBody ? actor : (slot ? slot->TryGet(*view) : nullptr);
+            p == kPartBody ? actor : (slot ? slot->TryGetHost(*view) : nullptr);
         if (!object)
           continue;
         *world = object->worldPos;

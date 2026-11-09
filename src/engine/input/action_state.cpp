@@ -25,7 +25,7 @@ constexpr int kMaxConsumed = 16;
 
 bool Consumed(const Source *list, int count, const Source &source) {
   for (int i = 0; i < count; ++i) {
-    if (rex::hid::IsSameInput(list[i], source))
+    if (rex::IsSameInput(list[i], source))
       return true;
   }
   return false;

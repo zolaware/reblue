@@ -33,7 +33,7 @@ i64 ReadVersion(const std::filesystem::path &dir) {
     if (auto v = tbl["content"]["version"].value<i64>())
       return *v;
   } catch (const toml::parse_error &e) {
-    REXLOG_WARN(bd, "content {} parse error: {}", path.string(), e.description());
+    REXBD_WARN("content {} parse error: {}", path.string(), e.description());
   }
   return 0;
 }
@@ -134,7 +134,7 @@ void ContentCatalog::Reload() {
   // longer there.
   const size_t overrides = Mount();
   if (const size_t count = Snapshot().size(); count != 0)
-    REXLOG_INFO(bd, "content {} pack(s), {} override(s)", count, overrides);
+    REXBD_INFO("content {} pack(s), {} override(s)", count, overrides);
 }
 
 void ContentCatalog::Commit(const std::vector<std::string> &ids) {
@@ -156,7 +156,7 @@ void ContentCatalog::Commit(const std::vector<std::string> &ids) {
 
     fs::rename(staged, dir, ec);
     if (ec) {
-      REXLOG_ERROR(bd, "content could not move '{}' into place: {}", id,
+      REXBD_ERROR("content could not move '{}' into place: {}", id,
                ec.message());
       if (had_old)
         fs::rename(aside, dir, ec);

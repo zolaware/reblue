@@ -1,6 +1,5 @@
-#include <rex/cvar.h>
-#include <rex/hook.h>
-#include <rex/ppc/detour.h>
+#include <rex/ppc/hook.h>
+#include <rex/kernel/memory_view.h>
 #include <rex/types.h>
 
 #include "core/cvar_table.h"
@@ -76,7 +75,7 @@ PadWords ResolveWords() {
 }
 
 bool DrivesAxis(const Source &source) {
-  return source.axis_slot != 0 || source.kind == SourceKind::kPadAxes;
+  return source.axis_slot != 0 || source.type == SourceKind::kPadAxes;
 }
 
 AxisState ResolveAxes() {
@@ -172,7 +171,7 @@ void WritePadZero(bool route) {
   }
 
   const auto view = mem::view();
-  auto *pad = view ? addr::kPadZeroBlock.TryGet(*view) : nullptr;
+  auto *pad = view ? addr::kPadZeroBlock.TryGetHost(*view) : nullptr;
   if (!pad)
     return;
 
@@ -200,7 +199,7 @@ void WritePadZero(bool route) {
 } // namespace bd::engine
 
 REX_DETOUR(bdPadInputPoll, void, ()) {
-  const bool route = REXCVAR_GET(bd::cvars::input_bindings);
+  const bool route = bd::cvars::Get().input_bindings.Get();
   original();
   bd::engine::WritePadZero(route);
 }

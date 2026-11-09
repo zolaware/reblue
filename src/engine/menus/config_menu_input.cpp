@@ -37,7 +37,7 @@ bool IsBind(const BindEntry &entry) {
 
 bool PadPressed(Action action) {
   for (const Source &source : Bindings::Get().Sources(action)) {
-    if (source.kind == SourceKind::kPadButton &&
+    if (source.type == SourceKind::kPadButton &&
         InputSources::Get().Active(source))
       return true;
   }
@@ -46,7 +46,7 @@ bool PadPressed(Action action) {
 
 bool PadHeld(Button button) {
   Source source;
-  source.kind = SourceKind::kPadButton;
+  source.type = SourceKind::kPadButton;
   source.code = static_cast<u16>(button);
   return InputSources::Get().Active(source);
 }
@@ -423,7 +423,7 @@ void ConfigMenu::HandleKeybinds() {
   }
 
   const bool delDown =
-      bd::platform::HID().IsKeyDown(rex::hid::VirtualKey::kDelete);
+      bd::platform::HID().IsKeyDown(rex::VirtualKey::kDelete);
   if (delDown && !del_held_ && IsBind(hovered) && hoverChip >= 0) {
     const bool cleared = hovered.cell == BindCell::MouseInput
                              ? ClearBindEntry(hovered)
@@ -463,7 +463,7 @@ void ConfigMenu::HandleModlist() {
     const int cursor = modlist_menu_.CursorIndex();
     FlipMod(cursor);
     dirty_ = true;
-    REXLOG_DEBUG(bd, "config toggled mod[{}]", cursor);
+    REXBD_DEBUG("config toggled mod[{}]", cursor);
     return;
   }
 
@@ -495,7 +495,7 @@ void ConfigMenu::HandleDLCList() {
     const int cursor = dlclist_menu_.CursorIndex();
     ToggleDLC(cursor);
     RefreshDLCVisuals();
-    REXLOG_DEBUG(bd, "config toggled dlc[{}]", cursor);
+    REXBD_DEBUG("config toggled dlc[{}]", cursor);
     return;
   }
 
@@ -593,7 +593,7 @@ void ConfigMenu::HandleLangPick() {
 
   if (canceled) {
     ClearLanguageSources();
-    REXLOG_DEBUG(bd, "config language add canceled at question {}", lang_pick_);
+    REXBD_DEBUG("config language add canceled at question {}", lang_pick_);
     Transition(State::LANGLIST);
     return;
   }
@@ -677,7 +677,7 @@ void ConfigMenu::HandleKeybindCapture() {
     capture_slot_ = -1;
     capture_chip_ = -1;
     Transition(State::KEYBINDS);
-    REXLOG_DEBUG(bd, "config rebind canceled");
+    REXBD_DEBUG("config rebind canceled");
   }
 }
 
@@ -688,18 +688,18 @@ void ConfigMenu::HandleReorder() {
     ReorderMod(reorder_origin_, cursor);
     reorder_origin_ = cursor;
     dirty_ = true;
-    REXLOG_DEBUG(bd, "config reorder: swapped to position {}", cursor);
+    REXBD_DEBUG("config reorder: swapped to position {}", cursor);
   }
 
   if (CheckAction(Action::Confirm)) {
     Transition(State::MODLIST);
-    REXLOG_DEBUG(bd, "config reorder confirmed at position {}", cursor);
+    REXBD_DEBUG("config reorder confirmed at position {}", cursor);
     return;
   }
 
   if (CheckAction(Action::Cancel)) {
     Transition(State::MODLIST);
-    REXLOG_DEBUG(bd, "config reorder canceled");
+    REXBD_DEBUG("config reorder canceled");
   }
 }
 
@@ -713,7 +713,7 @@ void ConfigMenu::HandleConfirmDelete() {
 
   if (!confirm_popup_.Confirmed()) {
     confirm_popup_.Kill();
-    REXLOG_DEBUG(bd, "config delete canceled");
+    REXBD_DEBUG("config delete canceled");
     Transition(list);
     return;
   }
@@ -722,7 +722,7 @@ void ConfigMenu::HandleConfirmDelete() {
 
   if (delete_kind_ == DeleteKind::Language) {
     if (!RemoveLanguage(delete_index_)) {
-      REXLOG_ERROR(bd, "config language remove failed for [{}]", delete_index_);
+      REXBD_ERROR("config language remove failed for [{}]", delete_index_);
       Transition(State::LANGLIST);
       return;
     }
@@ -733,13 +733,13 @@ void ConfigMenu::HandleConfirmDelete() {
   const bool ok = delete_kind_ == DeleteKind::DLC ? DeleteDLC(delete_index_)
                                                   : RemoveMod(delete_index_);
   if (!ok) {
-    REXLOG_ERROR(bd, "config {} delete failed for [{}]", DeleteKindName(delete_kind_),
+    REXBD_ERROR("config {} delete failed for [{}]", DeleteKindName(delete_kind_),
              delete_index_);
     Transition(list);
     return;
   }
 
-  REXLOG_DEBUG(bd, "config deleted {}[{}]", DeleteKindName(delete_kind_),
+  REXBD_DEBUG("config deleted {}[{}]", DeleteKindName(delete_kind_),
            delete_index_);
   wants_restart_ = true;
   resume_state_ = list;
@@ -761,9 +761,9 @@ void ConfigMenu::HandleConfirmReboot() {
       dirty_ = false;
     }
     bd::platform::RequestWarmReboot();
-    REXLOG_DEBUG(bd, "config reboot confirmed");
+    REXBD_DEBUG("config reboot confirmed");
   } else {
-    REXLOG_DEBUG(bd, "config reboot declined");
+    REXBD_DEBUG("config reboot declined");
   }
 
   // CLOSING is a no-op once the relaunch proceeds. It is the path taken when
@@ -781,9 +781,9 @@ void ConfigMenu::HandleConfirmResetBinds() {
   if (confirmed) {
     if (ResetAllKeybinds())
       settings_dirty_ = true;
-    REXLOG_DEBUG(bd, "config binds reset to defaults");
+    REXBD_DEBUG("config binds reset to defaults");
   } else {
-    REXLOG_DEBUG(bd, "config bind reset declined");
+    REXBD_DEBUG("config bind reset declined");
   }
 
   Transition(State::KEYBINDS);

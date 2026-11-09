@@ -6,7 +6,7 @@
 
 #include <cstddef>
 
-#include <rex/hook.h>
+#include <rex/ppc/hook.h>
 #include <rex/types.h>
 
 #include "core/logging.h"
@@ -119,7 +119,7 @@ void CampSettings::Tick() {
 void CampSettings::Open(const CampConfigMainTask &config) {
   if (!menu_.IsActive()) {
     if (warned_.Rebind(config.Address()))
-      REXLOG_WARN(bd, "camp-settings no menu loaded, leaving the stock screen up");
+      REXBD_WARN("camp-settings no menu loaded, leaving the stock screen up");
     return;
   }
   // Up before the stock pages go down, so the swap finishes whole inside one
@@ -170,7 +170,7 @@ void CampSettings::Close() {
     header.SetVisibleAndPlay(false);
 }
 
-bool CampSettings::Update(PPCContext &ctx, u8 *base, u32 taskAddr) {
+bool CampSettings::Update(PPCContext &ctx, u32 taskAddr) {
   CampConfigMainTask config(taskAddr);
   if (!config)
     return false;
@@ -199,7 +199,7 @@ bool CampSettings::Update(PPCContext &ctx, u8 *base, u32 taskAddr) {
     return false;
   }
 
-  menu_.Update(ctx, base);
+  menu_.Update(ctx);
   HidePrompts();
 
   if (menu_.IsClosing()) {
@@ -219,9 +219,8 @@ bool CampSettings::Update(PPCContext &ctx, u8 *base, u32 taskAddr) {
 } // namespace bd::engine
 
 void CampConfigMainTaskUpdate_hook(u32 task) {
-  auto *state = rex::runtime::ThreadState::Get();
-  if (bd::engine::CampSettings::Get().Update(
-          *state->GetContext(), state->GetMemory()->GetVirtualMembase(), task))
+  auto *state = rex::kernel::ThreadState::Get();
+  if (bd::engine::CampSettings::Get().Update(*state->GetContext(), task))
     return;
   CampConfigMainTaskUpdate(task);
 }

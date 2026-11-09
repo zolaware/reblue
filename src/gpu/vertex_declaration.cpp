@@ -88,7 +88,7 @@ GuestVertexDeclaration *CreateVertexDeclaration(GuestVertexElement *elements) {
 
   auto *decl = HostResourceHeap::Alloc<GuestVertexDeclaration>();
   if (!decl) {
-    REXLOG_ERROR(bd, "CreateVertexDeclaration: HostResourceHeap::Alloc failed "
+    REXBD_ERROR("CreateVertexDeclaration: HostResourceHeap::Alloc failed "
              "(elements={}, hash=0x{:X}), returning null decl",
              element_count, hash);
     return nullptr;
@@ -193,16 +193,20 @@ GuestVertexDeclaration *CreateVertexDeclaration(GuestVertexElement *elements) {
       if (needs_bswap_swap(type)) {
         decl->swappedTexcoords |= 1u << usage_index;
       }
-      // Metal already converts raw signed 16-bit to float, so MoltenVK needs
-      // no shader-side recovery. Vulkan and D3D12 keep UINT plus shader-side
-      // sign extension.
+      // Metal and Vulkan SSCALED convert raw signed 16-bit to float in the
+      // fetch, so neither needs shader-side recovery. D3D12 keeps UINT plus
+      // shader-side sign extension.
       if (type == D3DDeclType::kShort2) {
-        if (!g_mvk) {
+        if (g_vulkan && !g_mvk) {
+          input.format = plume::RenderFormat::R16G16_SSCALED;
+        } else if (!g_mvk) {
           input.format = plume::RenderFormat::R16G16_UINT;
           decl->sintTexcoords |= 1u << usage_index;
         }
       } else if (type == D3DDeclType::kShort4) {
-        if (!g_mvk) {
+        if (g_vulkan && !g_mvk) {
+          input.format = plume::RenderFormat::R16G16B16A16_SSCALED;
+        } else if (!g_mvk) {
           input.format = plume::RenderFormat::R16G16B16A16_UINT;
           decl->sintTexcoords |= 1u << usage_index;
         }

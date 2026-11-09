@@ -15,15 +15,16 @@
 #include <mutex>
 #include <string>
 
-#include <rex/hook.h>
-#include <rex/ppc.h>
-#include <rex/ppc/detour.h>
-#include <rex/runtime.h>
+#include <rex/platform/process.h>
+#include <rex/ppc/hook.h>
+#include <rex/logging/log_category.h>
+#include <rex/ppc/context.h>
+#include <rex/kernel/title_runtime.h>
 #include <rex/types.h>
 
 #include "core/logging.h"
 #include "core/memory_helpers.h"
-#include <rex/app.h>
+#include <rex/app/app.h>
 #include <rex/ppc/midasm.h>
 #include "platform/platform.h"
 #include "vfs/access_log.h"
@@ -139,7 +140,7 @@ void AllocateChannelScratch(u32 channel) {
   const u32 buf = guest_bdFilePhysicalMallocRead(1, kIoScratchSize);
   const u32 idx = ch->index;
   if (!buf) {
-    REXLOG_ERROR(bd, "disc IO channel {} scratch alloc failed, compressed reads "
+    REXBD_ERROR("disc IO channel {} scratch alloc failed, compressed reads "
              "on this channel would hang",
              idx);
     return;
@@ -164,8 +165,8 @@ REX_DETOUR(bdIOThreadReadFile, u32, (u32 channel, u32 op)) {
     std::lock_guard lock(g_failedFileMutex);
     g_lastFailedFile = path;
   }
-  REXLOG_ERROR(bd, "disc file read failed: '{}' ({})", path,
-           bd::platform::ResourceUse());
+  REXBD_ERROR("disc file read failed: '{}' ({})", path,
+           rex::platform::DescribeResourceUse());
   return result;
 }
 
@@ -182,7 +183,7 @@ REX_MIDASM_BRANCH(bdZeroLengthReadGuard, (PPCRegister &r5, PPCRegister &r31)) {
     return false;
   static std::atomic<bool> logged{false};
   if (!logged.exchange(true))
-    REXLOG_WARN(bd, "disc zero-length read guarded (recovering): '{}'",
+    REXBD_WARN("disc zero-length read guarded (recovering): '{}'",
             OpPath(r31.u32));
   return true;
 }
@@ -209,7 +210,7 @@ REX_DETOUR(bdFileOpenReadSync, u32, (u32 opAddr)) {
   const u32 size = static_cast<u32>(hit->bytes.size());
   const u32 buffer = guest_bdFilePhysicalMallocRead(op->allocType, size);
   if (!buffer) {
-    REXLOG_ERROR(bd, "disc no buffer for '{}' ({} bytes) from mount '{}'", key.str(),
+    REXBD_ERROR("disc no buffer for '{}' ({} bytes) from mount '{}'", key.str(),
              size, hit->mount);
     return result;
   }
@@ -238,7 +239,7 @@ void bdFileErrorHandler_hook() {
     file = g_lastFailedFile;
   }
 
-  REXLOG_ERROR(bd, "disc file-load fatal, failed file: '{}'",
+  REXBD_ERROR("disc file-load fatal, failed file: '{}'",
            file.empty() ? "<unknown>" : file);
 
   std::string body =
@@ -250,6 +251,6 @@ void bdFileErrorHandler_hook() {
                 "corrupt.";
 
   bd::platform::ShowFatal("File Load Error", body);
-  rex::RequestShutdown(1);
+  rex::app::RequestShutdown(1);
 }
 REX_HOOK(bdFileErrorHandler, bdFileErrorHandler_hook);

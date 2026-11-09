@@ -6,8 +6,7 @@
 
 #include <atomic>
 
-#include <rex/hook.h>
-#include <rex/ppc/detour.h>
+#include <rex/ppc/hook.h>
 #include <rex/types.h>
 
 #include "engine/d2anime/anime_input.h"

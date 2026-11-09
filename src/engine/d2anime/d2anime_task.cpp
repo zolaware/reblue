@@ -9,7 +9,7 @@
 #include <cstddef>
 #include <vector>
 
-#include <rex/hook.h>
+#include <rex/ppc/hook.h>
 #include <rex/ppc/stack.h>
 #include <rex/types.h>
 
@@ -48,7 +48,7 @@ struct D2AnimeTask_t {
   /* 0x1F8 */ u8 _pad1F8[0x238 - 0x1F8];
   /* 0x238 */ be_u32 loopFlag; // zero = one-shot, then finished
   /* 0x23C */ u8 _pad23C[0x08];
-  /* 0x244 */ rex::be_vector<be_u32> menus; // vector<AnimeMenu*>
+  /* 0x244 */ rex::kernel::GuestVector<u32> menus; // vector<AnimeMenu*>
   /* 0x250 */ u8 _pad250[0x10];
   /* 0x260 */ be_u32 drawDirty; // ping-pong between Draw and PostUpdate
   /* 0x264 */ u8 _pad264[0x04];
@@ -75,7 +75,7 @@ D2AnimeTask D2AnimeTask::Load(const Task &parent, const char *csvPath,
   u32 csvAddr = frame.PushString(csvPath).GetGuestAddress();
   u32 taskAddr = LoadAsync_Task(parent.Address(), csvAddr, 0);
   if (!taskAddr) {
-    REXLOG_ERROR(bd, "d2anime D2AnimeTask::Load failed for '{}'", csvPath);
+    REXBD_ERROR("d2anime D2AnimeTask::Load failed for '{}'", csvPath);
     return D2AnimeTask();
   }
 
@@ -87,7 +87,7 @@ D2AnimeTask D2AnimeTask::Load(const Task &parent, const char *csvPath,
   if (reveal == Reveal::WhenReady)
     g_pendingReveals.push_back(task);
 
-  REXLOG_INFO(bd, "d2anime D2AnimeTask::Load '{}' at 0x{:08X}", csvPath, taskAddr);
+  REXBD_INFO("d2anime D2AnimeTask::Load '{}' at 0x{:08X}", csvPath, taskAddr);
   return task;
 }
 
@@ -181,7 +181,7 @@ void D2AnimeTask::Kill() {
   std::erase_if(g_pendingReveals,
                 [addr](const D2AnimeTask &r) { return r.Address() == addr; });
   Task::Kill();
-  REXLOG_INFO(bd, "d2anime task 0x{:08X} killed", addr);
+  REXBD_INFO("d2anime task 0x{:08X} killed", addr);
   Reset();
 }
 

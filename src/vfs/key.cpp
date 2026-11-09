@@ -8,7 +8,7 @@
 
 #include <algorithm>
 
-#include <rex/string/utf8.h>
+#include <rex/string/text.h>
 #include <rex/types.h>
 
 #include "core/guest_global.h"
@@ -43,10 +43,10 @@ std::string Normalize(std::string_view raw_path, std::string_view base_path) {
       path.remove_prefix(1);
   }
 
-  if (rex::utf8_starts_with_case(path, base_path))
+  if (rex::string::utf8_starts_with_case(path, base_path))
     path.remove_prefix(base_path.size());
 
-  std::string key = rex::utf8_lower_ascii(path);
+  std::string key = rex::string::utf8_lower_ascii(path);
   std::replace(key.begin(), key.end(), '/', '\\');
 
   if (!key.empty() && key.front() == '\\')

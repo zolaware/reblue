@@ -35,6 +35,7 @@ target_include_directories(reblue_thirdparty PUBLIC
     miniz
     picosha2
     stb
+    tomlplusplus/include
     zstd
     XenosRecomp/thirdparty/smol-v/source)
 target_compile_options(reblue_thirdparty PRIVATE -w)
