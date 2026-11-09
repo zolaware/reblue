@@ -263,8 +263,14 @@ set(reblue_program_files
     "$<TARGET_FILE_NAME:reblue>"
     "gamecontrollerdb.txt")
 rexglue_get_runtime_files(reblue reblue_sdk_files)
+# Only a profiled build stages Tracy, so its entry is emitted whole or left out.
+set(reblue_tracy_files "")
 foreach(f IN LISTS reblue_sdk_files)
-    list(APPEND reblue_program_files "$<PATH:GET_FILENAME,${f}>")
+    if(f MATCHES "TracyClient")
+        list(APPEND reblue_tracy_files "$<PATH:GET_FILENAME,${f}>")
+    else()
+        list(APPEND reblue_program_files "$<PATH:GET_FILENAME,${f}>")
+    endif()
 endforeach()
 if(REBLUE_VULKAN_EXE)
     list(APPEND reblue_program_files "$<TARGET_FILE_NAME:reblue_vk>")
@@ -277,8 +283,13 @@ set(reblue_program_files_cxx "")
 foreach(f IN LISTS reblue_program_files)
     string(APPEND reblue_program_files_cxx "    \"${f}\",\n")
 endforeach()
+foreach(f IN LISTS reblue_tracy_files)
+    string(APPEND reblue_program_files_cxx
+           "    $<${REBLUE_PROFILING_ON}:\"${f}\",>\n")
+endforeach()
 
-set(reblue_retired_files "")
+# The updater moves these aside so a stale copy cannot sit next to rexbase.
+set(reblue_retired_files rexruntime.dll)
 if(WIN32 AND NOT REBLUE_VULKAN_EXE)
     list(APPEND reblue_retired_files reblue_vk.exe)
 endif()
@@ -304,5 +315,6 @@ ${reblue_retired_files_cxx}
 ")
 
 list(JOIN reblue_program_files "\n" reblue_program_files_txt)
+list(JOIN reblue_tracy_files "\n" reblue_tracy_txt)
 file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/packaging/program_files.txt"
-     CONTENT "${reblue_program_files_txt}\n")
+     CONTENT "${reblue_program_files_txt}\n$<${REBLUE_PROFILING_ON}:${reblue_tracy_txt}\n>")
