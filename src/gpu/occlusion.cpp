@@ -18,6 +18,7 @@
 #include "core/settings.h"
 #include "gpu/hooks/tweaks.h"
 #include "gpu/occlusion.h"
+#include "gpu/output.h"
 
 namespace bd::gpu {
 
@@ -85,22 +86,28 @@ void Occlusion::Begin() {
     if (void *mapped = s.occlusion_readback[slot]->map()) {
       const u32 count = *static_cast<const u32 *>(mapped);
       s.occlusion_readback[slot]->unmap();
+      // The query draws into the host-scaled scene target, so the host scale
+      // multiplies the count along with supersampling and MSAA.
       const f32 ss = SceneRenderScale();
-      u32 oversample = static_cast<u32>(ss * ss + 0.5f);
+      f32 kx = 1.0f;
+      f32 ky = 1.0f;
+      Output::HostScale(kx, ky);
+      f32 oversample = ss * ss * kx * ky;
       switch (Video::CvarMSAASampleCount()) {
       case plume::RenderSampleCount::COUNT_2:
-        oversample *= 2u;
+        oversample *= 2.0f;
         break;
       case plume::RenderSampleCount::COUNT_4:
-        oversample *= 4u;
+        oversample *= 4.0f;
         break;
       case plume::RenderSampleCount::COUNT_8:
-        oversample *= 8u;
+        oversample *= 8.0f;
         break;
       default:
         break;
       }
-      const u32 normalized = oversample > 1u ? count / oversample : count;
+      const u32 normalized =
+          oversample > 1.0f ? static_cast<u32>(count / oversample + 0.5f) : count;
       s.occlusion_last_count = normalized > 16384u ? 16384u : normalized;
       if (normalized > 16384u)
         if (::bd::Settings::Get().Devmode()) {

@@ -8,6 +8,7 @@
 
 #include <cstddef>
 
+#include "core/guest_global.h"
 #include "core/memory_helpers.h"
 #include "engine/state_layout.h"
 
@@ -42,28 +43,12 @@ static_assert(offsetof(VisualRender_t, fsaa) == 0x1BC8);
 } // namespace
 
 VisualRender VisualRender::Get() {
-  return VisualRender(mem::try_load<u32>(addr::kVisualRender));
+  return VisualRender(mem::global_load(addr::kVisualRender));
 }
 
 f32 VisualRender::ScreenW() const {
   const auto *self = Self<VisualRender_t>();
   return self ? static_cast<f32>(self->screenW) : 0.0f;
-}
-
-bool VisualRender::SetScreenW(f32 v) {
-  auto *self = Self<VisualRender_t>();
-  if (!self)
-    return false;
-  self->screenW = v;
-  return true;
-}
-
-bool VisualRender::SetScreenH(f32 v) {
-  auto *self = Self<VisualRender_t>();
-  if (!self)
-    return false;
-  self->screenH = v;
-  return true;
 }
 
 bool VisualRender::SetBrightness(u32 channel, f32 v) {

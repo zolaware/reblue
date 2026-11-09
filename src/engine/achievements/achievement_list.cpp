@@ -15,7 +15,6 @@
 
 #include "core/logging.h"
 #include "engine/achievements/achievements.h"
-#include "core/memory_helpers.h"
 
 namespace bd::engine {
 
@@ -29,7 +28,7 @@ const std::vector<AchievementRow> &RefreshAchievementList() {
   Achievements::Register();
   s_rows.clear();
 
-  auto *rt = bd::mem::runtime();
+  auto *rt = rex::GetProcessRuntime();
   if (!rt) {
     REXLOG_WARN(bd, "achv no runtime, achievement list is empty");
     return s_rows;

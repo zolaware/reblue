@@ -171,9 +171,11 @@ bool SnapshotTableLocked() {
         info.col = static_cast<u8>(col);
         info.skin = static_cast<u8>(skin);
         info.vsName = BaseName(
-            bd::mem::str(entryVa + offsetof(ShaderTableEntry_t, vsPath)));
+            bd::mem::cstr(entryVa + offsetof(ShaderTableEntry_t, vsPath))
+                .c_str());
         info.psName = BaseName(
-            bd::mem::str(entryVa + offsetof(ShaderTableEntry_t, psPath)));
+            bd::mem::cstr(entryVa + offsetof(ShaderTableEntry_t, psPath))
+                .c_str());
         g_tablePairs.try_emplace(PairKey(slot.vsHash, slot.psHash),
                                  std::move(info));
       }

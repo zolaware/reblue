@@ -6,7 +6,9 @@
  */
 #include "engine/language.h"
 
+#include "core/guest_global.h"
 #include "core/memory_helpers.h"
+#include "core/shared_globals.h"
 #include "engine/state_layout.h"
 #include "installer/installer.h"
 #include "vfs/vfs.h"
@@ -90,15 +92,16 @@ u32 Language::AvailableMask() const {
 Language::operator bool() const { return AvailableMask() != 0; }
 
 Locale Language::Current() const {
-  return Locale(bd::mem::try_load<u32>(addr::kLocaleId));
+  return Locale(static_cast<u32>(
+      bd::mem::global_load(bd::globals::kLocaleId)));
 }
 
 Locale Language::Default() const {
-  return Locale(bd::mem::try_load<u32>(addr::kBootDefaultLocale));
+  return Locale(bd::mem::global_load(addr::kBootDefaultLocale));
 }
 
 i32 Language::VoiceCount() const {
-  return bd::mem::try_load<i32>(addr::kVoiceLanguageCount);
+  return bd::mem::global_load(addr::kVoiceLanguageCount);
 }
 
 Locale Language::VoiceLocale(i32 voiceType) const {

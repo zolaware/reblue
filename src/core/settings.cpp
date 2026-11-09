@@ -62,7 +62,6 @@ void Settings::AdoptDevmode() {
   if (devmodeApplier_)
     devmodeApplier_();
 }
-void Settings::AdoptDbgPrint() { dbgPrint_ = REXCVAR_GET(bd::cvars::dbgprint); }
 void Settings::AdoptLanguage() { language_ = REXCVAR_GET(bd::cvars::language); }
 void Settings::AdoptI18nKeys() { i18nKeys_ = REXCVAR_GET(bd::cvars::i18n_keys); }
 void Settings::AdoptLanguagePath() {
@@ -109,10 +108,6 @@ void Settings::SetDevmodeApplier(std::function<void()> applier) {
     devmodeApplier_();
 }
 
-bool Settings::SetDbgPrint(bool v) {
-  return bd::CvarSet("bd.dbgprint", FormatCvar(v));
-}
-
 bool Settings::SetLanguage(const std::string &v) {
   return bd::CvarSet("bd.language", v);
 }
@@ -135,7 +130,6 @@ bool Settings::SetUpdateChannel(bd::UpdateChannel v) {
 
 void Settings::AdoptCvars() {
   AdoptDevmode();
-  AdoptDbgPrint();
   AdoptLanguage();
   AdoptI18nKeys();
   AdoptLanguagePath();
@@ -158,7 +152,6 @@ void Settings::Init() {
                   });
   };
   reg("bd.devmode", &Settings::AdoptDevmode);
-  reg("bd.dbgprint", &Settings::AdoptDbgPrint);
   reg("bd.language", &Settings::AdoptLanguage);
   reg("bd.i18n_keys", &Settings::AdoptI18nKeys);
   reg("bd.lang_path", &Settings::AdoptLanguagePath);

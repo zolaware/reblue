@@ -93,7 +93,8 @@ void PollKeyboardToGuest() {
   if (!bd::mem::memory())
     return;
 
-  auto *entry = mem::at<GuestKeyEntry>(kGuestKeyBufferAddr);
+  const auto view = bd::mem::view();
+  auto *entry = view ? kGuestKeyBuffer.TryGet(*view) : nullptr;
   if (!entry)
     return;
 

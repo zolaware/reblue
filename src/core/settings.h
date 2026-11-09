@@ -44,9 +44,6 @@ public:
   // every change reaches it, including one typed at the console.
   void SetDevmodeApplier(std::function<void()> applier);
 
-  bool DbgPrint() const { return dbgPrint_; }
-  bool SetDbgPrint(bool v);
-
   // "auto" or a BD language code. Restart-bound: the value updates here as
   // soon as it is set, but nothing rereads it until the next boot.
   const std::string &Language() const { return language_; }
@@ -87,7 +84,6 @@ private:
   // calls every one. Each setting's registered change callback calls only its
   // own, so one setting changing never re-reads the other ten.
   void AdoptDevmode();
-  void AdoptDbgPrint();
   void AdoptLanguage();
   void AdoptI18nKeys();
   void AdoptLanguagePath();
@@ -102,7 +98,6 @@ private:
   void ComposeUpdateUrl();
 
   bool devmode_ = false;
-  bool dbgPrint_ = false;
   std::string language_ = "auto";
   bool i18nKeys_ = false;
   std::string languagePath_ = "lang";

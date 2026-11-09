@@ -46,10 +46,9 @@ rex::ui::MouseEvent::Button MouseKeyButton(u16 code) {
 
 bool IsMouse(const Source &source) {
   switch (source.kind) {
-  case SourceKind::MouseButton:
-  case SourceKind::MouseWheel:
+  case SourceKind::kMouseWheel:
     return true;
-  case SourceKind::Key:
+  case SourceKind::kKey:
     return MouseKeyButton(source.code) != rex::ui::MouseEvent::Button::kNone;
   default:
     return false;
@@ -61,7 +60,9 @@ bool MouseTaken(const Source &source) {
 }
 
 int PadAxisBase(const Source &source) {
-  return static_cast<AxisPair>(source.code) == AxisPair::Right ? 2 : 0;
+  return static_cast<rex::hid::PadAxes>(source.code) == rex::hid::PadAxes::kRight
+             ? 2
+             : 0;
 }
 
 } // namespace
@@ -82,7 +83,7 @@ void InputSources::Sample(u32 padBlock) {
 }
 
 bool InputSources::Active(const Source &source) const {
-  if (source.kind == SourceKind::Key && platform::MindowsOwnsKeyboard())
+  if (source.kind == SourceKind::kKey && platform::MindowsOwnsKeyboard())
     return false;
   return ActiveUnheld(source);
 }
@@ -91,29 +92,27 @@ bool InputSources::ActiveUnheld(const Source &source) const {
   if (MouseTaken(source))
     return false;
   switch (source.kind) {
-  case SourceKind::Key: {
+  case SourceKind::kKey: {
     const u8 held = static_cast<u8>(platform::HID().GetModifiers());
+    const u8 mods = static_cast<u8>(source.modifiers);
     const rex::ui::MouseEvent::Button button = MouseKeyButton(source.code);
     if (button != rex::ui::MouseEvent::Button::kNone)
-      return (held & source.mods) == source.mods &&
+      return (held & mods) == mods &&
              platform::HID().IsButtonDown(platform::ToHIDButton(button));
-    if (held != source.mods)
+    if (held != mods)
       return false;
     return platform::HID().IsKeyDown(
         static_cast<rex::hid::VirtualKey>(source.code));
   }
-  case SourceKind::MouseWheel:
+  case SourceKind::kMouseWheel:
     return source.sign != 0 &&
            ((wheel_ > 0 && source.sign > 0) || (wheel_ < 0 && source.sign < 0));
-  case SourceKind::PadAxes: {
+  case SourceKind::kPadAxes: {
     const int base = PadAxisBase(source);
     return padAnalog_[base] != 0.0f || padAnalog_[base + 1] != 0.0f;
   }
-  case SourceKind::PadButton:
+  case SourceKind::kPadButton:
     return (padHeld_ & PadButtonBit(source.code)) != 0;
-  case SourceKind::MouseButton:
-    return platform::HID().IsButtonDown(platform::ToHIDButton(
-        static_cast<rex::ui::MouseEvent::Button>(source.code)));
   }
   return false;
 }
@@ -122,7 +121,7 @@ f32 InputSources::Axis(const Source &source, int component) const {
   if (MouseTaken(source))
     return 0.0f;
   switch (source.kind) {
-  case SourceKind::PadAxes:
+  case SourceKind::kPadAxes:
     return component == 0 || component == 1
                ? padAnalog_[PadAxisBase(source) + component]
                : 0.0f;
@@ -130,9 +129,9 @@ f32 InputSources::Axis(const Source &source, int component) const {
     break;
   }
 
-  if (source.axisSlot == 0)
+  if (source.axis_slot == 0)
     return 0.0f;
-  const int direction = AxisDirection(source.axisSlot);
+  const int direction = rex::hid::GetAxisDirection(source.axis_slot);
   const bool isY = direction == 0 || direction == 1;
   if ((component == 1) != isY)
     return 0.0f;

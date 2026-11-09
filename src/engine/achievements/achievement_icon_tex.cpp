@@ -22,7 +22,6 @@
 #include "core/logging.h"
 #include "engine/guest_texture.h"
 #include "engine/live_texture_stamp.h"
-#include "core/memory_helpers.h"
 
 namespace bd::engine {
 
@@ -66,7 +65,7 @@ std::vector<u8> LoadIconPng(const rex::runtime::Achievement &info) {
       return {asset->bytes.begin(), asset->bytes.end()};
   }
   if (info.image_id) {
-    auto *rt = bd::mem::runtime();
+    auto *rt = rex::GetProcessRuntime();
     const auto xdbf =
         rt ? rt->GetContentManager().GetTitleXDBF() : rex::runtime::XDBFTitleData(nullptr, 0);
     if (xdbf.IsValid()) {
@@ -105,7 +104,7 @@ void BlitCell(std::vector<u8> &rgba, u32 atlasHeight, u32 cell,
 }
 
 void BuildAtlas() {
-  auto *rt = bd::mem::runtime();
+  auto *rt = rex::GetProcessRuntime();
   // Registration order, not the viewer's display order: this is cached for the
   // life of the process, and the viewer re-sorts its rows on every visit.
   const auto catalog = rt ? rt->GetAchievementManager().ListAchievements()
@@ -168,7 +167,7 @@ const std::vector<u8> *GetAchievementIconAtlas() {
 }
 
 void SyncAchievementIconAtlas() {
-  auto *rt = bd::mem::runtime();
+  auto *rt = rex::GetProcessRuntime();
   const size_t count = rt ? rt->GetAchievementManager().ListAchievements().size() : 0;
 
   std::lock_guard lock(s_mutex);

@@ -26,8 +26,6 @@ public:
   static constexpr u32 kBrightnessChannels = 3;
 
   f32 ScreenW() const;
-  bool SetScreenW(f32 v);
-  bool SetScreenH(f32 v);
   bool SetBrightness(u32 channel, f32 v);
   bool SetScreenPosX(f32 v);
   bool SetScreenPosY(f32 v);

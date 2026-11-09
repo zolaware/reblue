@@ -11,12 +11,12 @@
 #include <fstream>
 
 #include <rex/platform/file.h>
+#include <rex/string/utf8.h>
 #include <rex/types.h>
 #include <toml++/toml.h>
 
 #include "core/app_root.h"
 #include "core/build_info.h"
-#include "core/encoding.h"
 #include "core/logging.h"
 
 #if defined(_WIN32)
@@ -205,7 +205,7 @@ std::optional<InstallConfig> ReadRegistry() {
 
   auto read_fp = [&](const wchar_t *name) -> std::string {
     auto w = ReadString(key, name);
-    return w ? bd::WideToUtf8(*w) : std::string{};
+    return w ? rex::ToUTF8(*w) : std::string{};
   };
   for (int i = 0; i < kDiscCount; ++i)
     cfg.iso_fingerprints[i] =
@@ -220,7 +220,7 @@ std::optional<InstallConfig> ReadRegistry() {
   }
 
   if (auto v = ReadString(key, L"AppVersion"))
-    cfg.app_version = bd::WideToUtf8(*v);
+    cfg.app_version = rex::ToUTF8(*v);
   cfg.connector = InstallConnector::kRegistry;
   return Finish(std::move(cfg));
 }
@@ -250,11 +250,11 @@ bool WriteRegistry(const InstallConfig &config) {
     for (int i = 0; i < kDiscCount; ++i)
       ok &= WriteString(
           key, (L"Disc" + std::to_wstring(i + 1) + L"Fingerprint").c_str(),
-          bd::Utf8ToWide(config.iso_fingerprints[i]));
+          rex::ToWideString(config.iso_fingerprints[i]));
     ok &= WriteString(key, L"SchemaVersion",
                       std::to_wstring(kInstallSchemaVersion));
     ok &= WriteString(key, L"AppVersion",
-                      bd::Utf8ToWide(REBLUE_VERSION_STRING));
+                      rex::ToWideString(REBLUE_VERSION_STRING));
     if (ok)
       return true;
     REXLOG_ERROR(bd, "Failed to write one or more values to install record");

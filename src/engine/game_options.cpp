@@ -13,10 +13,13 @@
 #include <rex/cvar.h>
 #include <rex/hook.h>
 #include <rex/ppc/detour.h>
+#include <rex/runtime.h>
 
 #include "core/logging.h"
+#include "core/guest_global.h"
 #include "core/memory_helpers.h"
 #include "core/cvar_table.h"
+#include "core/shared_globals.h"
 #include "core/settings.h"
 #include "engine/config.h"
 #include "engine/save/save_types.h"
@@ -28,30 +31,29 @@ REX_IMPORT(__imp__bdSoundStartWithVolume, SoundStartWithVolume, u32(u32, f64));
 namespace bd::engine {
 
 namespace addr {
-inline constexpr u32 kMsgSpeed = 0x82DEB160;
-inline constexpr u32 kMsgSize = 0x82DEB164;
-inline constexpr u32 kRuby = 0x82DEB168;
-inline constexpr u32 kSubtitles = 0x82DEB16C;
-inline constexpr u32 kBattleHints = 0x82DEB170;
-inline constexpr u32 kSkipEvents = 0x82DEB174;
-inline constexpr u32 kTargetFirst = 0x82DEB178;
-inline constexpr u32 kCamera = 0x82DEB17C;
-inline constexpr u32 kMusicVolume = 0x82DEB180;
-inline constexpr u32 kSeVolume = 0x82DEB184;
-inline constexpr u32 kVoiceVolume = 0x82DEB188;
-inline constexpr u32 kBrightness = 0x82DEB190;
-inline constexpr u32 kScreenPosX = 0x82DEB194;
-inline constexpr u32 kScreenPosY = 0x82DEB198;
-inline constexpr u32 kVoiceType = 0x82DC40D8;
-inline constexpr u32 kAudioHints = 0x82DC40DC;
-inline constexpr u32 kCtlNormalType = 0x82DC40E0;
-inline constexpr u32 kCtlMechattType = 0x82DC40E4;
-inline constexpr u32 kContentTask = 0x82DC9A80;
+REX_GUEST_GLOBAL(be_i32, kMsgSpeed, 0x82DEB160);
+REX_GUEST_GLOBAL(be_i32, kMsgSize, 0x82DEB164);
+REX_GUEST_GLOBAL(be_i32, kRuby, 0x82DEB168);
+REX_GUEST_GLOBAL(be_i32, kSubtitles, 0x82DEB16C);
+REX_GUEST_GLOBAL(be_i32, kBattleHints, 0x82DEB170);
+REX_GUEST_GLOBAL(be_i32, kSkipEvents, 0x82DEB174);
+REX_GUEST_GLOBAL(be_i32, kTargetFirst, 0x82DEB178);
+REX_GUEST_GLOBAL(be_i32, kCamera, 0x82DEB17C);
+REX_GUEST_GLOBAL(be_f32, kMusicVolume, 0x82DEB180);
+REX_GUEST_GLOBAL(be_f32, kSeVolume, 0x82DEB184);
+REX_GUEST_GLOBAL(be_f32, kVoiceVolume, 0x82DEB188);
+REX_GUEST_GLOBAL(be_f32, kBrightness, 0x82DEB190);
+REX_GUEST_GLOBAL(be_f32, kScreenPosX, 0x82DEB194);
+REX_GUEST_GLOBAL(be_f32, kScreenPosY, 0x82DEB198);
+REX_GUEST_GLOBAL(be_i32, kAudioHints, 0x82DC40DC);
+REX_GUEST_GLOBAL(be_i32, kCtlNormalType, 0x82DC40E0);
+REX_GUEST_GLOBAL(be_i32, kCtlMechattType, 0x82DC40E4);
+REX_GUEST_GLOBAL(be_u32, kContentTask, 0x82DC9A80);
 // Each holds a pointer to a bus name.
-inline constexpr u32 kSoundBusDefault = 0x82774488;
-inline constexpr u32 kSoundBusMusic = 0x8277448C;
-inline constexpr u32 kSoundBusVoice = 0x82774490;
-inline constexpr u32 kSeMixLevel = 0x827744DC;
+REX_GUEST_GLOBAL(be_u32, kSoundBusDefault, 0x82774488);
+REX_GUEST_GLOBAL(be_u32, kSoundBusMusic, 0x8277448C);
+REX_GUEST_GLOBAL(be_u32, kSoundBusVoice, 0x82774490);
+REX_GUEST_GLOBAL(be_f32, kSeMixLevel, 0x827744DC);
 } // namespace addr
 
 namespace {
@@ -67,18 +69,25 @@ constexpr f64 kVoiceBusScale = 0.65;
 constexpr f64 kScreenPosXScale = 100.0;
 constexpr f64 kScreenPosYScale = -100.0;
 
-i32 LoadInt(u32 va) { return bd::mem::try_load<i32>(va); }
-
-bool StoreInt(u32 va, i32 value) {
-  return LoadInt(va) != value && bd::mem::try_store<i32>(va, value);
+template <u32 Address> i32 LoadInt(rex::GuestGlobal<be_i32, Address> global) {
+  return bd::mem::global_load(global);
 }
 
-f64 LoadFloat(u32 va) { return static_cast<f64>(bd::mem::try_load<f32>(va)); }
+template <u32 Address>
+bool StoreInt(rex::GuestGlobal<be_i32, Address> global, i32 value) {
+  return LoadInt(global) != value && bd::mem::global_store(global, value);
+}
 
-bool StoreFloat(u32 va, f64 value) {
+template <u32 Address>
+f64 LoadFloat(rex::GuestGlobal<be_f32, Address> global) {
+  return static_cast<f64>(bd::mem::global_load(global));
+}
+
+template <u32 Address>
+bool StoreFloat(rex::GuestGlobal<be_f32, Address> global, f64 value) {
   const auto next = static_cast<f32>(value);
-  return bd::mem::try_load<f32>(va) != next &&
-         bd::mem::try_store<f32>(va, next);
+  return bd::mem::global_load(global) != next &&
+         bd::mem::global_store(global, next);
 }
 
 // Set while a setter writes its own cvar, so the change callback does not push
@@ -95,7 +104,7 @@ template <typename T> bool WriteCvar(const char *name, T v) {
 // Base of the block bdSaveBlockRestoreConfig will read, or 0 when the content
 // task does not exist yet.
 u32 ReadBlockBase() {
-  const u32 task = bd::mem::try_load<u32>(addr::kContentTask);
+  const u32 task = bd::mem::global_load(addr::kContentTask);
   if (!task)
     return 0;
   const auto *content = bd::mem::try_at<const ContentTask>(task);
@@ -110,14 +119,14 @@ u32 ReadBlockBase() {
 void ApplyMixer() {
   const f64 music = REXCVAR_GET(bd::cvars::opt_music_volume);
   const f64 se = REXCVAR_GET(bd::cvars::opt_se_volume);
-  SoundStartWithVolume(bd::mem::try_load<u32>(addr::kSoundBusMusic),
+  SoundStartWithVolume(bd::mem::global_load(addr::kSoundBusMusic),
                        music + 1.0);
-  SoundStartWithVolume(bd::mem::try_load<u32>(addr::kSoundBusDefault),
+  SoundStartWithVolume(bd::mem::global_load(addr::kSoundBusDefault),
                        (se + 1.0) * kSeBusScale);
-  SoundStartWithVolume(bd::mem::try_load<u32>(addr::kSoundBusVoice),
+  SoundStartWithVolume(bd::mem::global_load(addr::kSoundBusVoice),
                        (se + 1.0) * kVoiceBusScale);
-  bd::mem::try_store<f32>(addr::kSeMixLevel,
-                          static_cast<f32>((se + 1.0) * kSeMixScale));
+  bd::mem::global_store(addr::kSeMixLevel,
+                        static_cast<f32>((se + 1.0) * kSeMixScale));
 }
 
 // These copies are what gets read back, never the globals.
@@ -142,7 +151,7 @@ void ApplyMirrors() {
 void AdoptCvars() {
   StoreInt(addr::kMsgSpeed, REXCVAR_GET(bd::cvars::opt_msg_speed));
   StoreInt(addr::kMsgSize, REXCVAR_GET(bd::cvars::opt_msg_size));
-  StoreInt(addr::kVoiceType, REXCVAR_GET(bd::cvars::opt_voice_type));
+  StoreInt(globals::kVoiceType, REXCVAR_GET(bd::cvars::opt_voice_type));
   StoreInt(addr::kRuby, REXCVAR_GET(bd::cvars::opt_ruby));
   StoreInt(addr::kSubtitles, REXCVAR_GET(bd::cvars::opt_subtitles));
   StoreInt(addr::kAudioHints, REXCVAR_GET(bd::cvars::opt_audio_hints));
@@ -171,7 +180,10 @@ constexpr const char *kOptionCvars[] = {
 
 } // namespace
 
-bool GameOptionsResolved() { return bd::mem::ready(); }
+bool GameOptionsResolved() {
+  const rex::Runtime *runtime = rex::GetProcessRuntime();
+  return runtime && runtime->IsTitleLaunched();
+}
 
 GameOptions &GameOptions::Get() {
   static GameOptions s;
@@ -257,13 +269,13 @@ bool GameOptions::SetMsgSize(i32 v) {
   return StoreInt(addr::kMsgSize, v);
 }
 
-i32 GameOptions::VoiceType() const { return LoadInt(addr::kVoiceType); }
+i32 GameOptions::VoiceType() const { return LoadInt(globals::kVoiceType); }
 bool GameOptions::SetVoiceType(i32 v) {
   dirty_ |= WriteCvar("bd.opt_voice_type", v);
-  return StoreInt(addr::kVoiceType, v);
+  return StoreInt(globals::kVoiceType, v);
 }
 bool GameOptions::SetEngineVoiceType(i32 v) {
-  return StoreInt(addr::kVoiceType, v);
+  return StoreInt(globals::kVoiceType, v);
 }
 
 i32 GameOptions::Ruby() const { return LoadInt(addr::kRuby); }

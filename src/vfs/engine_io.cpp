@@ -139,9 +139,12 @@ void EnqueueDeferredCompletion(u32 request, u32 cb, u32 cbctx) {
 void DrainDeferredCompletions() {
   if (g_draining || g_pendingCount.load(std::memory_order_acquire) == 0)
     return;
+  auto *runtime = rex::GetProcessRuntime();
+  if (!runtime)
+    return;
   g_draining = true;
   const u32 tid = rex::runtime::ThreadState::GetBoundThreadID();
-  auto *dispatcher = bd::mem::runtime()->GetFunctionDispatcher();
+  auto *dispatcher = runtime->GetFunctionDispatcher();
   for (;;) {
     PendingCompletion pc;
     {
@@ -172,7 +175,7 @@ u32 bdFileExistsCheck_hook(u32 pathVA) {
   auto &vfs = bd::vfs::VFS::Get();
 
   const auto key =
-      bd::vfs::Key::FromGuestPath(bd::mem::str(pathVA)).Localized();
+      bd::vfs::Key::FromGuestPath(bd::mem::cstr(pathVA)).Localized();
   auto &log = vfs.Log();
   auto answer = [&](const bd::vfs::StatResult &hit) {
     log.Record(key.string(), SourceOf(hit.kind));
@@ -206,7 +209,7 @@ i32 bdFileReadStart_hook(u32 pathVA, u32 request, u32 cb, u32 cbctx) {
   auto &vfs = bd::vfs::VFS::Get();
 
   const auto key =
-      bd::vfs::Key::FromGuestPath(bd::mem::str(pathVA)).Localized();
+      bd::vfs::Key::FromGuestPath(bd::mem::cstr(pathVA)).Localized();
   auto &log = vfs.Log();
   auto hit = vfs.Files().Read(key);
 

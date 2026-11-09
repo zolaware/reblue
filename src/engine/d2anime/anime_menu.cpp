@@ -11,6 +11,7 @@
 #include <rex/hook.h>
 #include <rex/types.h>
 
+#include "core/guest_vector.h"
 #include "core/memory_helpers.h"
 #include "engine/d2anime/anime_data.h"
 #include "engine/d2anime/anime_hittest.h"
@@ -57,10 +58,10 @@ struct AnimeMenu_t {
   /* 0x0A8 */ be_u32 gridDimY; // cols
   /* 0x0AC */ u8 _pad0AC[0x04];
   // Entry data. CheckConfirmInput is gated on it.
-  /* 0x0B0 */ mem::GuestVec<u32> entryData;
+  /* 0x0B0 */ rex::be_vector<be_u32> entryData;
   /* 0x0BC */ u8 _pad0BC[0x04]; // visibleItems vector base
   // The scroll window over the entry list, one element per drawn slot.
-  /* 0x0C0 */ mem::GuestVec<u32> itemData;
+  /* 0x0C0 */ rex::be_vector<be_u32> itemData;
   /* 0x0CC */ be_u32 cursorIndex;
   // Sixteen bits wide, not thirty-two. Reading a word here picks the halfword
   // at 0x0D2 up in the low bits, so the offset comes back as garbage whenever
@@ -80,7 +81,7 @@ struct AnimeMenu_t {
   /* 0x100 */ be_u32 deselectAll;
   /* 0x104 */ be_u32 hasWndType;
   /* 0x108 */ u8 _pad108[0x50];
-  /* 0x158 */ mem::GuestVec<u32> templates; // vector<D2AnimeTask*>
+  /* 0x158 */ rex::be_vector<be_u32> templates; // vector<D2AnimeTask*>
   /* 0x164 */ be_u32 enableColor;  // packed ARGB (A<<24|R<<16|G<<8|B)
   /* 0x168 */ be_u32 disableColor; // packed ARGB
   /* 0x16C */ be_u32 needsRebuild;
@@ -293,7 +294,7 @@ size_t AnimeMenu::TemplateCount() const {
 
 D2AnimeTask AnimeMenu::TemplateAt(size_t i) const {
   const auto *self = Self<AnimeMenu_t>();
-  return D2AnimeTask(self ? self->templates[static_cast<u32>(i)] : 0);
+  return D2AnimeTask(self ? mem::vec_at(self->templates, i) : 0);
 }
 
 u32 AnimeMenu::EnableColor() const {
@@ -382,7 +383,7 @@ int AnimeMenu::ItemDataIndex(int slot) const {
   if (!self)
     return slot;
   const auto *item =
-      mem::at<const AnimeItemData_t>(self->itemData[static_cast<u32>(slot)]);
+      mem::at<const AnimeItemData_t>(mem::vec_at(self->itemData, size_t(slot)));
   return item ? static_cast<int>(static_cast<u32>(item->index)) : slot;
 }
 
@@ -391,7 +392,7 @@ bool AnimeMenu::ItemDataEnabled(int slot) const {
   if (!self)
     return false;
   const auto *item =
-      mem::at<const AnimeItemData_t>(self->itemData[static_cast<u32>(slot)]);
+      mem::at<const AnimeItemData_t>(mem::vec_at(self->itemData, size_t(slot)));
   return item && static_cast<u32>(item->enabled) != 0;
 }
 
@@ -412,7 +413,7 @@ void AnimeMenu::SetItemEnabled(int index, bool enabled) {
   if (!self)
     return;
   auto *item =
-      mem::at<AnimeItemData_t>(self->itemData[static_cast<u32>(index)]);
+      mem::at<AnimeItemData_t>(mem::vec_at(self->itemData, size_t(index)));
   if (!item)
     return;
   item->enabled = enabled ? 1u : 0u;

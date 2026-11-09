@@ -29,14 +29,12 @@
 
 namespace {
 
-// The Xenon ABI reserves a GPR slot for every float arg (Z is in f1 but still
-// consumes r8, and call sites never write r8), while SDK marshaling numbers
-// integer args without skipping it. The placeholder absorbs r8 so Stencil reads
-// r9. Without it Stencil reads r8 garbage and the door blackout volume (gated
-// on stencil NOTEQUAL 0 over a 0-cleared buffer) floods through walls.
+// Z is in f1 and still takes the r8 slot, so Stencil is r9. The SDK counts
+// that slot itself. A Stencil read one register off floods the door blackout
+// volume (stencil NOTEQUAL 0 over a 0-cleared buffer) through walls.
 u32 D3DDevice_Clear_hook(u32 /*device*/, u32 /*count*/, u32 /*rects*/,
-                         u32 flags, u32 color, f64 z, u32 /*z_gpr_slot*/,
-                         u32 stencil, u32 /*edram_clear*/) {
+                         u32 flags, u32 color, f64 z, u32 stencil,
+                         u32 /*edram_clear*/) {
   bd::gpu::Video::Clear(flags, color, float(z), stencil);
   return 0;
 }

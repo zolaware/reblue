@@ -15,10 +15,13 @@
 #include <cstring>
 #include <mutex>
 #include <optional>
+#include <string_view>
 
 #include <rex/memory.h>
 #include <rex/xenos/xenos.h>
+#include <rex/dbg.h>
 #include <rex/hook.h>
+#include <rex/ppc/detour.h>
 #include <rex/runtime.h>
 #include <rex/types.h>
 
@@ -26,7 +29,6 @@
 
 #include "core/logging.h"
 #include "core/memory_helpers.h"
-#include "core/profiling.h"
 #include "gpu/constant_buffers.h"
 #include "gpu/d3d.h"
 #include "gpu/device.h"
@@ -85,7 +87,7 @@ void DispatchDraw(u32 device_guest, u32 primitive_type, const char *name,
   // Per-draw pass/shader attribution, only formatted while a profiler is
   // connected (TRACY_ON_DEMAND).
   char zone_name[64] = "Draw";
-  if (BD_PROFILER_CONNECTED()) {
+  if (REX_PROFILE_IS_CONNECTED()) {
     const auto *ps = bd::gpu::state().pixel_shader;
     const u64 ps_hash =
         (ps && ps->shaderCacheEntry) ? ps->shaderCacheEntry->hash : 0;
@@ -95,7 +97,7 @@ void DispatchDraw(u32 device_guest, u32 primitive_type, const char *name,
   }
   // CPU zone only: per-draw GPU timestamps serialize the GPU and poison every
   // GPU number in the capture. Coarse GPU cost comes from the per-frame zones.
-  BD_CPU_ZONE_DYN(zone_name);
+  REX_PROFILE_SCOPE_DYNAMIC(std::string_view(zone_name));
 #endif
   // One lock across the whole recording sequence: loader threads record texture
   // uploads and Present records under the same mutex, and the per-frame command
@@ -161,6 +163,31 @@ void DispatchDraw(u32 device_guest, u32 primitive_type, const char *name,
 // arrives in the unit square while sprites arrive in canvas pixels.
 constexpr u32 kTextQuadBatchEA = 0x82DBECF0;
 
+// Set while bdRenderDebugText or bdMindowsDraw runs. Their glyph and rect
+// builders also divide by the 2D basis, so those draws arrive in the unit
+// square too.
+bool g_debugOverlayDraw = false;
+
+class DebugOverlayDraw {
+public:
+  DebugOverlayDraw()
+      : drain_(bd::gpu::Video::DesignCanvasDrain()),
+        overlay_(g_debugOverlayDraw) {
+    bd::gpu::Video::SetDesignCanvasDrain(true);
+    g_debugOverlayDraw = true;
+  }
+  ~DebugOverlayDraw() {
+    g_debugOverlayDraw = overlay_;
+    bd::gpu::Video::SetDesignCanvasDrain(drain_);
+  }
+  DebugOverlayDraw(const DebugOverlayDraw &) = delete;
+  DebugOverlayDraw &operator=(const DebugOverlayDraw &) = delete;
+
+private:
+  bool drain_;
+  bool overlay_;
+};
+
 // Which edges of a quad's UV rect the inset is allowed to move.
 enum class UVEdges {
   All,      // every edge, for a batch whose cells are known to abut
@@ -183,7 +210,7 @@ bool UploadAndBindUpVertices(u32 primitiveType, u32 pVertexData,
     return false;
   const bool text_batch = pVertexData == kTextQuadBatchEA;
   FitDesignCanvasVertices(alloc.memory, primitiveType, vertexCount,
-                          vertexStride, text_batch);
+                          vertexStride, text_batch || g_debugOverlayDraw);
   if (text_batch)
     InsetQuadUVs(alloc.memory, vertexCount, vertexStride, UVEdges::All);
   else if (IsScreenSpriteQuad(primitiveType, vertexCount, vertexStride))
@@ -555,7 +582,7 @@ u32 D3DDevice_Resolve_hook(u32 /*device_guest*/, u32 Flags, u32 /*pSourceRect*/,
 u32 D3DDevice_BeginTiling_hook(u32 /*device_guest*/, u32 /*Flags*/,
                                u32 /*Count*/, u32 /*pTileRects*/,
                                MappedF32 pClearColor, f64 ClearZ,
-                               u32 /*z_gpr_slot*/, u32 ClearStencil) {
+                               u32 ClearStencil) {
   u32 color_argb = 0;
   if (const be_f32 *color_vec = pClearColor) {
     const auto pack = [](float v) -> u32 {
@@ -604,6 +631,19 @@ u32 D3DDevice_DrawVertices_hook(u32 device_guest, u32 primitiveType,
 }
 
 } // namespace
+
+// The debug text and the Mindows chrome draw from bdRenderFrame rather than
+// through bdRenderSubmitList, so they get the same aspect fit marked here.
+REX_DETOUR(bdRenderDebugText, void, (u32 state)) {
+  DebugOverlayDraw mark;
+  original(state);
+}
+
+// Recurses into child windows, so the mark restores rather than clears.
+REX_DETOUR(bdMindowsDraw, void, (u32 window)) {
+  DebugOverlayDraw mark;
+  original(window);
+}
 
 REX_HOOK(D3DDevice_DrawVertices, D3DDevice_DrawVertices_hook);
 REX_HOOK(D3DDevice_DrawVerticesUP, D3DDevice_DrawVerticesUP_hook);

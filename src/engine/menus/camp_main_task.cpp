@@ -8,12 +8,13 @@
 
 #include <cstddef>
 
+#include "core/guest_global.h"
 #include "core/memory_helpers.h"
 
 namespace bd::engine {
 
 namespace addr {
-inline constexpr u32 kCampMainTask = 0x82DC9A34;
+REX_GUEST_GLOBAL(be_u32, kCampMainTask, 0x82DC9A34);
 } // namespace addr
 
 namespace {
@@ -41,7 +42,7 @@ D2AnimeTask CampFtrTask::Layout() const {
 }
 
 CampMainTask CampMainTask::Get() {
-  return CampMainTask(mem::try_load<u32>(addr::kCampMainTask));
+  return CampMainTask(mem::global_load(addr::kCampMainTask));
 }
 
 D2AnimeTask CampMainTask::Layout(size_t i) const {

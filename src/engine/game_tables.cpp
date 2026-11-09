@@ -7,15 +7,16 @@
 
 #include <cstddef>
 
+#include "core/guest_global.h"
 #include "core/memory_helpers.h"
 
 namespace bd::engine {
 
 namespace addr {
-inline constexpr u32 kPhenomeTable = 0x82DC9A98;      // g_pPhenomeTable
-inline constexpr u32 kPhenomeTableCount = 0x82DC9AA0; // record count
-inline constexpr u32 kItemTable = 0x82DC9AF0;         // g_pItemTable
-inline constexpr u32 kItemTableCount = 0x82DC9AF4;    // record count
+REX_GUEST_GLOBAL(be_u32, kPhenomeTable, 0x82DC9A98);      // g_pPhenomeTable
+REX_GUEST_GLOBAL(be_u32, kPhenomeTableCount, 0x82DC9AA0); // record count
+REX_GUEST_GLOBAL(be_u32, kItemTable, 0x82DC9AF0);         // g_pItemTable
+REX_GUEST_GLOBAL(be_u32, kItemTableCount, 0x82DC9AF4);    // record count
 } // namespace addr
 
 namespace {
@@ -54,9 +55,11 @@ constexpr u32 kTableScanCap = 8192;
 // empty name rather than a walk off the end of engine memory.
 constexpr u32 kMaxNameChars = 128;
 
-template <typename Record> u32 FindRecord(u32 rootVA, u32 countVA, u32 id) {
-  const u32 root = mem::try_load<u32>(rootVA);
-  const u32 count = mem::try_load<u32>(countVA);
+template <typename Record, u32 RootAddress, u32 CountAddress>
+u32 FindRecord(rex::GuestGlobal<be_u32, RootAddress> rootGlobal,
+               rex::GuestGlobal<be_u32, CountAddress> countGlobal, u32 id) {
+  const u32 root = mem::global_load(rootGlobal);
+  const u32 count = mem::global_load(countGlobal);
   if (!root || !count || count > kTableScanCap)
     return 0;
   for (u32 i = 0; i < count; ++i) {

@@ -52,13 +52,9 @@ static_assert(offsetof(LoadTextureResource, xphysicalData) == 0xC4);
 constexpr double kTargetAlignment = 8.0;
 
 bool IsFullFrameScene(u32 width, u32 height) {
-  u32 fit_w = 0;
-  u32 fit_h = 0;
-  if (!bd::gpu::Output::LogicalSize(fit_w, fit_h))
-    return true;
   const double scale = bd::gpu::SceneRenderScale();
-  return width + kTargetAlignment >= fit_w * scale &&
-         height + kTargetAlignment >= fit_h * scale;
+  return width + kTargetAlignment >= bd::gpu::kDesignCanvasWidth * scale &&
+         height + kTargetAlignment >= bd::gpu::kDesignCanvasHeight * scale;
 }
 
 bd::gpu::GuestTexture *D3DDevice_CreateSurface_hook(u32 width, u32 height,

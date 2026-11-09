@@ -22,6 +22,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include <rex/dbg.h>
 #include <rex/hook.h>
 #include <rex/ppc.h>
 #include <rex/runtime.h>
@@ -31,8 +32,8 @@
 #include <rex/ppc/detour.h>
 #include <rex/ppc/midasm.h>
 
+#include "core/guest_global.h"
 #include "core/memory_helpers.h"
-#include "core/profiling.h"
 #include "engine/camera_view.h"
 #include "engine/cutscene_pause.h"
 #include "engine/d2anime/anime_data.h"
@@ -546,7 +547,7 @@ std::unordered_map<u32, u64> g_recordKeys;
 u32 g_recordSeq = 0;
 
 u64 NodeIdentity(u32 nodeIdx) {
-  const u32 vo = bd::mem::try_load<u32>(bd::engine::addr::kCameraRenderVO);
+  const u32 vo = bd::mem::global_load(bd::engine::addr::kCameraRenderVO);
   return vo ? ((u64(nodeIdx) + 1) << 32) | vo : 0;
 }
 
@@ -671,9 +672,10 @@ bool BoneArrayOwned(u32 va) {
 }
 
 bool ParticleModelPoolVO(u32 vo) {
-  const u32 base = bd::mem::load<u32>(bd::engine::addr::kParticleModelPool);
+  const u32 base =
+      bd::mem::global_load_fast(bd::engine::addr::kParticleModelPool);
   const u32 count =
-      bd::mem::load<u32>(bd::engine::addr::kParticleModelPoolCount);
+      bd::mem::global_load_fast(bd::engine::addr::kParticleModelPoolCount);
   return base != 0 && vo - base < count * kParticleModelVOSize;
 }
 
@@ -1200,7 +1202,7 @@ static_assert(offsetof(CharaAnim_t, cursor) == 0x768);
 static_assert(offsetof(CharaAnim_t, cursorRate) == 0x76C);
 static_assert(offsetof(CharaAnim_t, anim) == 0x780);
 
-constexpr u32 kSceneSpeedMulEA = 0x82DDA880;
+REX_GUEST_GLOBAL(be_f32, kSceneSpeedMul, 0x82DDA880);
 constexpr f32 kWindowClosingMargin = 1.5f;
 
 constexpr u32 kIssCameraUpdateEA = 0x824046C0;
@@ -1281,8 +1283,12 @@ bool MotionWindowClosing(f32 cursor, f32 end, f32 speed) {
 
 constexpr int kCamOutputFloats = 64;
 constexpr int kCamSampleFloats = 16;
-constexpr u32 kCamPosGlobalEA = 0x82DDA8D4;
-constexpr u32 kCamDirGlobalEA = 0x82DDA8E0;
+struct CamVec3_t {
+  /* 0x00 */ be_f32 v[3];
+};
+static_assert(sizeof(CamVec3_t) == 0x0C);
+REX_GUEST_GLOBAL(CamVec3_t, kCamPosGlobal, 0x82DDA8D4);
+REX_GUEST_GLOBAL(CamVec3_t, kCamDirGlobal, 0x82DDA8E0);
 
 struct IssCamera_t {
   /* 0x0000 */ u8 _pad0000[0x9C];
@@ -1334,8 +1340,10 @@ void CameraGuardCapture(rex::MappedPtr<IssCamera_t> cam) {
   ReadFloats(cam->output, s.output, kCamOutputFloats);
   ReadFloats(cam->dir, s.dir, 2);
   ReadFloats(cam->sample, s.sample, kCamSampleFloats);
-  ReadFloats(bd::mem::at<be_f32>(kCamPosGlobalEA), s.posGlobal, 3);
-  ReadFloats(bd::mem::at<be_f32>(kCamDirGlobalEA), s.dirGlobal, 3);
+  if (const auto view = bd::mem::view()) {
+    ReadFloats(kCamPosGlobal.get(*view)->v, s.posGlobal, 3);
+    ReadFloats(kCamDirGlobal.get(*view)->v, s.dirGlobal, 3);
+  }
   s.valid = true;
 }
 
@@ -1349,15 +1357,18 @@ void CameraGuardRepair(rex::MappedPtr<IssCamera_t> cam) {
   WriteFloats(cam->output, s.output, kCamOutputFloats);
   WriteFloats(cam->dir, s.dir, 2);
   WriteFloats(cam->sample, s.sample, kCamSampleFloats);
-  WriteFloats(bd::mem::at<be_f32>(kCamPosGlobalEA), s.posGlobal, 3);
-  WriteFloats(bd::mem::at<be_f32>(kCamDirGlobalEA), s.dirGlobal, 3);
+  if (const auto view = bd::mem::view()) {
+    WriteFloats(kCamPosGlobal.get(*view)->v, s.posGlobal, 3);
+    WriteFloats(kCamDirGlobal.get(*view)->v, s.dirGlobal, 3);
+  }
 }
 
 f32 DriveEventChildren(IssEvent_t &evt, f32 frac) {
   const f32 speed = evt.speed;
   if (speed == 0.0f)
     return 0.0f;
-  auto *dispatcher = bd::mem::runtime()->GetFunctionDispatcher();
+  auto *runtime = rex::GetProcessRuntime();
+  auto *dispatcher = runtime ? runtime->GetFunctionDispatcher() : nullptr;
   evt.speed = speed * frac;
   g_hostEvtDrive = true;
   g_evtWindowClosing = false;
@@ -1369,7 +1380,7 @@ f32 DriveEventChildren(IssEvent_t &evt, f32 frac) {
       return;
     if (fn == kIssCameraUpdateEA)
       g_evtCameras.insert(childEA);
-    else if (auto *host = dispatcher->GetFunction(fn))
+    else if (auto *host = dispatcher ? dispatcher->GetFunction(fn) : nullptr)
       rex::ppc::HostToGuestCall<void>(host, childEA);
   });
   g_hostEvtDrive = false;
@@ -1488,8 +1499,10 @@ void FlushEvtHidePending() {
     if (obj && u32(obj->hidePending) != 0)
       obj->visible = 0u;
   }
-  auto *apply = bd::mem::runtime()->GetFunctionDispatcher()->GetFunction(
-      kIssActorApplySpecialModelFlagsEA);
+  auto *runtime = rex::GetProcessRuntime();
+  auto *apply = runtime ? runtime->GetFunctionDispatcher()->GetFunction(
+                              kIssActorApplySpecialModelFlagsEA)
+                        : nullptr;
   for (const u32 ea : g_evtActorHides) {
     auto *actor = live.count(ea) ? bd::mem::try_at<IssActor_t>(ea) : nullptr;
     if (apply && actor && u32(actor->hidePending) != 0)
@@ -1705,7 +1718,7 @@ REX_DETOUR(bdAnimationUpdate, void,
       length = f32(u16(clip->length));
       const f32 cursor = vo->cursor;
       const f32 step =
-          f32(vo->cursorRate) * bd::mem::load<f32>(kSceneSpeedMulEA);
+          f32(vo->cursorRate) * bd::mem::global_load_fast(kSceneSpeedMul);
       hold = length > 0.0f && cursor <= length && cursor + step > length;
     }
   }
@@ -2467,7 +2480,7 @@ REX_DETOUR(FreeDfsTask__Draw, void, (u32 task)) {
     return;
   PrimSelectTexture(0, g_frostPrim.texObjEA);
   PrimDrawRect2D(g_frostPrim.x, g_frostPrim.y, 1.0, g_frostPrim.w,
-                 g_frostPrim.h, 0, 0, 0, 0, 0, g_frostPrim.color);
+                 g_frostPrim.h, g_frostPrim.color);
 }
 
 namespace {
@@ -2528,6 +2541,8 @@ static_assert(kLightSystemEA + offsetof(LightSystem_t, live) +
 static_assert(kLightSystemEA + offsetof(LightSystem_t, live) +
                   offsetof(LightHalf_t, changedCount) ==
               kLightChangedCountEA);
+
+REX_GUEST_GLOBAL(be_u32, kLightChangedCount, kLightChangedCountEA);
 
 constexpr u32 kEffLightFloats = 8;
 
@@ -2615,11 +2630,11 @@ void SetChangedFlags(u32 count, bool set) {
 }
 
 void ClearLightChangedList() {
-  u32 count = bd::mem::load<u32>(kLightChangedCountEA);
+  u32 count = bd::mem::global_load_fast(kLightChangedCount);
   if (count > kLightMaxEntries)
     count = kLightMaxEntries;
   SetChangedFlags(count, false);
-  bd::mem::store<u32>(kLightChangedCountEA, 0u);
+  bd::mem::global_store_fast(kLightChangedCount, 0u);
 }
 
 void MatrixTrack::DetectCut() {
@@ -2804,7 +2819,7 @@ u32 g_hudScratch = 0;
 
 bool MainCameraMatrices(float view[16], float proj[16]) {
   const auto *v = bd::mem::try_at<const bd::engine::CameraView_t>(
-      bd::mem::try_load<u32>(bd::engine::addr::kCameraViewList));
+      bd::mem::global_load(bd::engine::addr::kCameraViewList));
   while (v && u32(v->id) != 0)
     v = bd::mem::try_at<const bd::engine::CameraView_t>(u32(v->next));
   if (!v)
@@ -2903,7 +2918,7 @@ REX_DETOUR(bdEffectLightStep, void, (u32 record, f32 step)) {
 
 REX_DETOUR(bdLightListUpdateSnapshot, void, (u32 list)) {
   const bool interp = bd::engine::InterpolationActive();
-  u32 held = interp ? bd::mem::load<u32>(kLightChangedCountEA) : 0;
+  u32 held = interp ? bd::mem::global_load_fast(kLightChangedCount) : 0;
   if (held > kLightMaxEntries)
     held = 0;
   std::vector<u32> lerped;
@@ -2916,7 +2931,7 @@ REX_DETOUR(bdLightListUpdateSnapshot, void, (u32 list)) {
   if (held == 0)
     return;
   SetChangedFlags(held, true);
-  bd::mem::store<u32>(kLightChangedCountEA, held);
+  bd::mem::global_store_fast(kLightChangedCount, held);
 }
 
 namespace bd::engine {
@@ -2926,9 +2941,9 @@ void OnGameStep() {
   Advance();
   {
     std::lock_guard<std::mutex> lock(g_interpMutex);
-    BD_CPU_ZONE("interp frame prune");
-    BD_PLOT("obj snapshots", g_objSnapshots.size());
-    BD_PLOT("bone arrays", g_boneArrays.size());
+    REX_PROFILE_SCOPE("interp frame prune");
+    REX_PROFILE_PLOT("obj snapshots", g_objSnapshots.size());
+    REX_PROFILE_PLOT("bone arrays", g_boneArrays.size());
     ++g_frame;
     PruneStale(g_objSnapshots);
     PruneStale(g_views);
@@ -2986,14 +3001,14 @@ struct NodeDrawScope {
 
 REX_DETOUR(bdSceneNodeProcessRenderCmds, void,
            (u32 arg0, u32 node, u32 arg2, u32 arg3, u32 arg4, u32 arg5)) {
-  BD_CPU_ZONE("bdSceneNodeProcessRenderCmds");
+  REX_PROFILE_SCOPE("bdSceneNodeProcessRenderCmds");
   NodeDrawScope scope(node);
   original(arg0, node, arg2, arg3, arg4, arg5);
 }
 
 REX_DETOUR(bdSceneNodeDrawSingle, void,
            (u32 arg0, u32 node, u32 arg2, u32 arg3)) {
-  BD_CPU_ZONE("bdSceneNodeDrawSingle");
+  REX_PROFILE_SCOPE("bdSceneNodeDrawSingle");
   NodeDrawScope scope(node);
   original(arg0, node, arg2, arg3);
 }
@@ -3084,7 +3099,7 @@ u64 WorldMatrixKey(u32 va) {
 }
 
 void ServeWorldMatrix(u32 &world) {
-  BD_CPU_ZONE("ServeWorldMatrix");
+  REX_PROFILE_SCOPE("ServeWorldMatrix");
   const u32 va = world;
   std::lock_guard<std::mutex> lock(g_interpMutex);
   const u64 key = WorldMatrixKey(va);
@@ -3122,7 +3137,7 @@ void ServeWorldMatrix(u32 &world) {
 }
 
 void ServeCameraMatrices(u32 &viewPtr, u32 &projPtr) {
-  BD_CPU_ZONE("ServeCameraMatrices");
+  REX_PROFILE_SCOPE("ServeCameraMatrices");
   const u32 viewVa = viewPtr;
   auto *live = bd::mem::try_at<be_f32>(viewVa);
   if (!live)
@@ -3180,7 +3195,7 @@ void ServeCameraMatrices(u32 &viewPtr, u32 &projPtr) {
 } // namespace
 
 REX_DETOUR(bdBuildViewMatrix, void, (u32 world, u32 view, u32 proj)) {
-  BD_CPU_ZONE("bdBuildViewMatrix");
+  REX_PROFILE_SCOPE("bdBuildViewMatrix");
   if (bd::engine::InterpolationActive()) {
     if (world && !view && !proj)
       ServeWorldMatrix(world);
@@ -3379,7 +3394,7 @@ REX_DETOUR(bdVisualObjectCopyShadowBones, void, (u32 visualObject)) {
 }
 
 REX_DETOUR(bdDrawRecordListReplay, void, ()) {
-  BD_CPU_ZONE("bdDrawRecordListReplay");
+  REX_PROFILE_SCOPE("bdDrawRecordListReplay");
   t_inRecordReplay = true;
   original();
   t_inRecordReplay = false;

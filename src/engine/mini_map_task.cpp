@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cstddef>
 
+#include "core/guest_vector.h"
 #include "core/memory_helpers.h"
 
 namespace bd::engine {
@@ -46,7 +47,7 @@ struct MiniMapTask_t {
   /* 0x070 */ u8 _pad070[0x08C - 0x070];
   /* 0x08C */ MiniMapDB_t baseFloor;
   /* 0x824 */ u8 _pad824[0x83C - 0x824];
-  /* 0x83C */ mem::GuestVec<u32> floors;
+  /* 0x83C */ rex::be_vector<be_u32> floors;
   /* 0x848 */ be_u32 floor; // null until an area map loads
   /* 0x84C */ u8 _pad84C[0x850 - 0x84C];
   /* 0x850 */ be_u32 category;
@@ -157,10 +158,11 @@ std::vector<MiniMapDB> MiniMapTask::Floors() const {
   const auto *self = Self<MiniMapTask_t>();
   if (!self)
     return out;
-  const u32 count = std::min(self->floors.size(), kMaxFloors);
+  const u32 count =
+      std::min(static_cast<u32>(self->floors.size()), kMaxFloors);
   out.reserve(count);
   for (u32 i = 0; i < count; ++i)
-    out.emplace_back(self->floors[i]);
+    out.emplace_back(mem::vec_at(self->floors, i));
   return out;
 }
 

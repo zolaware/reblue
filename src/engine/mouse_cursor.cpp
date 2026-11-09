@@ -131,12 +131,12 @@ void DrawMouseCursor() {
   const i32 opacity = Settings::Get().MouseCursorOpacity();
 
   g_cursor.Select(kSlotGlow);
-  PrimDrawRectRotated(x, y, kGlowZ, kGlowSize, kGlowSize, 0.0, 0, 0, 0, 0, 0,
-                        0, Fade(kGlowColor, opacity));
+  PrimDrawRectRotated(x, y, kGlowZ, kGlowSize, kGlowSize, 0.0,
+                      Fade(kGlowColor, opacity));
 
   const auto ring = [&](f32 size, f32 z, f32 angle, u32 color) {
-    PrimDrawRectRotated(x, y, z, size, size, angle, 0, 0, 0, 0, 0, 0,
-                          Fade(color, opacity));
+    PrimDrawRectRotated(x, y, z, size, size, angle,
+                        Fade(color, opacity));
   };
   g_cursor.Select(kSlotRing);
   ring(kOuterRingSize + kRingOutline, kRingOutlineZ, outerAngle,

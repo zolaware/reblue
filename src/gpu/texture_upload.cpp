@@ -16,7 +16,7 @@
 
 #include <plume_render_interface.h>
 
-#include "core/profiling.h"
+#include <rex/dbg.h>
 
 #include "core/logging.h"
 #include "gpu/constant_buffers.h"
@@ -290,7 +290,7 @@ GuestTexture *BuildBCMirrorTextureVolume(
 }
 
 void UploadTextureFromMapped(GuestTexture *tex) {
-  BD_CPU_ZONE("UploadTextureFromMapped");
+  REX_PROFILE_SCOPE("UploadTextureFromMapped");
   if (!tex || !tex->texture || !tex->mappedMemory)
     return;
   tex->cpuWritten = true;

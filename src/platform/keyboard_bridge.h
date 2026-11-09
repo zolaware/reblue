@@ -6,11 +6,10 @@
 
 #include <cstddef>
 
+#include <rex/runtime/guest_global.h>
 #include <rex/types.h>
 
 namespace bd::platform {
-
-inline constexpr u32 kGuestKeyBufferAddr = 0x82DDA6F0;
 
 struct GuestKeyEntry {
   be_u16 charCode; // +0x00
@@ -22,6 +21,8 @@ struct GuestKeyEntry {
 static_assert(offsetof(GuestKeyEntry, charCode) == 0x00);
 static_assert(offsetof(GuestKeyEntry, vkCode) == 0x04);
 static_assert(offsetof(GuestKeyEntry, modifiers) == 0x08);
+
+REX_GUEST_GLOBAL(GuestKeyEntry, kGuestKeyBuffer, 0x82DDA6F0);
 
 // Per-frame keyboard bridge: polls host keyboard into the guest key buffer.
 // Keys are only forwarded while the Mindows overlay is on-screen.

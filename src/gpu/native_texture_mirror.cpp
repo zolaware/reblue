@@ -68,9 +68,9 @@ std::vector<std::unique_ptr<GuestTexture>> g_pending_native_destroy[kNumFrames];
 
 // The name is diagnostic only and BD passes 0 for unnamed allocations, so an
 // absent or unmapped name still logs something the line can be read by.
-const char *TextureName(u32 name_va) {
-  const char *name = bd::mem::str(name_va);
-  return *name ? name : "?";
+std::string TextureName(u32 name_va) {
+  std::string name = bd::mem::cstr(name_va);
+  return name.empty() ? "?" : name;
 }
 
 // Derived once from the fetch constant and the format's block geometry.
@@ -381,7 +381,7 @@ GuestTexture *Build2DMirror(const MirrorLayout &L, const u8 *src,
   }
 
   const bool is_cube_atlas =
-      std::strncmp(bd::mem::str(name_va), "cube_", 5) == 0 && dxt &&
+      bd::mem::cstr(name_va, 5) == "cube_" && dxt &&
       L.height > 0u && L.width == L.height * 6u;
   if (is_cube_atlas) {
     AttachCubeAtlasCompanion(L, tex, staging, guest_va);
@@ -470,8 +470,8 @@ GuestTexture *GetOrCreateNativeMirror(u32 guest_va, u32 name_va) {
   // A rebuild through NativeTextureReplace passes no name and keeps the entry
   // the allocation registered, sequence included.
   if (name_va) {
-    const char *name = bd::mem::str(name_va);
-    if (*name)
+    const std::string name = bd::mem::cstr(name_va);
+    if (!name.empty())
       g_native_names[guest_va] = {NormalizeTextureName(name),
                                   ++g_native_name_seq};
   }

@@ -14,9 +14,9 @@ void bd::commands::InputBinds(std::string_view) {
   for (int i = 0; i < bd::engine::kActionCount; ++i) {
     const auto action = static_cast<bd::engine::Action>(i);
     std::string list;
-    std::string formatted;
     for (const auto &s : b.Sources(action)) {
-      if (!bd::engine::FormatSource(s, formatted))
+      const std::string formatted = rex::hid::InputSourceToString(s);
+      if (formatted.empty())
         continue;
       if (!list.empty())
         list += ", ";

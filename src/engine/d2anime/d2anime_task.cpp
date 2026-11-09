@@ -14,6 +14,7 @@
 #include <rex/types.h>
 
 #include "core/logging.h"
+#include "core/guest_vector.h"
 #include "core/memory_helpers.h"
 #include "engine/d2anime/anime_data.h"
 
@@ -47,7 +48,7 @@ struct D2AnimeTask_t {
   /* 0x1F8 */ u8 _pad1F8[0x238 - 0x1F8];
   /* 0x238 */ be_u32 loopFlag; // zero = one-shot, then finished
   /* 0x23C */ u8 _pad23C[0x08];
-  /* 0x244 */ mem::GuestVec<u32> menus; // vector<AnimeMenu*>
+  /* 0x244 */ rex::be_vector<be_u32> menus; // vector<AnimeMenu*>
   /* 0x250 */ u8 _pad250[0x10];
   /* 0x260 */ be_u32 drawDirty; // ping-pong between Draw and PostUpdate
   /* 0x264 */ u8 _pad264[0x04];
@@ -212,7 +213,7 @@ size_t D2AnimeTask::MenuCount() const {
 
 AnimeMenu D2AnimeTask::MenuAt(size_t i) const {
   const auto *self = Self<D2AnimeTask_t>();
-  return AnimeMenu(self ? self->menus[static_cast<u32>(i)] : 0);
+  return AnimeMenu(self ? mem::vec_at(self->menus, i) : 0);
 }
 
 AnimeMenu D2AnimeTask::FindMenu(const char *name) const {

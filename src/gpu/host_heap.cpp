@@ -11,13 +11,13 @@
 #include <mutex>
 
 #include <o1heap.h>
+#include <rex/dbg.h>
 #include <rex/memory.h>
 #include <rex/runtime.h>
 #include <rex/runtime/guest_allocator.h>
 #include <rex/runtime/xmemory.h>
 
 #include "core/logging.h"
-#include "core/profiling.h"
 #include "core/memory_helpers.h"
 
 // Tracy mem/plot macros. These compile to nothing without
@@ -135,7 +135,7 @@ void HostHeap::Shutdown() {
 }
 
 void *HostHeap::Alloc(std::size_t size, std::size_t alignment) {
-  BD_CPU_ZONE("HostHeap::Alloc");
+  REX_PROFILE_SCOPE("HostHeap::Alloc");
   HeapState &s = state();
   std::lock_guard<std::mutex> lock(s.mutex);
   if (!s.allocator) {
@@ -178,7 +178,7 @@ void *HostHeap::Alloc(std::size_t size, std::size_t alignment) {
 void HostHeap::Free(void *host_ptr) {
   if (!host_ptr)
     return;
-  BD_CPU_ZONE("HostHeap::Free");
+  REX_PROFILE_SCOPE("HostHeap::Free");
   HeapState &s = state();
   std::lock_guard<std::mutex> lock(s.mutex);
   if (!s.allocator)

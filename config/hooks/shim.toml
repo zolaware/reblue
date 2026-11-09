@@ -43,3 +43,6 @@ lstrcpyA           = 0x8248D4D0
 lstrcpynA          = 0x8248D4F0
 lstrcatA           = 0x8248D538
 lstrcmpiA          = 0x8248D440
+
+atan2              = 0x826C1B10
+atof               = 0x826C1738

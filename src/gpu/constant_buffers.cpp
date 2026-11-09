@@ -14,12 +14,12 @@
 #include <vector>
 
 #include <plume_render_interface_builders.h>
+#include <rex/dbg.h>
 #include <rex/runtime.h>
 #include <rex/types.h>
 
 #include "core/logging.h"
 #include "core/memory_helpers.h"
-#include "core/profiling.h"
 #include "gpu/d3d.h"
 #include "gpu/device.h"
 #include "gpu/frame.h"
@@ -267,7 +267,7 @@ void PinScreenUVScaleReg(u8 *block) {
 }
 
 ConstantAllocation UploadVertexShaderConstants(u32 device_guest) {
-  BD_CPU_ZONE("UploadVSConstants");
+  REX_PROFILE_SCOPE("UploadVSConstants");
   auto &s = upload_state();
   if (!device_guest)
     return {};
@@ -281,7 +281,7 @@ ConstantAllocation UploadVertexShaderConstants(u32 device_guest) {
 }
 
 ConstantAllocation UploadPixelShaderConstants(u32 device_guest) {
-  BD_CPU_ZONE("UploadPSConstants");
+  REX_PROFILE_SCOPE("UploadPSConstants");
   auto &s = upload_state();
   if (!device_guest)
     return {};
@@ -296,7 +296,7 @@ ConstantAllocation UploadPixelShaderConstants(u32 device_guest) {
 }
 
 ConstantAllocation UploadSharedConstants(u32 device_guest) {
-  BD_CPU_ZONE("UploadSharedConstants");
+  REX_PROFILE_SCOPE("UploadSharedConstants");
   auto &s = upload_state();
   if (!s.ready)
     return {};
@@ -467,7 +467,7 @@ ConstantAllocation UploadSharedConstants(u32 device_guest) {
 
 ConstantAllocation UploadGuestBytesByteSwap32(u32 guest_va, u32 size,
                                               u32 alignment) {
-  BD_CPU_ZONE("UploadGuestBytesByteSwap32");
+  REX_PROFILE_SCOPE("UploadGuestBytesByteSwap32");
   auto &s = upload_state();
   if (!s.ready || !guest_va || !size)
     return {};

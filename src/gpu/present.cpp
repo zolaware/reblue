@@ -18,6 +18,8 @@
 
 #include <plume_render_interface.h>
 
+#include <rex/dbg.h>
+
 #include "gpu/gpu_profiling.h"
 
 #include "core/logging.h"
@@ -246,7 +248,7 @@ void Video::Present(GuestTexture *frontBuffer) {
 
   u32 texture_index = 0;
   {
-    BD_CPU_ZONE("AcquireTexture");
+    REX_PROFILE_SCOPE("AcquireTexture");
     if (!s.swap_chain->acquireTexture(
             s.acquire_semaphores[s.frame.load(std::memory_order_relaxed)].get(),
             &texture_index)) {
@@ -293,34 +295,35 @@ void Video::Present(GuestTexture *frontBuffer) {
   plume::RenderCommandSemaphore *signals[] = {
       s.render_semaphores[texture_index].get()};
   {
-    BD_CPU_ZONE("Submit");
+    REX_PROFILE_SCOPE("Submit");
     s.queue->executeCommandLists(lists, 1, waits, 1, signals, 1,
                                  s.fences[cur].get());
   }
   s.command_list_submitted[cur] = true;
   ApplyVsync(s);
   {
-    BD_CPU_ZONE("PresentSwap");
+    REX_PROFILE_SCOPE("PresentSwap");
     if (!s.swap_chain->present(texture_index, signals, 1)) {
       if (!CheckDeviceRemoved("swapchain present"))
         s.resize_requested.store(true, std::memory_order_release);
     }
   }
   {
-    BD_CPU_ZONE("WaitFence");
+    REX_PROFILE_SCOPE("WaitFence");
     AdvanceAndWaitReused(s);
   }
   const u32 reclaimed = s.frame.load(std::memory_order_relaxed);
   s.frame_present_committed = true;
-  BD_FRAME_MARK();
+  REX_PROFILE_FRAME();
   Video::SyncBackBufferSizeLocked();
   lock.unlock();
   {
-    BD_CPU_ZONE("DrainSlot");
+    REX_PROFILE_SCOPE("DrainSlot");
     DrainSlot(s, reclaimed);
   }
+  Video::ApplyHostScaleChange();
   {
-    BD_CPU_ZONE("PaceFrame");
+    REX_PROFILE_SCOPE("PaceFrame");
     PaceFrame();
   }
 }

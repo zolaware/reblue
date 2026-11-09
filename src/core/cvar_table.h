@@ -134,8 +134,6 @@ REXCVAR_BOOL(bd, no_installer, false,
 REXCVAR_BOOL(bd, devmode, false,
              "Developer mode: debug menu boot, Mindows overlay (F11) and debug "
              "keyboard input.");
-REXCVAR_BOOL(bd, dbgprint, false,
-             "Forward guest DbgPrint output to the host log.");
 REXCVAR_STRING(bd, language, "auto",
                "UI text language: auto, us, jp, de, fr, es, it, kr, tw, cn, "
                "po. Requires restart.")
@@ -180,10 +178,6 @@ REXCVAR_BOOL(bd, dred, true,
              "Record D3D12 auto-breadcrumbs and page-fault allocations so a "
              "lost device names the op and resource it died on. Costs a little "
              "GPU time per op. Requires restart.");
-REXCVAR_BOOL(bd, host_scale, false,
-             "Temporary. Render targets are allocated at the output resolution "
-             "by the host while BD keeps the 1280x720 design size, instead of "
-             "BD rendering at the output size itself. Requires restart.");
 REXCVAR_BOOL(bd, scene_color_r11g11b10, false,
              "Store the HDR scene as R11G11B10_FLOAT instead of "
              "R16G16B16A16_FLOAT: half the VRAM per scene surface, no alpha "
@@ -426,10 +420,10 @@ REXCVAR_COMMAND_ARGS(bd, input_map, bd::commands::InputMap,
                      "Dump the derived button map");
 
 REXCVAR_TABLE(kReblueCvars, profile, config_version, no_installer,
-              devmode, dbgprint, language, i18n_keys, lang_path, profiler,
+              devmode, language, i18n_keys, lang_path, profiler,
               shutdown_timeout_ms, update_check, update_base, update_channel,
               saves_path, cache_path, pso_precache, geometry_gpu_upload, dred,
-              host_scale, scene_color_r11g11b10, anisotropy, supersampling, msaa,
+              scene_color_r11g11b10, anisotropy, supersampling, msaa,
               post_quality, reflection_quality, ntsc_filter, dof_strength,
               shadow_dimension, shadow_distance, aspect_ratio, fov_offset,
               vsync, audio_gain, audio_center, audio_surround, audio_lfe,

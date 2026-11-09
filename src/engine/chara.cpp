@@ -9,12 +9,15 @@
 #include <algorithm>
 #include <cstddef>
 
+#include <rex/runtime/xtypes.h>
+
+#include "core/guest_global.h"
 #include "core/memory_helpers.h"
 
 namespace bd::engine {
 
 namespace addr {
-inline constexpr u32 kCharaClassTable = 0x82DC9B40; // g_pCharaClassTable
+REX_GUEST_GLOBAL(be_u32, kCharaClassTable, 0x82DC9B40); // g_pCharaClassTable
 } // namespace addr
 
 namespace {
@@ -89,9 +92,9 @@ struct CharaBattleParams_t {
   // hands a container helper params+0xD0 or params+0xE0 and the helper reads
   // begin at +4.
   /* 0xD0 */ be_u32 _timedHeader;
-  /* 0xD4 */ mem::GuestVec<CharaTimedEffect_t> timedEffects;
+  /* 0xD4 */ rex::be_vector<CharaTimedEffect_t> timedEffects;
   /* 0xE0 */ be_u32 _passiveHeader;
-  /* 0xE4 */ mem::GuestVec<CharaPassiveEffect_t> passiveEffects;
+  /* 0xE4 */ rex::be_vector<CharaPassiveEffect_t> passiveEffects;
 };
 static_assert(sizeof(CharaBattleParams_t) == 0xF0);
 static_assert(offsetof(CharaBattleParams_t, statusResist) == 0x20);
@@ -293,16 +296,17 @@ Chara::EffectEntry ToEntry(const CharaTimedEffect_t &e) {
 }
 
 template <class T>
-std::vector<Chara::EffectEntry> ReadEffects(const mem::GuestVec<T> &vec) {
+std::vector<Chara::EffectEntry> ReadEffects(const rex::be_vector<T> &vec) {
   std::vector<Chara::EffectEntry> out;
-  const u32 first = vec.first;
-  const u32 last = vec.last;
-  if (!first || last <= first)
+  const auto view = mem::view();
+  if (!view || !vec.first.GetAddress())
     return out;
-  const u32 n = std::min<u32>((last - first) / sizeof(T), kEffectWalkCap);
+  const u32 n = std::min<u32>(static_cast<u32>(vec.size()), kEffectWalkCap);
   out.reserve(n);
-  for (u32 i = 0; i < n; ++i)
-    out.push_back(ToEntry(vec[i]));
+  for (u32 i = 0; i < n; ++i) {
+    const T *effect = vec.TryAt(i, *view);
+    out.push_back(ToEntry(effect ? *effect : T{}));
+  }
   return out;
 }
 
@@ -315,7 +319,7 @@ Chara Chara::FromParams(u32 paramsAddress) {
 
 std::optional<Chara::ClassSkill> Chara::FindClassSkill(CharaClass c,
                                                        u32 skillId) {
-  const u32 table = mem::try_load<u32>(addr::kCharaClassTable);
+  const u32 table = mem::global_load(addr::kCharaClassTable);
   if (!table)
     return std::nullopt;
   const u32 classId = static_cast<u32>(c);

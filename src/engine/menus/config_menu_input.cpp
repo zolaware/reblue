@@ -37,7 +37,7 @@ bool IsBind(const BindEntry &entry) {
 
 bool PadPressed(Action action) {
   for (const Source &source : Bindings::Get().Sources(action)) {
-    if (source.kind == SourceKind::PadButton &&
+    if (source.kind == SourceKind::kPadButton &&
         InputSources::Get().Active(source))
       return true;
   }
@@ -46,7 +46,7 @@ bool PadPressed(Action action) {
 
 bool PadHeld(Button button) {
   Source source;
-  source.kind = SourceKind::PadButton;
+  source.kind = SourceKind::kPadButton;
   source.code = static_cast<u16>(button);
   return InputSources::Get().Active(source);
 }

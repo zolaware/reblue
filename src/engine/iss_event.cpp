@@ -170,7 +170,7 @@ std::string IssEvent::Prefix() const {
 // its own current event global, gated on id % 100 == 0. reblue mirrors it here
 // instead of polling that global.
 REX_MIDASM_HOOK(bdEventSceneCreatedHook, (PPCRegister &r30, PPCRegister &r11, PPCRegister &r31)) {
-  const char *name = bd::mem::str(r31.u32);
+  const std::string name = bd::mem::cstr(r31.u32, 2);
   u32 prefix = 0;
   if (name[0])
     prefix = static_cast<u32>(static_cast<u8>(name[0])) << 8 |

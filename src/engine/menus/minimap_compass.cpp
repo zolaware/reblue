@@ -145,7 +145,7 @@ void MiniMapMarkers::Draw(const MiniMapTask &miniMap) {
   const u32 arrow =
       (u32(f32(tint >> 24) * fade) << 24) | (tint & 0x00FFFFFFu);
   PrimDrawRectRotated(compassX, compassY, kCompassArrowZ, kMarkerSize,
-                      kMarkerSize, heading, 0, 0, 0, 0, 0, 0, arrow);
+                      kMarkerSize, heading, arrow);
 }
 
 } // namespace

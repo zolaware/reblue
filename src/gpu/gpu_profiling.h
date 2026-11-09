@@ -1,8 +1,8 @@
 /**
  * @file    gpu/gpu_profiling.h
  * @brief   Tracy GPU zones. Include this only to place a BD_GPU_ZONE. CPU
- *          zones and frame marks live in core/profiling.h, which does not
- *          drag in TracyD3D12.hpp.
+ *          zones and frame marks use <rex/dbg.h>, which does not drag in
+ *          TracyD3D12.hpp.
  * @copyright Copyright (c) 2026 Tom Clay <tomc@tctechstuff.com>
  *            All rights reserved.
  * @license   BSD 3-Clause License
@@ -11,14 +11,14 @@
 #pragma once
 
 #if defined(REBLUE_COMMON_TU)
-#error "backend-conditional: move this TU to reblue_backend_only in src/CMakeLists.txt, or use core/profiling.h"
+#error "backend-conditional: move this TU to reblue_backend_only in src/CMakeLists.txt, or use <rex/dbg.h>"
 #endif
 
 #include <rex/types.h>
 
-#include "core/profiling.h"
-
 #if defined(REXGLUE_ENABLE_PROFILING)
+
+#include <tracy/Tracy.hpp>
 
 #if defined(REBLUE_D3D12)
 

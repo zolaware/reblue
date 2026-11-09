@@ -9,7 +9,6 @@
 #include <rex/runtime.h>
 
 #include <rex/ui/title_app.h>
-#include "core/memory_helpers.h"
 
 namespace bd::audio {
 
@@ -20,7 +19,7 @@ Playback &Playback::Get() {
 
 void Playback::SetPaused(bool paused) {
   rex::ui::InvokeFunction([paused] {
-    if (auto *runtime = bd::mem::runtime())
+    if (auto *runtime = rex::GetProcessRuntime())
       runtime->SetAudioPaused(paused);
   });
 }

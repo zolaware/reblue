@@ -4,6 +4,7 @@
 #include <rex/types.h>
 
 #include "core/cvar_table.h"
+#include "core/guest_global.h"
 #include "core/memory_helpers.h"
 #include "engine/cutscene_pause.h"
 #include "engine/input/action_state.h"
@@ -16,8 +17,8 @@
 namespace bd::engine {
 
 namespace addr {
-inline constexpr u32 kPadZeroBlock = 0x82DDA768;
-inline constexpr u32 kAttractMode = 0x82DDA860;
+REX_GUEST_GLOBAL(PadBlock_t, kPadZeroBlock, 0x82DDA768);
+REX_GUEST_GLOBAL(be_u32, kAttractMode, 0x82DDA860);
 } // namespace addr
 
 namespace {
@@ -75,7 +76,7 @@ PadWords ResolveWords() {
 }
 
 bool DrivesAxis(const Source &source) {
-  return source.axisSlot != 0 || source.kind == SourceKind::PadAxes;
+  return source.axis_slot != 0 || source.kind == SourceKind::kPadAxes;
 }
 
 AxisState ResolveAxes() {
@@ -154,11 +155,11 @@ void WritePadZero(bool route) {
     return;
   }
 
-  const u32 attract = mem::try_load<u32>(addr::kAttractMode);
+  const u32 attract = mem::global_load(addr::kAttractMode);
   if (attract == kAttractRecord || attract == kAttractReplay)
     return;
 
-  InputSources::Get().Sample(addr::kPadZeroBlock);
+  InputSources::Get().Sample(addr::kPadZeroBlock.GetAddress());
   ButtonMap::Get().Rebuild();
   InputActions::Get().Resolve();
 
@@ -170,7 +171,8 @@ void WritePadZero(bool route) {
     words = PadWords{.claimed = ~0u};
   }
 
-  auto *pad = mem::try_at<PadBlock_t>(addr::kPadZeroBlock);
+  const auto view = mem::view();
+  auto *pad = view ? addr::kPadZeroBlock.TryGet(*view) : nullptr;
   if (!pad)
     return;
 

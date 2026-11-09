@@ -16,12 +16,11 @@
 #include <rex/hook.h>
 #include <rex/ppc.h>
 #include <rex/ppc/detour.h>
+#include <rex/runtime/guest_global.h>
 #include <rex/types.h>
 
 namespace bd::audio {
 namespace {
-
-constexpr u32 kSoundDebugGlobalsAddr = 0x82DC9820;
 
 // Engine sound debug globals (retail-present, drawn by the Mindows debug text
 // path).
@@ -33,11 +32,15 @@ struct SoundDebugGlobals_t {
 static_assert(offsetof(SoundDebugGlobals_t, cue_monitor_mode) == 0x00);
 static_assert(offsetof(SoundDebugGlobals_t, peak_meter) == 0x04);
 static_assert(offsetof(SoundDebugGlobals_t, peak_meter_db) == 0x08);
+static_assert(sizeof(SoundDebugGlobals_t) == 0x0C);
+
+REX_GUEST_GLOBAL(SoundDebugGlobals_t, kSoundDebugGlobals, 0x82DC9820);
 
 } // namespace
 
 void ApplyAudioDebugPokes() {
-  auto *g = mem::at<SoundDebugGlobals_t>(kSoundDebugGlobalsAddr);
+  const auto view = mem::view();
+  auto *g = view ? kSoundDebugGlobals.TryGet(*view) : nullptr;
   if (!g)
     return;
   const i32 peak = Settings::Get().PeakMeter();

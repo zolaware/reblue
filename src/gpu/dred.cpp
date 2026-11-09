@@ -20,12 +20,12 @@ void LogDredReport(const char *) {}
 #include <algorithm>
 #include <format>
 #include <iterator>
+#include <rex/string/utf8.h>
 #include <rex/types.h>
 #include <string>
 
 #include <plume_d3d12.h>
 
-#include "core/encoding.h"
 #include "core/logging.h"
 #include "gpu/device.h"
 #include "gpu/settings.h"
@@ -140,7 +140,7 @@ std::string NodeName(const char *narrow, const wchar_t *wide) {
   if (narrow && *narrow)
     return narrow;
   if (wide && *wide)
-    return bd::WideToUtf8(wide);
+    return rex::ToUTF8(wide);
   return "(unnamed)";
 }
 
@@ -186,7 +186,7 @@ void LogBreadcrumbs(const D3D12_AUTO_BREADCRUMB_NODE1 *head) {
     for (u32 c = 0; c < node->BreadcrumbContextsCount; ++c) {
       const auto &ctx = node->pBreadcrumbContexts[c];
       REXLOG_CRITICAL(bd, "dred   context @{}: {}", ctx.BreadcrumbIndex,
-                  ctx.pContextString ? bd::WideToUtf8(ctx.pContextString) : "");
+                  ctx.pContextString ? rex::ToUTF8(ctx.pContextString) : "");
     }
   }
   if (stalled == 0)

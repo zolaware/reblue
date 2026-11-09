@@ -27,6 +27,11 @@ public:
   static bool TakeExemption(u32 width, u32 height);
 
   static void Tick();
+
+  // The render rect changed: surfaces idle at another scale retire, held ones
+  // are recreated in place at the new scale under the same pointer. Returns the
+  // count touched.
+  static u32 Rescale(float kx, float ky);
 };
 
 } // namespace bd::gpu

@@ -564,11 +564,10 @@ static_assert(offsetof(BdSceneGraphObject, physicalBlockBase) == 0x18);
 // Evicting at bdSceneGraphDestroy's XPhysicalFree ties host UPLOAD buffer
 // lifetime to the guest geometry it mirrors, so a reused block cannot serve
 // stale geometry.
-REX_MIDASM_HOOK(bdSceneGraphDestroyHook, (PPCRegister &r3, PPCRegister &r31)) {
-  const u32 block_base = r3.u32;
+REX_MIDASM_HOOK(bdSceneGraphDestroyHook,
+                (u32 block_base, const BdSceneGraphObject *obj)) {
   if (!block_base)
     return;
-  const auto *obj = bd::mem::at<const BdSceneGraphObject>(r31.u32);
   if (!obj)
     return;
   const u32 block_size = (obj->hdbHeader1 >> 1) & 0x0FFF0000u;
@@ -580,8 +579,7 @@ REX_MIDASM_AT(bdSceneGraphDestroyHook, 0x8227EC14, before, r3, r31);
 // bump-allocated into it, so the per-mesh feeders resolve base_va to this
 // block. Registers [base, size) only, the host buffer waits for the first mesh.
 // Reads the same two obj fields the destroy hook frees by, so the two agree.
-REX_MIDASM_HOOK(bdSceneGraphBuildHook, (PPCRegister &r31)) {
-  const auto *obj = bd::mem::at<const BdSceneGraphObject>(r31.u32);
+REX_MIDASM_HOOK(bdSceneGraphBuildHook, (const BdSceneGraphObject *obj)) {
   if (!obj)
     return;
   const u32 block_base = obj->physicalBlockBase;

@@ -16,8 +16,10 @@
 #include <unordered_map>
 
 #include <rex/hook.h>
+#include <rex/ppc/detour.h>
 #include <rex/ppc.h>
 #include <rex/runtime.h>
+#include <rex/runtime/xtypes.h>
 #include <rex/types.h>
 #include <rex/ppc/midasm.h>
 
@@ -74,11 +76,18 @@ f64 DOFIntermediateScale() {
              : 1.0;
 }
 
+// The step is a constant over the target's logical dims, so a host scale of
+// kx by ky spreads each tap over kx by ky host pixels. Off 16:9 that stretches
+// the kernel by kx / ky, so the width is folded back to the height's scale.
 void ScaleBlurTapStep(PPCRegister &w, PPCRegister &h, f64 grown) {
+  f32 kx = 1.0f;
+  f32 ky = 1.0f;
+  bd::gpu::Output::HostScale(kx, ky);
+  const f64 aspect = static_cast<f64>(kx) / static_cast<f64>(ky);
   const f64 s = bd::gpu::SceneRenderScale() * grown;
-  if (s == 1.0)
+  if (s == 1.0 && aspect == 1.0)
     return;
-  w.f64 /= s;
+  w.f64 = w.f64 * aspect / s;
   h.f64 /= s;
 }
 
@@ -120,8 +129,20 @@ REX_MIDASM_HOOK(bdSceneRenderScaleHook, (PPCRegister &r31)) {
 REX_MIDASM_AT(bdSceneRenderScaleHook, 0x8213307C, after, r31);
 REX_MIDASM_AT(bdSceneRenderScaleHook, 0x8213597C, before, r31);
 
-REX_MIDASM_HOOK(bdReflectionResolutionScaleHook, (PPCRegister &r31)) {
-  auto *info = bd::mem::at<bd::gpu::PlaneReflectInfo>(r31.u32);
+// SAFE/RATE under the Mindows RENDER>DEBUG tree, the f32 scale of the guide box
+// the renderer draws when SAFE/DISP is on. Stock 0.9 is the CRT overscan margin,
+// which hides nothing on a display that shows the whole frame.
+constexpr f32 kSafeAreaRate = 0.99f;
+
+REX_DETOUR(VisualRender__ctor, u32, (u32 self)) {
+  const u32 result = original(self);
+  if (self)
+    bd::engine::VisualRender(self).SetSafeRate(kSafeAreaRate);
+  return result;
+}
+
+REX_MIDASM_HOOK(bdReflectionResolutionScaleHook,
+                (rex::MappedPtr<bd::gpu::PlaneReflectInfo> info)) {
   if (!info)
     return;
 
@@ -130,26 +151,21 @@ REX_MIDASM_HOOK(bdReflectionResolutionScaleHook, (PPCRegister &r31)) {
 
   const bd::gpu::ReflectionQuality quality =
       bd::gpu::Settings::Get().ReflectionQuality();
-  u32 fit_w = 0;
-  u32 fit_h = 0;
-  if (quality != bd::gpu::ReflectionQuality::Low &&
-      bd::gpu::Output::LogicalSize(fit_w, fit_h)) {
+  if (quality != bd::gpu::ReflectionQuality::Low) {
     const f64 rate = quality == bd::gpu::ReflectionQuality::High
                          ? bd::gpu::SceneRenderScale()
                          : 1.0;
-    const f64 density = bd::gpu::Output::HostScalingActive()
-                            ? 1.0
-                            : bd::gpu::Output::RenderDensity();
-    const u32 scene_w = static_cast<u32>(fit_w * rate) & ~31u;
-    const u32 scaled = std::min(
-        static_cast<u32>(stock * density * rate + 0.5) & ~31u, scene_w);
+    const u32 scene_w =
+        static_cast<u32>(bd::gpu::kDesignCanvasWidth * rate) & ~31u;
+    const u32 scaled =
+        std::min(static_cast<u32>(stock * rate + 0.5) & ~31u, scene_w);
     if (scaled > stock)
       width = scaled;
   }
   info->width = width;
 
   static std::unordered_map<u32, u32> forced;
-  u32 &last = forced[r31.u32];
+  u32 &last = forced[info.GetGuestAddress()];
   if (last != width) {
     last = width;
     info->lastScale = -1.0f;
@@ -196,8 +212,8 @@ REX_MIDASM_HOOK(bdShadowTargetExemptHook, (PPCRegister &r3, PPCRegister &r4)) {
 REX_MIDASM_AT(bdShadowTargetExemptHook, 0x8218746C, before, r3, r4);
 REX_MIDASM_AT(bdShadowTargetExemptHook, 0x821751C4, before, r3, r4);
 
-REX_MIDASM_HOOK(bdShadowMapTextureResizeHook, (PPCRegister &r31)) {
-  auto *info = bd::mem::at<bd::gpu::ShadowMapInfo>(r31.u32);
+REX_MIDASM_HOOK(bdShadowMapTextureResizeHook,
+                (bd::gpu::ShadowMapInfo * info)) {
   if (!info)
     return;
   auto *texture = bd::gpu::HostResourceHeap::FromGuest<bd::gpu::GuestTexture>(
@@ -223,13 +239,14 @@ REX_MIDASM_AT(bdShadowCoverageScaleHook, 0x82175974, before, f1);
 // squares it to size the circle of confusion it picks a blur LOD with, so the
 // square root of the wanted intensity is what makes half the setting read as
 // half the blur.
-REX_MIDASM_HOOK(bdDOFStrengthScaleHook, (PPCRegister &r11)) {
+REX_MIDASM_HOOK(bdDOFStrengthScaleHook, (be_f32 * constants)) {
   const f64 strength = bd::gpu::Settings::Get().DOFStrength();
   if (strength >= 1.0)
     return;
-  auto *y = bd::mem::at<be_f32>(r11.u32 + 4);
-  if (y)
-    *y = static_cast<f32>(static_cast<f32>(*y) * std::sqrt(strength));
+  if (!constants)
+    return;
+  be_f32 *y = constants + 1;
+  *y = static_cast<f32>(static_cast<f32>(*y) * std::sqrt(strength));
 }
 REX_MIDASM_AT(bdDOFStrengthScaleHook, 0x82217224, after, r11);
 
@@ -271,9 +288,8 @@ REX_MIDASM_AT(bdDOFIntermediateScaleHook, 0x82217600, before, r28, r26);
 // flush), startReg @4, endReg @8, pData @0xC. The fountain water object authors
 // c51.w = 1000 and bd_water_ps computes color = 2*c51.w*lit, so a glint reaches
 // ~5748 HDR. 1.0 matches the milder sibling water object.
-REX_MIDASM_HOOK(bdWaterSpecIntensityClampHook, (PPCRegister &r3)) {
+REX_MIDASM_HOOK(bdWaterSpecIntensityClampHook, (const be_u32 *d)) {
   constexpr float ceiling = 1.0f;
-  const auto *d = bd::mem::at<const be_u32>(r3.u32);
   if (!d)
     return;
   if ((static_cast<u32>(d[0]) & 2) == 0)
@@ -298,8 +314,7 @@ REX_MIDASM_AT(bdWaterSpecIntensityClampHook, 0x824547B8, before, r3);
 // FX. Pixel stage only: Toon/Fur/caustics/cloud author VS reg50 as their own
 // per-object data. The hook runs right before the writer ORs its group into
 // m_Mask[1], so the pin rides the same upload.
-REX_MIDASM_HOOK(bdCameraRefractionUvScaleHook, (PPCRegister &r11)) {
-  auto *dev = bd::mem::at<bd::gpu::D3DDevice>(r11.u32);
+REX_MIDASM_HOOK(bdCameraRefractionUvScaleHook, (bd::gpu::D3DDevice * dev)) {
   if (!dev)
     return;
   be_f32 *ps = dev->psFloatConstants[kScreenUVScaleReg];
@@ -314,11 +329,12 @@ REX_MIDASM_AT(bdCameraRefractionUvScaleHook, 0x8213d034, before, r11);
 // inset cannot be applied independently of coverage, so +/-0.98 (= 2*0.99-1)
 // puts the visible edge exactly on the clamp bound. r5 is the 4-vertex buffer,
 // pos xy at +0/+4, stride 0x28.
-REX_MIDASM_HOOK(bdMotionBlurQuadInsetHook, (PPCRegister &r5)) {
+REX_MIDASM_HOOK(bdMotionBlurQuadInsetHook, (be_f32 * vertices)) {
+  if (!vertices)
+    return;
+  constexpr u32 kVertexFloats = 0x28 / sizeof(f32);
   for (u32 i = 0; i < 4; ++i) {
-    auto *v = bd::mem::at<be_f32>(r5.u32 + i * 0x28);
-    if (!v)
-      return;
+    be_f32 *v = vertices + i * kVertexFloats;
     v[0] = static_cast<float>(v[0]) * 0.98f;
     v[1] = static_cast<float>(v[1]) * 0.98f;
   }

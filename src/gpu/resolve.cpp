@@ -18,8 +18,8 @@
 
 #include <plume_render_interface.h>
 #include <rex/cvar.h>
+#include <rex/dbg.h>
 
-#include "core/profiling.h"
 
 #include "core/logging.h"
 #include "gpu/backend.h"
@@ -430,7 +430,7 @@ void NoteTileContentLocked(VideoState &s, GuestTexture *dst) {
 } // namespace
 
 void Video::ResolveRtToTexture(GuestTexture *dst) {
-  BD_CPU_ZONE("ResolveRtToTexture");
+  REX_PROFILE_SCOPE("ResolveRtToTexture");
   if (!dst || !dst->texture)
     return;
   auto &s = state();

@@ -15,6 +15,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include <imgui.h>
 
@@ -25,6 +26,7 @@
 #include <rex/dbg.h>
 #include <rex/hid.h>
 #include <rex/platform/file.h>
+#include <rex/platform/process.h>
 #include <rex/perf/counter.h>
 #include <rex/hid/key_chord.h>
 #include <rex/ui/overlay.h>
@@ -39,7 +41,6 @@
 #include "core/build_info.h"
 #include "core/cvar_table.h"
 #include "core/logging.h"
-#include "core/profiling.h"
 #include "core/settings.h"
 #include "core/settings_migration.h"
 #include "core/settings_model.h"
@@ -542,9 +543,18 @@ bool ReblueApp::SetupActive() const {
 void ReblueApp::PresentSetupFrame() { bd::gpu::Video::PresentOverlayFrame(); }
 
 void ReblueApp::RunHandoff() {
-  if (handoff_exe_ && !bd::platform::SpawnReplacement(*handoff_exe_, false))
+  if (!handoff_exe_)
+    return;
+  std::vector<std::string> args;
+  if (auto profile = bd::platform::ProfileArgs(); !profile[1].empty())
+    args = std::move(profile);
+  if (auto launched = rex::platform::Relaunch(*handoff_exe_, args,
+                                              handoff_exe_->parent_path());
+      !launched) {
+    REXLOG_ERROR(bd, "handoff relaunch failed: {}", launched.error().message);
     bd::platform::ShowFatal("Could not start re:Blue",
                             "Run " + handoff_exe_->string() + " by hand.");
+  }
 }
 
 bool ReblueApp::BeginPreTitleUI() {
@@ -726,7 +736,7 @@ void ReblueApp::InstallOverlayDrawHook() {
     if (!GetUI().HasDialogs() && !PendingOverlayWork())
       return;
     auto draw = [this, cmd, fb, w, h] {
-      BD_CPU_ZONE("OverlayDraw");
+      REX_PROFILE_SCOPE("OverlayDraw");
       MaybeShowUpdatePrompt();
       UpdateCheckStatus();
       bd::gpu::ReblueUIDrawContext ctx(w, h, cmd, fb);
@@ -738,7 +748,7 @@ void ReblueApp::InstallOverlayDrawHook() {
     }
     // Split so a capture prices the marshal (this zone minus the inner one)
     // apart from the ImGui work itself.
-    BD_CPU_ZONE("OverlayMarshal");
+    REX_PROFILE_SCOPE("OverlayMarshal");
     auto drawn = std::make_shared<std::promise<void>>();
     auto done = drawn->get_future();
     if (!rex::ui::InvokeFunction([draw, drawn] {
@@ -852,7 +862,7 @@ rex::Result<void> ReblueApp::OnAction(const rex::CLIAction &action,
 
 void ReblueApp::OnShutdown() {
   if (cvars_)
-    bd::engine::Bindings::Get().Unregister(*cvars_);
+    bd::engine::Bindings::Get().Unregister();
   bd::vfs::VFS::Get().Prefetch().Shutdown();
   bd::gpu::Video::BeginShutdown();
   bd::gpu::FlushPSOCapture();

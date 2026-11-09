@@ -14,7 +14,6 @@
 #include <rex/string.h>
 #include <rex/string/utf8.h>
 
-#include "core/encoding.h"
 #include "core/logging.h"
 
 namespace bd::vfs {
@@ -113,7 +112,7 @@ std::vector<u8> ExtendShiftJIS(const std::vector<u8> &base,
   const std::string_view text(reinterpret_cast<const char *>(base.data()),
                               base.size());
   const std::string out = Extend<std::string>(
-      text, rows, [](std::string_view row) { return Utf8ToSjis(row); });
+      text, rows, [](std::string_view row) { return rex::UTF8ToShiftJIS(row); });
   return std::vector<u8>(out.begin(), out.end());
 }
 

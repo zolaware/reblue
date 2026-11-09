@@ -275,7 +275,7 @@ std::string CsvRow(const Entry &e) {
 std::filesystem::path CsvFilePath() {
   static const std::filesystem::path path = [] {
     std::filesystem::path root;
-    if (auto *rt = bd::mem::runtime())
+    if (auto *rt = rex::GetProcessRuntime())
       root = rt->cache_root();
     if (root.empty())
       root = rex::platform::GetUserFolder();

@@ -3,6 +3,7 @@
 #include <cmath>
 #include <vector>
 
+#include "core/guest_global.h"
 #include "core/memory_helpers.h"
 #include "engine/input/binding_registry.h"
 #include "engine/input/dispatch.h"
@@ -11,7 +12,7 @@
 namespace bd::engine {
 
 namespace addr {
-inline constexpr u32 kFrameDelta = 0x829A8694;
+REX_GUEST_GLOBAL(be_f32, kFrameDelta, 0x829A8694);
 } // namespace addr
 
 namespace {
@@ -22,14 +23,9 @@ constexpr f32 kRepeatRearm = 0.001f;
 
 constexpr int kMaxConsumed = 16;
 
-bool SameInput(const Source &a, const Source &b) {
-  return a.kind == b.kind && a.code == b.code && a.mods == b.mods &&
-         a.sign == b.sign;
-}
-
 bool Consumed(const Source *list, int count, const Source &source) {
   for (int i = 0; i < count; ++i) {
-    if (SameInput(list[i], source))
+    if (rex::hid::IsSameInput(list[i], source))
       return true;
   }
   return false;
@@ -129,7 +125,7 @@ void InputActions::Resolve() {
 
   bool fireHeld = false;
   bool firePressed = false;
-  const f32 delta = mem::try_load<f32>(addr::kFrameDelta);
+  const f32 delta = mem::global_load(addr::kFrameDelta);
   if (!anyHeld) {
     repeatTimer_ = 0.0f;
   } else if (anyPressed) {

@@ -5,6 +5,7 @@
  * @license     BSD 3-Clause - see LICENSE
  */
 #include "engine/d2anime/anime_input.h"
+#include "core/guest_global.h"
 #include "core/memory_helpers.h"
 #include "engine/input/button_map.h"
 #include "reblue_init.h"
@@ -20,16 +21,16 @@ REX_IMPORT(__imp__bdInputGetAnalogValue, InputGetAnalogValue,
 namespace bd::engine {
 
 namespace addr {
-inline constexpr u32 kInputManager = 0x82DC9844;
+REX_GUEST_GLOBAL(be_u32, kInputManager, 0x82DC9844);
 } // namespace addr
 
 bool CheckButton(Button btn) {
-  u32 inputMgr = bd::mem::load<u32>(addr::kInputManager);
+  u32 inputMgr = bd::mem::global_load_fast(addr::kInputManager);
   return inputMgr && InputCheckButton(inputMgr, 0, static_cast<u32>(btn)) != 0;
 }
 
 bool ButtonHeld(Button btn) {
-  u32 inputMgr = bd::mem::load<u32>(addr::kInputManager);
+  u32 inputMgr = bd::mem::global_load_fast(addr::kInputManager);
   return inputMgr &&
          InputIsPressed(inputMgr, 0, static_cast<u32>(btn), 0) != 0;
 }
@@ -52,7 +53,7 @@ bool ActionHeld(Action action) {
 }
 
 float StickValue(StickAxis axis) {
-  u32 inputMgr = bd::mem::load<u32>(addr::kInputManager);
+  u32 inputMgr = bd::mem::global_load_fast(addr::kInputManager);
   if (!inputMgr)
     return 0.0f;
   return static_cast<float>(

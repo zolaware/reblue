@@ -22,6 +22,8 @@
 #include <plume_d3d12.h>
 #endif
 
+#include <rex/dbg.h>
+
 #include "gpu/gpu_profiling.h"
 
 #include "core/logging.h"
@@ -167,7 +169,7 @@ void DrainTextureBacklog(VideoState &s) {
     s.texture_free_backlog.erase(
         first, first + static_cast<std::ptrdiff_t>(take));
   }
-  BD_CPU_ZONE("DrainTextureBacklog");
+  REX_PROFILE_SCOPE("DrainTextureBacklog");
   batch.clear();
 }
 
@@ -198,7 +200,7 @@ void DrainSlot(VideoState &s, u32 slot) {
     }
   }
   {
-    BD_CPU_ZONE("DestroyResources");
+    REX_PROFILE_SCOPE("DestroyResources");
     for (const auto &d : dead) {
       {
         std::lock_guard lock(g_destroy_pending_mutex);
@@ -208,11 +210,11 @@ void DrainSlot(VideoState &s, u32 slot) {
     }
   }
   {
-    BD_CPU_ZONE("DrainNativeMirrors");
+    REX_PROFILE_SCOPE("DrainNativeMirrors");
     DrainEvictedNativeTextures(slot);
   }
   {
-    BD_CPU_ZONE("DrainPhysGraveyard");
+    REX_PROFILE_SCOPE("DrainPhysGraveyard");
     DrainBufferGraveyard(slot);
   }
 }

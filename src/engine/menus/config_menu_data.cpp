@@ -6,7 +6,6 @@
  *            See LICENSE file in the project root for full license text.
  */
 #include "engine/menus/config_menu_data.h"
-#include "core/encoding.h"
 #include "core/i18n.h"
 #include "core/logging.h"
 #include "core/settings_model.h"

@@ -1,5 +1,6 @@
 #include "engine/input/button_map.h"
 
+#include <algorithm>
 #include <chrono>
 
 #include <rex/hook.h>
@@ -96,7 +97,7 @@ bool NeedsId(Action action) {
 
 int PadId(Action action) {
   for (const Source &source : Bindings::Get().Sources(action))
-    if (source.kind == SourceKind::PadButton)
+    if (source.kind == SourceKind::kPadButton)
       return static_cast<int>(source.code);
   return -1;
 }
@@ -111,7 +112,8 @@ Action Owner(const int (&id)[kActionCount], int wanted, Action except) {
 }
 
 bool SameSources(Action a, Action b) {
-  return Bindings::Get().Sources(a) == Bindings::Get().Sources(b);
+  return std::ranges::equal(Bindings::Get().Sources(a),
+                            Bindings::Get().Sources(b));
 }
 
 void Assign(int (&id)[kActionCount]) {
@@ -186,6 +188,11 @@ void BuildRows(const int (&id)[kActionCount], u32 (&general)[kGeneralSlots],
   mechat[kMechatAimYSlot] = kAimAxisBase + 1;
 }
 
+bool TitleLaunched() {
+  const rex::Runtime *runtime = rex::GetProcessRuntime();
+  return runtime && runtime->IsTitleLaunched();
+}
+
 } // namespace
 
 ButtonMap &ButtonMap::Get() {
@@ -223,7 +230,7 @@ void ButtonMap::Rebuild() {
   const u32 generation = Bindings::Get().Generation();
   if (generation == generation_ && installed_)
     return;
-  if (!mem::ready())
+  if (!TitleLaunched())
     return;
   const Clock::time_point now = Clock::now();
   if (generation == generation_ && now < g_nextInstall)
@@ -251,7 +258,7 @@ u32 ButtonMap::Mask(Action action) const {
 }
 
 void ButtonMap::Install() {
-  if (generation_ == kNoGeneration || !mem::ready())
+  if (generation_ == kNoGeneration || !TitleLaunched())
     return;
   if (!rowVA_) {
     rowVA_ = gpu::HostHeap::Get().AllocGuest(kGeneralRowBytes, kRowAlign);

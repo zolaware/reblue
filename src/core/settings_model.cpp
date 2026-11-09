@@ -20,6 +20,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -213,10 +214,10 @@ const char *BindSectionKey(engine::ActionContext context) {
   return "";
 }
 
-constexpr const char *kAxisDirectionKeys[engine::kAxisDirections] = {
+constexpr const char *kAxisDirectionKeys[rex::hid::kAxisDirections] = {
     "settings.binds.axis_up", "settings.binds.axis_down",
     "settings.binds.axis_left", "settings.binds.axis_right"};
-constexpr const char *kStickDirectionNames[engine::kAxisDirections] = {
+constexpr const char *kStickDirectionNames[rex::hid::kAxisDirections] = {
     "Up", "Down", "Left", "Right"};
 
 void AppendBindSection(std::vector<BindEntry> &column,
@@ -234,7 +235,7 @@ void AppendBindSection(std::vector<BindEntry> &column,
     const engine::ActionDesc &desc = engine::Describe(action);
     if (desc.context != context || desc.axis == engine::AxisPair::None)
       continue;
-    for (int dir = 0; dir < engine::kAxisDirections; ++dir)
+    for (int dir = 0; dir < rex::hid::kAxisDirections; ++dir)
       column.push_back({.cell = BindCell::AxisKey,
                         .context = context,
                         .action = action,
@@ -258,26 +259,22 @@ const std::array<std::vector<BindEntry>, kBindColumns> &BindColumns() {
 }
 
 bool PadSource(const engine::Source &source) {
-  return source.kind == engine::SourceKind::PadButton ||
-         source.kind == engine::SourceKind::PadAxes;
-}
-
-bool SameInput(const engine::Source &a, const engine::Source &b) {
-  return a.kind == b.kind && a.code == b.code && a.mods == b.mods &&
-         a.sign == b.sign;
+  return source.kind == engine::SourceKind::kPadButton ||
+         source.kind == engine::SourceKind::kPadAxes;
 }
 
 void SwapInto(engine::Action owner, const engine::Source &taken,
               const engine::Source *given) {
   engine::Bindings &binds = engine::Bindings::Get();
-  std::vector<engine::Source> sources = binds.Sources(owner);
+  const auto owned = binds.Sources(owner);
+  std::vector<engine::Source> sources(owned.begin(), owned.end());
   for (size_t i = 0; i < sources.size(); ++i) {
-    if (!SameInput(sources[i], taken))
+    if (!rex::hid::IsSameInput(sources[i], taken))
       continue;
     if (given && !binds.Conflict(owner, *given)) {
-      const u8 slot = sources[i].axisSlot;
+      const u8 slot = sources[i].axis_slot;
       sources[i] = *given;
-      sources[i].axisSlot = slot;
+      sources[i].axis_slot = slot;
     } else {
       sources.erase(sources.begin() + static_cast<std::ptrdiff_t>(i));
     }
@@ -288,7 +285,7 @@ void SwapInto(engine::Action owner, const engine::Source &taken,
 }
 
 int ChipSource(const BindEntry &entry, int chip) {
-  const std::vector<engine::Source> &sources =
+  const std::span<const engine::Source> sources =
       engine::Bindings::Get().Sources(entry.action);
   const int count = static_cast<int>(sources.size());
   switch (entry.cell) {
@@ -305,7 +302,9 @@ int ChipSource(const BindEntry &entry, int chip) {
     if (chip < 0 || chip >= kBindKeyChips)
       return -1;
     for (int i = 0; i < count; ++i)
-      if (sources[i].axisSlot == engine::AxisSlot(entry.direction, chip))
+      if (sources[i].axis_slot ==
+          rex::hid::GetAxisSlot(static_cast<u8>(entry.direction),
+                                static_cast<u8>(chip)))
         return i;
     return -1;
   default:
@@ -726,23 +725,22 @@ const char *BindRowLabel(engine::Action action) {
 }
 
 std::string BindChipToken(const BindEntry &entry, int chip) {
-  const std::vector<engine::Source> &sources =
+  const std::span<const engine::Source> sources =
       engine::Bindings::Get().Sources(entry.action);
   if (entry.cell == BindCell::AxisKey && chip == kBindPadChip) {
     for (const engine::Source &source : sources) {
-      if (source.kind != engine::SourceKind::PadAxes)
+      if (source.kind != engine::SourceKind::kPadAxes)
         continue;
-      const bool left = source.code == u16(engine::AxisPair::Left);
+      const bool left = source.code == u16(rex::hid::PadAxes::kLeft);
       return std::string(left ? "LStick" : "RStick") +
              kStickDirectionNames[entry.direction];
     }
     return {};
   }
   const int at = ChipSource(entry, chip);
-  std::string token;
-  if (at < 0 || !engine::FormatSource(sources[static_cast<size_t>(at)], token))
+  if (at < 0)
     return {};
-  return token;
+  return rex::hid::InputSourceToString(sources[static_cast<size_t>(at)]);
 }
 
 std::string BindChipLegend(const BindEntry &entry, int chip) {
@@ -762,9 +760,8 @@ bool BindChipFixed(const BindEntry &entry, int chip) {
 }
 
 bool BindChipAccepts(int chip, const std::string &token) {
-  engine::Source source;
-  return engine::ParseSource(token, source) &&
-         (chip == kBindPadChip) == PadSource(source);
+  const auto source = rex::hid::ParseInputSource(token);
+  return source && (chip == kBindPadChip) == PadSource(*source);
 }
 
 RowUi SettingsRowUi(SettingsPage page, int index) {
@@ -930,26 +927,29 @@ bool SetBindChip(const BindEntry &entry, int chip, const std::string &token,
   if (chip < 0 || chip >= kBindChipCount || BindChipFixed(entry, chip))
     return false;
 
-  engine::Source source;
-  if (!engine::ParseSource(token, source)) {
+  const auto parsed = rex::hid::ParseInputSource(token);
+  if (!parsed) {
     REXLOG_WARN(bd, "config '{}' is not a bindable input", token);
     return false;
   }
+  engine::Source source = *parsed;
   engine::Bindings &binds = engine::Bindings::Get();
   const std::optional<engine::Action> other =
       binds.Conflict(entry.action, source);
   if (entry.cell == BindCell::AxisKey)
-    source.axisSlot = engine::AxisSlot(entry.direction, chip);
+    source.axis_slot = rex::hid::GetAxisSlot(static_cast<u8>(entry.direction),
+                                            static_cast<u8>(chip));
 
   const int at = ChipSource(entry, chip);
-  const std::vector<engine::Source> current = binds.Sources(entry.action);
+  const auto held = binds.Sources(entry.action);
+  const std::vector<engine::Source> current(held.begin(), held.end());
   std::vector<engine::Source> updated;
   bool placed = false;
   for (size_t i = 0; i < current.size(); ++i) {
     if (static_cast<int>(i) == at) {
       updated.push_back(source);
       placed = true;
-    } else if (!SameInput(current[i], source)) {
+    } else if (!rex::hid::IsSameInput(current[i], source)) {
       updated.push_back(current[i]);
     }
   }
@@ -976,7 +976,8 @@ bool ClearBindChip(const BindEntry &entry, int chip) {
   if (at < 0 || BindChipFixed(entry, chip))
     return false;
   engine::Bindings &binds = engine::Bindings::Get();
-  std::vector<engine::Source> kept = binds.Sources(entry.action);
+  const auto held = binds.Sources(entry.action);
+  std::vector<engine::Source> kept(held.begin(), held.end());
   kept.erase(kept.begin() + at);
   REXLOG_DEBUG(bd, "config {} chip {} cleared", engine::ToString(entry.action), chip);
   return binds.SetSources(entry.action, kept);
@@ -987,15 +988,16 @@ bool ClearBindEntry(const BindEntry &entry) {
     return engine::Settings::Get().MouseInput() &&
            engine::Settings::Get().SetMouseInput(false);
   engine::Bindings &binds = engine::Bindings::Get();
-  std::vector<engine::Source> kept = binds.Sources(entry.action);
+  const auto held = binds.Sources(entry.action);
+  std::vector<engine::Source> kept(held.begin(), held.end());
   switch (entry.cell) {
   case BindCell::Button:
     kept.clear();
     break;
   case BindCell::AxisKey:
     std::erase_if(kept, [&](const engine::Source &s) {
-      return s.axisSlot != 0 &&
-             engine::AxisDirection(s.axisSlot) == entry.direction;
+      return s.axis_slot != 0 &&
+             rex::hid::GetAxisDirection(s.axis_slot) == entry.direction;
     });
     break;
   default:

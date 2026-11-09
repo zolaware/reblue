@@ -15,9 +15,9 @@
 #include <mutex>
 #include <unordered_map>
 
+#include <rex/dbg.h>
 #include <xxhash.h>
 
-#include "core/profiling.h"
 #include "gpu/device.h"
 #include "gpu/occlusion.h"
 #include "gpu/shaders/shader_cache.h"
@@ -283,7 +283,7 @@ std::unique_ptr<plume::RenderPipeline> Build(const PipelineState &state) {
 
 plume::RenderPipeline *GetOrCreatePipeline(const PipelineState &state,
                                            bool *out_created) {
-  BD_CPU_ZONE("GetOrCreatePipeline");
+  REX_PROFILE_SCOPE("GetOrCreatePipeline");
   if (out_created)
     *out_created = false;
   const u64 key = HashPipelineState(state);

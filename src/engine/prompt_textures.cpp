@@ -255,7 +255,7 @@ struct CapRef {
 // else from that pad's block on the glyph sheet.
 CapRef PadCap(Action action, u32 set) {
   for (const Source &s : Bindings::Get().Sources(action)) {
-    if (s.kind != SourceKind::PadButton)
+    if (s.kind != SourceKind::kPadButton)
       continue;
     const auto button = static_cast<Button>(s.code);
     switch (button) {
@@ -387,7 +387,7 @@ u32 PromptIconButton(u32 id) {
   if (isFace(id))
     return id;
   for (const Source &s : Bindings::Get().Sources(Action::Interact)) {
-    if (s.kind == SourceKind::PadButton && isFace(s.code))
+    if (s.kind == SourceKind::kPadButton && isFace(s.code))
       return s.code;
   }
   return u32(Button::A);

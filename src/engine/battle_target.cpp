@@ -15,6 +15,7 @@
 #include <rex/ppc.h>
 #include <rex/ppc/detour.h>
 #include <rex/ppc/stack.h>
+#include <rex/runtime/xtypes.h>
 #include <rex/types.h>
 
 #include "core/memory_helpers.h"
@@ -51,7 +52,7 @@ static_assert(sizeof(Vec3_t) == 0x0C);
 
 struct BattleActor_t {
   /* 0x000 */ u8 _pad000[0x128];
-  /* 0x128 */ mem::GuestVec<mem::GuestPtr<BattleActor_t>> parts;
+  /* 0x128 */ rex::be_vector<rex::be_ptr<BattleActor_t>> parts;
   /* 0x134 */ u8 _pad134[0x1B8 - 0x134];
   /* 0x1B8 */ Vec3_t worldPos;
 };
@@ -163,6 +164,9 @@ void UpdateBattleTargetHover(u32 taskVA) {
   const auto *screen = mem::try_at<const Vec3_t>(scratchScreen);
   if (!scratchSel || !world || !screen)
     return;
+  const auto view = mem::view();
+  if (!view)
+    return;
 
   const auto accepts = [&](u32 actor, u32 g, u32 m, i32 part) {
     *scratchSel = *selection;
@@ -197,7 +201,10 @@ void UpdateBattleTargetHover(u32 taskVA) {
         if (!accepts(actorVA, g, m, p))
           continue;
 
-        const auto *object = p == kPartBody ? actor : actor->parts[p].get();
+        const auto *slot =
+            p == kPartBody ? nullptr : actor->parts.TryAt(size_t(p), *view);
+        const auto *object =
+            p == kPartBody ? actor : (slot ? slot->TryGet(*view) : nullptr);
         if (!object)
           continue;
         *world = object->worldPos;

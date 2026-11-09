@@ -15,10 +15,11 @@
 
 #include <plume_render_interface.h>
 
+#include <rex/dbg.h>
+
 #include "core/logging.h"
 #include "core/settings.h"
 #include "core/memory_helpers.h"
-#include "core/profiling.h"
 #include "gpu/backend.h"
 #include "gpu/constant_buffers.h"
 #include "gpu/format.h"
@@ -179,7 +180,7 @@ bool Video::FlushRenderStateLocked(u32 device_guest) {
   if (!s.draw_framebuffer_bound)
     return false;
   // CPU zone: a GPU zone here would add two GPU timestamps per draw.
-  BD_CPU_ZONE("FlushRenderState");
+  REX_PROFILE_SCOPE("FlushRenderState");
 
   // Fold the Set*-hook mirrors into the pipelineState the PSO lookup reads.
   SetDirtyValue(s.dirtyStates.pipelineState, s.pipelineState.vertexShader,

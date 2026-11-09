@@ -43,16 +43,10 @@ void SetCapturePadButtons(u32 buttons);
 // Snapshot current key state. Keys already held are ignored until released.
 void BeginKeyCapture();
 
-// The first key newly pressed since BeginKeyCapture, as a rex keybind name
-// ("Space", "LMB", "RMB"), or empty while none. A held modifier becomes a
-// prefix, so Shift plus W returns "Shift+W". Ends the capture on a hit.
-//
-// Reported only once the key is released. Committing while it is still down
-// hands the MnK driver a held key that matches the fresh bind, and the
-// synthetic press that falls out re-fires the row just bound.
-//
-// Nothing is reserved. A key swallowed to mean cancel or clear could never be
-// bound, so those live on the list behind it instead.
+// The next input as binding text ("Space", "Shift+W", "LMB", "WheelUp",
+// "PadA"), or empty while none. Reported once released, so a key still down
+// cannot re-fire the row just bound. Escape held or both triggers cancel,
+// because nothing is reserved. Ends the capture on a hit.
 std::string PollKeyCapture();
 
 // True from the hit's key-down until PollKeyCapture reports it. The pad's

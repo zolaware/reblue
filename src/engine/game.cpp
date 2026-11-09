@@ -5,6 +5,9 @@
  */
 #include "engine/game.h"
 
+#include <rex/runtime.h>
+
+#include "core/guest_global.h"
 #include "core/memory_helpers.h"
 #include "engine/state_layout.h"
 
@@ -39,7 +42,10 @@ const char *ToString(EngineMode mode) {
   }
 }
 
-bool Game::IsReady() const { return bd::mem::ready(); }
+bool Game::IsReady() const {
+  const rex::Runtime *runtime = rex::GetProcessRuntime();
+  return runtime && runtime->IsTitleLaunched();
+}
 
 bool Game::FieldGameplayActive() const {
   const engine::GameTask task = GameTask();
@@ -51,52 +57,52 @@ bool Game::IsLoading() const { return Loader().AnySlotLoading(); }
 bool Game::LoadingScreenUp() const { return Loader().NowLoading(); }
 
 bool Game::MindowsPanelActive() const {
-  return bd::mem::try_load<u32>(addr::kMindowsActivePanel) != 0;
+  return bd::mem::global_load(addr::kMindowsActivePanel) != 0;
 }
 
 bool Game::MindowsHidden() const {
-  return bd::mem::try_load<u32>(addr::kMindowsHidden) != 0;
+  return bd::mem::global_load(addr::kMindowsHidden) != 0;
 }
 
 void Game::SetMindowsHidden(bool hidden) {
-  bd::mem::try_store<u32>(addr::kMindowsHidden, hidden ? 1u : 0u);
+  bd::mem::global_store(addr::kMindowsHidden, hidden ? 1u : 0u);
 }
 
 engine::ScriptManTask Game::ScriptManTask() const {
-  return engine::ScriptManTask(bd::mem::try_load<u32>(addr::kScriptManTask));
+  return engine::ScriptManTask(bd::mem::global_load(addr::kScriptManTask));
 }
 
 engine::FieldPlayerEntity Game::FieldPlayerEntity() const {
   return engine::FieldPlayerEntity(
-      bd::mem::try_load<u32>(addr::kFieldPlayerEntity));
+      bd::mem::global_load(addr::kFieldPlayerEntity));
 }
 
 engine::GameTask Game::GameTask() const {
-  return engine::GameTask(bd::mem::try_load<u32>(addr::kGameTask));
+  return engine::GameTask(bd::mem::global_load(addr::kGameTask));
 }
 
 engine::Loader Game::Loader() const {
-  return engine::Loader(bd::mem::try_load<u32>(addr::kLoaderTask));
+  return engine::Loader(bd::mem::global_load(addr::kLoaderTask));
 }
 
 engine::SequenceControl Game::SequenceControl() const {
   return engine::SequenceControl(
-      bd::mem::try_load<u32>(addr::kSequenceControl));
+      bd::mem::global_load(addr::kSequenceControl));
 }
 
 engine::ItemSaveData Game::ItemSaveData() const {
-  return engine::ItemSaveData(bd::mem::try_load<u32>(addr::kItemSaveData));
+  return engine::ItemSaveData(bd::mem::global_load(addr::kItemSaveData));
 }
 
 engine::BattleCameraTask Game::BattleCameraTask() const {
   return engine::BattleCameraTask(
-      bd::mem::try_load<u32>(addr::kBattleCameraCtl));
+      bd::mem::global_load(addr::kBattleCameraCtl));
 }
 
 engine::IssEvent Game::IssEvent() const { return engine::IssEvent::LiveAt(0); }
 
 engine::PlayRecord Game::PlayRecord() const {
-  return engine::PlayRecord(bd::mem::try_load<u32>(addr::kPlayRecord));
+  return engine::PlayRecord(bd::mem::global_load(addr::kPlayRecord));
 }
 
 EngineMode Game::Mode() const {

@@ -10,6 +10,8 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+
+#include "core/guest_global.h"
 #include <string_view>
 #include <vector>
 
@@ -52,7 +54,7 @@ namespace {
 
 // The character UV cache, whose tail holds the one d2anime\Uv.csv bag that
 // every 'uv.' name in the game resolves against.
-constexpr u32 kUiCharUvCache = 0x82DC98B4;
+REX_GUEST_GLOBAL(be_u32, kUiCharUvCache, 0x82DC98B4);
 constexpr u32 kUvBagOffset = 440;
 
 // Slots of AnimeVar_t::element that hold the UV rect.
@@ -226,7 +228,7 @@ int PadSetIndex(int padButton) {
 
 int PadGlyphIndex(Action action) {
   for (const Source &s : Bindings::Get().Sources(action)) {
-    if (s.kind == SourceKind::PadButton)
+    if (s.kind == SourceKind::kPadButton)
       return PadSetIndex(int(s.code));
   }
   return -1;
@@ -283,7 +285,7 @@ int KeyIndex(std::string_view keyName) {
 
 int BoundKeyIndex(Action action) {
   for (const Source &s : Bindings::Get().Sources(action)) {
-    if (s.kind != SourceKind::Key)
+    if (s.kind != SourceKind::kKey)
       continue;
     return IndexOfKey(static_cast<rex::hid::VirtualKey>(s.code));
   }
@@ -340,7 +342,7 @@ void Glyphs::InitOnce() {
 
 void Glyphs::Rebind() {
   bound_ = false;
-  const u32 cache = mem::try_load<u32>(kUiCharUvCache);
+  const u32 cache = mem::global_load(kUiCharUvCache);
   if (!cache)
     return;
   const u32 bag = cache + kUvBagOffset;

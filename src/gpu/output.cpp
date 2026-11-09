@@ -95,36 +95,10 @@ bool Output::RenderSize(u32 &w, u32 &h) {
   return true;
 }
 
-double Output::RenderDensity() {
-  u32 w = 0;
-  u32 h = 0;
-  if (!RenderSize(w, h))
-    return 1.0;
-  return std::max(1.0, h / static_cast<double>(kDesignCanvasHeight));
-}
-
-bool Output::HostScalingActive() {
-  static const bool active = REXCVAR_GET(bd::cvars::host_scale);
-  return active;
-}
-
-bool Output::EngineSize(u32 &w, u32 &h) {
-  return !HostScalingActive() && RenderSize(w, h);
-}
-
-bool Output::LogicalSize(u32 &w, u32 &h) {
-  if (HostScalingActive()) {
-    w = static_cast<u32>(kDesignCanvasWidth);
-    h = static_cast<u32>(kDesignCanvasHeight);
-    return true;
-  }
-  return RenderSize(w, h);
-}
-
 void Output::HostScale(float &kx, float &ky) {
   u32 w = 0;
   u32 h = 0;
-  if (!HostScalingActive() || !RenderSize(w, h)) {
+  if (!RenderSize(w, h)) {
     kx = 1.0f;
     ky = 1.0f;
     return;

@@ -90,7 +90,7 @@ std::set<std::string> ExistingNames(u32 list_va) {
 
   const u32 count = list->count;
   for (u32 i = 0; i < count; ++i)
-    names.insert(rex::utf8_lower_ascii(bd::mem::str(entries[i].name)));
+    names.insert(rex::utf8_lower_ascii(bd::mem::cstr(entries[i].name)));
   return names;
 }
 
@@ -126,7 +126,7 @@ void PromoteToDirectory(u32 list_va, const std::string &text) {
   const std::string wanted = rex::utf8_lower_ascii(text);
   const u32 count = list->count;
   for (u32 i = 0; i < count; ++i) {
-    if (rex::utf8_lower_ascii(bd::mem::str(entries[i].name)) == wanted)
+    if (rex::utf8_lower_ascii(bd::mem::cstr(entries[i].name)) == wanted)
       entries[i].type = kTypeDir;
   }
 }
@@ -180,9 +180,8 @@ u32 MergeMounts(u32 list_va, const std::string &dir, const std::string &filter,
 // onto the stack (see the note there).
 REX_DETOUR(isk__StrList__ScanDirectory, u32,
            (u32 list, u32 directory, u32 filterVA, u32 flags)) {
-  const std::string dir = bd::mem::str(directory);
-  const std::string filter =
-      filterVA ? bd::mem::str(filterVA) : std::string();
+  const std::string dir = bd::mem::cstr(directory);
+  const std::string filter = bd::mem::cstr(filterVA);
 
   const u32 found = original(list, directory, filterVA, flags);
 

@@ -10,6 +10,7 @@
 #pragma once
 
 #include <optional>
+#include <string>
 #include <type_traits>
 
 #include <rex/runtime/memory_view.h>
@@ -27,7 +28,6 @@ template <typename T> using be = rex::BE<T>;
 namespace mem {
 
 void Bind(rex::Runtime *runtime);
-rex::Runtime *runtime();
 rex::runtime::Memory *memory();
 std::optional<rex::runtime::MemoryView> view();
 
@@ -54,10 +54,17 @@ template <typename T> inline bool store(u32 va, T value) {
   return true;
 }
 
-// Empty rather than null when unmapped.
-inline const char *str(u32 va) {
-  auto *p = at<const char>(va);
-  return p ? p : "";
+// Most bytes a guest C string read copies out, MAX_PATH.
+inline constexpr size_t kMaxCStringBytes = 260;
+
+// A guest C string copied out, empty when va is 0 or unreadable. The copy ends
+// at max_length bytes, at the terminator, or where readable memory ends.
+inline std::string cstr(u32 va, size_t max_length = kMaxCStringBytes) {
+  const std::optional<rex::runtime::MemoryView> v = view();
+  if (!v)
+    return {};
+  const auto text = v->TryGetCString(va, max_length);
+  return text ? std::string(*text) : std::string();
 }
 
 // ---- checked accessors ----
@@ -73,14 +80,9 @@ inline const char *str(u32 va) {
 // These are defined out of line, since the validation needs rex::Runtime and
 // this header is included nearly everywhere.
 
-// True once the guest address space exists.
-bool ready();
-
-// Host pointer for va, or nullptr when va fails validation. Prefer try_at.
-void *try_translate(u32 va, u32 align);
-
 template <typename T> inline T *try_at(u32 va) {
-  return static_cast<T *>(try_translate(va, alignof(T)));
+  rex::runtime::Memory *m = memory();
+  return m ? m->template TryTranslateVirtual<T *>(va) : nullptr;
 }
 
 template <typename T> inline T try_load(u32 va, T fallback = T{}) {
@@ -104,54 +106,6 @@ template <typename T> inline bool try_store(u32 va, T value) {
 template <typename T> inline T try_field(u32 base, u32 off, T fallback = T{}) {
   return base ? try_load<T>(base + off, fallback) : fallback;
 }
-
-// A guest std::vector's { begin, end, capacity } pointer triple, declared in
-// place inside a guest struct. T is the element type, so a vector of guest
-// pointers, which is nearly all of them, is GuestVec<u32>.
-template <typename T> struct GuestVec {
-  be<u32> first;
-  be<u32> last;
-  be<u32> cap;
-
-  bool empty() const {
-    return !static_cast<u32>(first) ||
-           static_cast<u32>(first) == static_cast<u32>(last);
-  }
-
-  u32 size() const {
-    return empty() ? 0u
-                   : (static_cast<u32>(last) - static_cast<u32>(first)) /
-                         static_cast<u32>(sizeof(T));
-  }
-
-  // Guest address of element index, without a bounds check.
-  u32 address(u32 index) const {
-    return static_cast<u32>(first) + index * static_cast<u32>(sizeof(T));
-  }
-
-  // Zero past the end, matching what the loads this replaced returned for an
-  // empty vector.
-  T operator[](u32 index) const {
-    if (index >= size())
-      return T{};
-    if constexpr (std::is_arithmetic_v<T>) {
-      return load<T>(address(index));
-    } else {
-      auto *p = try_at<const T>(address(index));
-      return p ? *p : T{};
-    }
-  }
-};
-static_assert(sizeof(GuestVec<u32>) == 0x0C);
-
-template <typename T> struct GuestPtr {
-  be<u32> va;
-
-  u32 address() const { return static_cast<u32>(va); }
-  explicit operator bool() const { return address() != 0; }
-  T *get() const { return try_at<T>(address()); }
-};
-static_assert(sizeof(GuestPtr<int>) == 0x04);
 
 } // namespace mem
 } // namespace bd

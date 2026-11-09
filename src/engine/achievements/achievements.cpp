@@ -20,7 +20,6 @@
 #include "core/logging.h"
 #include "engine/events.h"
 #include "engine/game.h"
-#include "core/memory_helpers.h"
 
 namespace bd::engine {
 
@@ -100,7 +99,7 @@ void Unlock(u32 id) {
   if (!a || !a->registered || a->done)
     return;
   a->done = true;
-  if (auto *rt = bd::mem::runtime())
+  if (auto *rt = rex::GetProcessRuntime())
     (void)rt->GetAchievementManager().UnlockAchievement(
         a->info.id, rex::runtime::AchievementNotification::kShow);
 }
@@ -139,7 +138,7 @@ void EvaluateStageTriggered() {
 void Achievements::Register() {
   for (const EmbeddedAsset &icon : EmbeddedGroup("achievements"))
     rex::RegisterEmbeddedMetadataAsset(icon.name, icon.data, icon.size);
-  rex::Runtime *runtime = bd::mem::runtime();
+  rex::Runtime *runtime = rex::GetProcessRuntime();
   if (!runtime) {
     REXLOG_WARN(bd, "achv runtime not ready, catalog registration deferred");
     return;

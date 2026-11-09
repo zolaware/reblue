@@ -235,9 +235,6 @@ foreach(target IN LISTS REBLUE_VULKAN_TARGETS)
         # or X11 here either.
         target_compile_definitions(${target} PRIVATE REBLUE_MVK)
         target_link_libraries(${target} PRIVATE
-            # iconv (encoding.cpp's SjisToUtf8) is its own library on macOS, unlike
-            # glibc where it is built in.
-            iconv
             "-framework Cocoa"
             "-framework QuartzCore"
             "-framework Metal"

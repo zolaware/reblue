@@ -485,11 +485,10 @@ void ConfigMenu::RefreshKeybindVisuals() {
       }
 
       if (chip == kBindPadChip) {
-        Source source;
+        const auto source = rex::hid::ParseInputSource(token);
         UVRect uv;
-        if (ParseSource(token, source) &&
-            source.kind == SourceKind::PadButton &&
-            Glyphs::Get().PadButtonUV(source.code, uv)) {
+        if (source && source->kind == SourceKind::kPadButton &&
+            Glyphs::Get().PadButtonUV(source->code, uv)) {
           setUv(kKeybindPadUvVar, uv);
           vb.SetFloat(kKeybindPadCapVar, 1.0);
           vb.SetText(vars.textVar, "");

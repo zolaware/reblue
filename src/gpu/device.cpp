@@ -18,6 +18,8 @@
 #include <mutex>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 #include <plume_render_interface.h>
 #include <plume_render_interface_builders.h>
@@ -33,6 +35,7 @@
 #include "gpu/gpu_profiling.h"
 
 #include "core/logging.h"
+#include "core/guest_global.h"
 #include "core/memory_helpers.h"
 #include "core/settings.h"
 #include "gpu/bindless_allocator.h"
@@ -168,14 +171,11 @@ namespace {
 
 // The dims BD believes its backbuffer has, which the implicit RT[0]
 // placeholder and the default viewport must use rather than the raw swapchain
-// dims: this size defines full-screen for the posteff chain seeding, and a
-// swap-sized backbuffer on a non-16:9 output matches none of BD's fit-sized
-// composite RTs.
+// dims: this size defines full-screen for the posteff chain seeding, and it is
+// always the design canvas, since the host owns the scale.
 void GuestBackBufferDims(u32 &w, u32 &h) {
-  if (!Output::LogicalSize(w, h)) {
-    w = static_cast<u32>(kDesignCanvasWidth);
-    h = static_cast<u32>(kDesignCanvasHeight);
-  }
+  w = static_cast<u32>(kDesignCanvasWidth);
+  h = static_cast<u32>(kDesignCanvasHeight);
 }
 
 // (Re)create the back buffer placeholder's texture and view at w x h. Caller
@@ -441,7 +441,7 @@ bool Video::CreateHostDevice(rex::ui::IWindow &window) {
     }
   }
 
-  if (!bd::mem::runtime()) {
+  if (!rex::GetProcessRuntime()) {
     return true; // guest tail waits for the post-Runtime call
   }
 
@@ -551,8 +551,56 @@ void Video::ResizeTexture(GuestTexture *tex, u32 width, u32 height) {
   RecreateTexture(tex);
 }
 
+namespace {
+std::mutex g_promoted_mutex;
+std::unordered_set<GuestTexture *> g_promoted;
+} // namespace
+
+void Video::ForgetPromoted(GuestTexture *tex) {
+  std::lock_guard lock(g_promoted_mutex);
+  g_promoted.erase(tex);
+}
+
+void Video::ApplyHostScaleChange() {
+  static u32 applied = Output::Generation();
+  const u32 generation = Output::Generation();
+  if (generation == applied)
+    return;
+  applied = generation;
+
+  float kx = 1.0f;
+  float ky = 1.0f;
+  Output::HostScale(kx, ky);
+
+  std::vector<GuestTexture *> promoted;
+  {
+    std::lock_guard lock(g_promoted_mutex);
+    promoted.assign(g_promoted.begin(), g_promoted.end());
+  }
+  u32 textures = 0;
+  for (GuestTexture *tex : promoted) {
+    if (!tex->texture || tex->scaleExempt || tex->cpuWritten ||
+        (tex->scaleX == kx && tex->scaleY == ky))
+      continue;
+    tex->scaleX = kx;
+    tex->scaleY = ky;
+    RecreateTexture(tex);
+    ++textures;
+  }
+  const u32 surfaces = SurfaceRegistry::Rescale(kx, ky);
+
+  auto &s = state();
+  {
+    std::lock_guard lock(s.mutex);
+    s.draw_framebuffer_bound = false;
+    s.dirtyStates.viewport = true;
+  }
+  REXLOG_INFO(bd, "host scale -> {:.3f}x{:.3f}: {} texture(s), {} surface(s)",
+              kx, ky, textures, surfaces);
+}
+
 void Video::PromoteForGPUWrite(GuestTexture *tex) {
-  if (!tex || tex->scaleDecided || !Output::HostScalingActive())
+  if (!tex || tex->scaleDecided)
     return;
   tex->scaleDecided = true;
   float kx = 1.0f;
@@ -566,7 +614,13 @@ void Video::PromoteForGPUWrite(GuestTexture *tex) {
       tex->sampleCount == plume::RenderSampleCount::COUNT_1 &&
       !tex->scaleExempt && !tex->cpuWritten && tex->scaleX == 1.0f &&
       tex->scaleY == 1.0f && (depth || IsRenderTargetCapable(tex->format));
-  if (!eligible || (kx == 1.0f && ky == 1.0f))
+  if (!eligible)
+    return;
+  {
+    std::lock_guard lock(g_promoted_mutex);
+    g_promoted.insert(tex);
+  }
+  if (kx == 1.0f && ky == 1.0f)
     return;
   tex->scaleX = kx;
   tex->scaleY = ky;
@@ -981,11 +1035,10 @@ plume::RenderPipelineLayout *Video::MainPipelineLayout() {
   return state().pipeline_layout.get();
 }
 
+REX_GUEST_GLOBAL(be_u32, kCurrentRenderPassId, 0x82777474);
+
 u32 CurrentRenderPassId() {
-  // g_currentRenderPassId (guest global, big-endian). Always-mapped XEX data,
-  // but guard the translate anyway.
-  constexpr u32 kCurrentRenderPassIdVa = 0x82777474;
-  return bd::mem::load<u32>(kCurrentRenderPassIdVa);
+  return bd::mem::global_load_fast(kCurrentRenderPassId);
 }
 
 u32 ComputeTexturePitch(const GuestTexture *tex) {

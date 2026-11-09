@@ -629,7 +629,7 @@ void AreaMap::Draw(const MechattMapMainTask &screen) {
     float sx = 0.0f;
     float sy = 0.0f;
     place(x, y, &sx, &sy);
-    PrimPushVertex2D(sx, sy, u, v, 0, 0, 0, 0, color);
+    PrimPushVertex2D(sx, sy, u, v, color);
   };
 
   // World to texture by the map's offset and scale, then into the zoom and pan
@@ -712,7 +712,7 @@ void AreaMap::Draw(const MechattMapMainTask &screen) {
       db.TexRot() * kDegToRad + leader.Rotation()[1] - kHalfPi;
   PrimSelectTexture(kChromeArrow, miniMap.ChromeTexAddress());
   PrimDrawRectRotated(markerX, markerY, kPlayerZ, kMarkerSize, kMarkerSize,
-                      heading, 0, 0, 0, 0, 0, 0, kOpaqueWhite.ToARGB8());
+                      heading, kOpaqueWhite.ToARGB8());
 }
 
 // ApplyReduceLayout resets the rest of the zoom crossfade but not its alphas.

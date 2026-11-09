@@ -32,8 +32,4 @@ void RequestWarmReboot();
 // The arguments that select the active profile in a new process.
 std::vector<std::string> ProfileArgs();
 
-// Spawns exe in place of this process, forwarding the active profile and
-// --repair if requested. True if it launched. The caller shuts down either way.
-bool SpawnReplacement(const std::filesystem::path &exe, bool repair);
-
 } // namespace bd::platform

@@ -22,13 +22,12 @@ REX_IMPORT(__imp__Visual__SelectRenderTarget, PrimSelectTexture, u32(u32, u32));
 REX_IMPORT(__imp__bdPrimBegin, PrimBegin, void(u32, f64));
 REX_IMPORT(__imp__bdPrimSetTexture, PrimSetTexture, u32(u32, u32));
 REX_IMPORT(__imp__bdPrimPushVertex2D, PrimPushVertex2D,
-           u32(f64, f64, f64, f64, u32, u32, u32, u32, u32));
+           u32(f64, f64, f64, f64, u32));
 REX_IMPORT(__imp__bdPrimEnd, PrimEnd, u32());
 REX_IMPORT(__imp__bdPrimDrawRect2D, PrimDrawRect2D,
-           void(f64, f64, f64, f64, f64, u32, u32, u32, u32, u32, u32));
+           void(f64, f64, f64, f64, f64, u32));
 REX_IMPORT(__imp__bdPrimDrawRectRotated, PrimDrawRectRotated,
-           u32(f64, f64, f64, f64, f64, f64, u32, u32, u32, u32, u32, u32,
-               u32));
+           u32(f64, f64, f64, f64, f64, f64, u32));
 
 // Where Visual__SelectRenderTarget leaves the texture it bound.
 constexpr u32 kPrim_Texture = 0x24;

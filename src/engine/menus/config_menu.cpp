@@ -906,7 +906,7 @@ void ConfigMenu::Update(PPCContext &ctx, u8 *base) {
     u32 buttons = 0;
     for (u16 id = 0; id < kPadIdCount; ++id) {
       Source source;
-      source.kind = SourceKind::PadButton;
+      source.kind = SourceKind::kPadButton;
       source.code = id;
       if (InputSources::Get().Active(source))
         buttons |= 1u << id;

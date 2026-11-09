@@ -22,7 +22,6 @@
 #include <functional>
 
 #include "core/app_root.h"
-#include "core/encoding.h"
 #include "core/i18n.h"
 #include "core/logging.h"
 #include "core/settings.h"

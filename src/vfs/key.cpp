@@ -11,16 +11,16 @@
 #include <rex/string/utf8.h>
 #include <rex/types.h>
 
+#include "core/guest_global.h"
 #include "core/memory_helpers.h"
+#include "core/shared_globals.h"
 
 namespace bd::vfs {
 
 namespace addr {
 inline constexpr u32 kBasePath = 0x827A84F8;     // g_bdBasePath
-inline constexpr u32 kLocaleId = 0x827A8578;     // g_bdLocaleId
 inline constexpr u32 kLocaleTable = 0x82780A24;  // locale-string pointer table
 inline constexpr u32 kYYIndexArray = 0x82775710; // per-selector locale indices
-inline constexpr u32 kYYSelector = 0x82DC40D8;   // current _yy. selector
 } // namespace addr
 
 namespace {
@@ -28,7 +28,7 @@ namespace {
 std::string ReadLocaleString(int locale_index) {
   const u32 str_addr =
       mem::load<u32>(addr::kLocaleTable + static_cast<u32>(locale_index) * 4);
-  return mem::str(str_addr);
+  return mem::cstr(str_addr);
 }
 
 std::string Normalize(std::string_view raw_path, std::string_view base_path) {
@@ -59,7 +59,7 @@ std::string Normalize(std::string_view raw_path, std::string_view base_path) {
 Key Key::FromGuestPath(std::string_view raw) {
   // g_bdBasePath is fixed by bdFileSystemInit, which has run by the time any IO
   // hook fires, so one read stands for the process.
-  static const std::string base = mem::str(addr::kBasePath);
+  static const std::string base = mem::cstr(addr::kBasePath);
   return Key(Normalize(raw, base));
 }
 
@@ -82,14 +82,14 @@ Key Key::Localized() const {
   std::string result = key_;
 
   if (auto xx = result.find("_xx."); xx != std::string::npos) {
-    auto locale = ReadLocaleString(mem::load<i32>(addr::kLocaleId));
+    auto locale = ReadLocaleString(mem::global_load_fast(globals::kLocaleId));
     if (!locale.empty())
       result.replace(xx, 3, locale);
     return Key(std::move(result));
   }
 
   if (auto yy = result.find("_yy."); yy != std::string::npos) {
-    const i32 selector = mem::load<i32>(addr::kYYSelector);
+    const i32 selector = mem::global_load_fast(globals::kYYSelector);
     auto locale = ReadLocaleString(
         mem::load<i32>(addr::kYYIndexArray + static_cast<u32>(selector) * 4));
     if (!locale.empty())
@@ -99,7 +99,7 @@ Key Key::Localized() const {
 
   // _zz. is the same substitution except locale 0 drops the marker entirely.
   if (auto zz = result.find("_zz."); zz != std::string::npos) {
-    const i32 locale_id = mem::load<i32>(addr::kLocaleId);
+    const i32 locale_id = mem::global_load_fast(globals::kLocaleId);
     if (locale_id == 0) {
       result.erase(zz, 3);
     } else {

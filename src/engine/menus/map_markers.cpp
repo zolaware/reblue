@@ -69,7 +69,7 @@ constexpr UVRect kUvWrpHatenaSmall = {0.0f, 0.5f, 0.5f, 1.0f};
         PrimSetTexture(0, texture);
         for (int i = 0; i < 4; ++i)
             PrimPushVertex2D(cx + xs[i] * c - ys[i] * s, cy + xs[i] * s + ys[i] * c,
-                kSolidU, kSolidV, 0, 0, 0, 0, shaded);
+                kSolidU, kSolidV, shaded);
         PrimEnd();
         if (z - kMarkerZStep > zFloor)
             z -= kMarkerZStep;
@@ -82,10 +82,10 @@ constexpr UVRect kUvWrpHatenaSmall = {0.0f, 0.5f, 0.5f, 1.0f};
 
         PrimBegin(kTexturedQuad2D, z);
         PrimSetTexture(0, tex);
-        PrimPushVertex2D(cx - halfW, cy - halfH, uv.u0, uv.v0, 0, 0, 0, 0, shaded);
-        PrimPushVertex2D(cx - halfW, cy + halfH, uv.u0, uv.v1, 0, 0, 0, 0, shaded);
-        PrimPushVertex2D(cx + halfW, cy + halfH, uv.u1, uv.v1, 0, 0, 0, 0, shaded);
-        PrimPushVertex2D(cx + halfW, cy - halfH, uv.u1, uv.v0, 0, 0, 0, 0, shaded);
+        PrimPushVertex2D(cx - halfW, cy - halfH, uv.u0, uv.v0, shaded);
+        PrimPushVertex2D(cx - halfW, cy + halfH, uv.u0, uv.v1, shaded);
+        PrimPushVertex2D(cx + halfW, cy + halfH, uv.u1, uv.v1, shaded);
+        PrimPushVertex2D(cx + halfW, cy - halfH, uv.u1, uv.v0, shaded);
         PrimEnd();
         if (z - kMarkerZStep > zFloor)
             z -= kMarkerZStep;

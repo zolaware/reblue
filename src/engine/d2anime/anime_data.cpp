@@ -14,6 +14,7 @@
 #include <rex/hook.h>
 #include <rex/memory/byte_swap.h>
 #include <rex/ppc/stack.h>
+#include <rex/runtime/xtypes.h>
 #include <rex/types.h>
 #include <rex/string/utf8.h>
 
@@ -47,7 +48,7 @@ struct AnimeData_t;
 
 struct AnimeElement_t {
   /* 0x00 */ u8 _pad00[0xC4];
-  /* 0xC4 */ mem::GuestPtr<AnimeData_t> childAnime;
+  /* 0xC4 */ rex::be_ptr<AnimeData_t> childAnime;
   /* 0xC8 */ be_f32 timer;
 };
 static_assert(offsetof(AnimeElement_t, childAnime) == 0xC4);
@@ -55,13 +56,13 @@ static_assert(offsetof(AnimeElement_t, timer) == 0xC8);
 
 struct AnimeChainNode_t {
   /* 0x00 */ u8 _pad00[0x50];
-  /* 0x50 */ mem::GuestVec<mem::GuestPtr<AnimeElement_t>> elements;
+  /* 0x50 */ rex::be_vector<rex::be_ptr<AnimeElement_t>> elements;
 };
 static_assert(offsetof(AnimeChainNode_t, elements) == 0x50);
 
 struct AnimeData_t {
   /* 0x000 */ u8 _pad000[0xC0];
-  /* 0x0C0 */ mem::GuestVec<u32> varTracks;
+  /* 0x0C0 */ rex::be_vector<be_u32> varTracks;
   /* 0x0CC */ u8 _pad0CC[0x138 - 0xCC];
   /* 0x138 */ be_f32 length;
   /* 0x13C */ be_u32 state;
@@ -71,7 +72,7 @@ struct AnimeData_t {
   /* 0x158 */ u8 _pad158[0x160 - 0x158];
   /* 0x160 */ be_u32 childEnabled;
   /* 0x164 */ u8 _pad164[0x178 - 0x164];
-  /* 0x178 */ mem::GuestVec<mem::GuestPtr<AnimeChainNode_t>> activeChain;
+  /* 0x178 */ rex::be_vector<rex::be_ptr<AnimeChainNode_t>> activeChain;
 };
 static_assert(offsetof(AnimeData_t, varTracks) == 0x0C0);
 static_assert(offsetof(AnimeData_t, length) == 0x138);
@@ -119,17 +120,22 @@ void AnimeData::SyncActiveChain() {
   auto *self = Self<AnimeData_t>();
   if (!self || self->activeChain.size() > kMaxChainEntries)
     return;
+  const auto view = mem::view();
+  if (!view)
+    return;
   const f32 clock = self->frame;
   for (u32 i = 0; i < self->activeChain.size(); ++i) {
-    auto *node = self->activeChain[i].get();
+    const auto *nodeSlot = self->activeChain.TryAt(i, *view);
+    auto *node = nodeSlot ? nodeSlot->TryGet(*view) : nullptr;
     if (!node || node->elements.size() > kMaxChainEntries)
       continue;
     for (u32 j = 0; j < node->elements.size(); ++j) {
-      auto *element = node->elements[j].get();
+      const auto *elementSlot = node->elements.TryAt(j, *view);
+      auto *element = elementSlot ? elementSlot->TryGet(*view) : nullptr;
       if (!element)
         continue;
       element->timer = clock;
-      if (auto *child = element->childAnime.get())
+      if (auto *child = element->childAnime.TryGet(*view))
         child->childEnabled = 1;
     }
   }
@@ -140,9 +146,10 @@ void AnimeData::ApplyVarTracks(f32 frame) {
   if (!self)
     return;
   const auto &tracks = self->varTracks;
-  const u32 count = std::min<u32>(tracks.size(), kAnimeVarTrackCap);
+  const u32 count =
+      std::min<u32>(static_cast<u32>(tracks.size()), kAnimeVarTrackCap);
   for (u32 i = 0; i < count; ++i) {
-    if (const u32 track = mem::try_load<u32>(tracks.address(i)))
+    if (const u32 track = mem::try_load<u32>(tracks.GetAddress(i)))
       AnimeVarTrack_Apply(track, f64(frame));
   }
   if (count)

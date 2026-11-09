@@ -16,10 +16,10 @@
 #include <mutex>
 
 #include <plume_render_interface.h>
+#include <rex/dbg.h>
 #include <rex/memory.h>
 #include <rex/runtime.h>
 
-#include "core/profiling.h"
 
 #include "core/logging.h"
 #include "gpu/frame.h"
@@ -103,6 +103,7 @@ void DestroyResourceNow(u32 guest_va, ResourceType type) {
   case ResourceType::RenderTarget:
   case ResourceType::DepthStencil: {
     auto *tex = static_cast<GuestTexture *>(host);
+    Video::ForgetPromoted(tex);
     Video::NotifyTextureDestroyed(tex);
     ParkTextureGPUObjects(tex);
     HostResourceHeap::Free(tex);
@@ -159,7 +160,7 @@ void Video::ParkBufferUntilFence(std::unique_ptr<plume::RenderBuffer> buffer) {
 
 void RetireTextureBindingsLocked(VideoState &s, GuestTexture *dead) {
   if (dead->framebufferAttached) {
-    BD_CPU_ZONE("FbCacheInvalidate");
+    REX_PROFILE_SCOPE("FbCacheInvalidate");
     const plume::RenderTexture *deadTex = dead->texture;
     for (auto it = s.framebuffer_owners.begin();
          it != s.framebuffer_owners.end();) {

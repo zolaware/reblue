@@ -86,6 +86,13 @@ public:
   // once if it is a plain render-capable 2D texture nothing has written yet.
   static void PromoteForGPUWrite(GuestTexture *tex);
 
+  // Drops a texture from the promoted set. Call before it is freed.
+  static void ForgetPromoted(GuestTexture *tex);
+
+  // Once per Output generation step: moves every host-scaled texture and
+  // surface to the new per-axis scale. The engine never sees a size change.
+  static void ApplyHostScaleChange();
+
   static void NotifyTextureDestroyed(GuestTexture *dead);
 
   static void ReissueSurface(GuestTexture *surface);
