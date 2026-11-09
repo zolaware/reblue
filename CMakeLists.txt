@@ -4,7 +4,7 @@
 # SDK boilerplate lives in generated/rexglue.cmake.
 
 cmake_minimum_required(VERSION 3.25)
-project(reblue VERSION 1.3.1 LANGUAGES C CXX)
+project(reblue VERSION 1.4.0 LANGUAGES C CXX)
 
 include(CMakeDependentOption)
 
@@ -183,7 +183,8 @@ foreach(target IN LISTS REBLUE_TARGETS)
         target_sources(${target} PRIVATE res/windows/reblue.rc res/windows/reblue.manifest)
     endif()
 
-    rexglue_setup_target(${target})
+    rexglue_setup_target(${target}
+        EXCLUDE rexgpu-xenos-null rexgpu-xenos-vulkan rexgpu-xenos-d3d12)
 
     target_link_libraries(${target} PRIVATE
         reblue_common
