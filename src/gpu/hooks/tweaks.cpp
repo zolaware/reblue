@@ -29,6 +29,7 @@
 #include "gpu/host_resource_heap.h"
 #include "gpu/output.h"
 #include "gpu/settings.h"
+#include "gpu/surface_registry.h"
 
 namespace {
 constexpr u32 kScreenUVScaleReg = 50;
@@ -132,11 +133,13 @@ REX_MIDASM_HOOK(bdReflectionResolutionScaleHook, (PPCRegister &r31)) {
   u32 fit_w = 0;
   u32 fit_h = 0;
   if (quality != bd::gpu::ReflectionQuality::Low &&
-      bd::gpu::Output::RenderSize(fit_w, fit_h)) {
+      bd::gpu::Output::LogicalSize(fit_w, fit_h)) {
     const f64 rate = quality == bd::gpu::ReflectionQuality::High
                          ? bd::gpu::SceneRenderScale()
                          : 1.0;
-    const f64 density = bd::gpu::Output::RenderDensity();
+    const f64 density = bd::gpu::Output::HostScalingActive()
+                            ? 1.0
+                            : bd::gpu::Output::RenderDensity();
     const u32 scene_w = static_cast<u32>(fit_w * rate) & ~31u;
     const u32 scaled = std::min(
         static_cast<u32>(stock * density * rate + 0.5) & ~31u, scene_w);
@@ -180,9 +183,18 @@ REX_MIDASM_HOOK(bdShadowResolutionScaleHook, (PPCRegister &r3, PPCRegister &r4))
   const u32 d = static_cast<u32>(bd::gpu::Settings::Get().ShadowDimension());
   r3.u32 = d;
   r4.u32 = d;
+  bd::gpu::SurfaceRegistry::ExemptNext(d, d);
 }
 REX_MIDASM_AT(bdShadowResolutionScaleHook, 0x821871E4, before, r3, r4);
 REX_MIDASM_AT(bdShadowResolutionScaleHook, 0x8217517C, before, r3, r4);
+
+// The cube shadow depth surface and the second shadow map texture are created
+// at sizes of their own.
+REX_MIDASM_HOOK(bdShadowTargetExemptHook, (PPCRegister &r3, PPCRegister &r4)) {
+  bd::gpu::SurfaceRegistry::ExemptNext(r3.u32, r4.u32);
+}
+REX_MIDASM_AT(bdShadowTargetExemptHook, 0x8218746C, before, r3, r4);
+REX_MIDASM_AT(bdShadowTargetExemptHook, 0x821751C4, before, r3, r4);
 
 REX_MIDASM_HOOK(bdShadowMapTextureResizeHook, (PPCRegister &r31)) {
   auto *info = bd::mem::at<bd::gpu::ShadowMapInfo>(r31.u32);
@@ -284,8 +296,8 @@ REX_MIDASM_AT(bdWaterSpecIntensityClampHook, 0x824547B8, before, r3);
 // The NDC->UV half-scale is always 0.5, but the guest derives it as
 // sceneRT.dim/1280x720*0.5, so every resolution setting leaks into screen-space
 // FX. Pixel stage only: Toon/Fur/caustics/cloud author VS reg50 as their own
-// per-object data. BD writes reg50 inline with no FN setter, so nothing else
-// marks the constants dirty and the upload carrying this pin would be skipped.
+// per-object data. The hook runs right before the writer ORs its group into
+// m_Mask[1], so the pin rides the same upload.
 REX_MIDASM_HOOK(bdCameraRefractionUvScaleHook, (PPCRegister &r11)) {
   auto *dev = bd::mem::at<bd::gpu::D3DDevice>(r11.u32);
   if (!dev)
@@ -293,7 +305,6 @@ REX_MIDASM_HOOK(bdCameraRefractionUvScaleHook, (PPCRegister &r11)) {
   be_f32 *ps = dev->psFloatConstants[kScreenUVScaleReg];
   ps[0] = 0.5f;
   ps[1] = 0.5f;
-  bd::gpu::Video::MarkPSConstantsDirty();
 }
 REX_MIDASM_AT(bdCameraRefractionUvScaleHook, 0x82142FAC, before, r11);
 REX_MIDASM_AT(bdCameraRefractionUvScaleHook, 0x8213d034, before, r11);
@@ -313,15 +324,6 @@ REX_MIDASM_HOOK(bdMotionBlurQuadInsetHook, (PPCRegister &r5)) {
   }
 }
 REX_MIDASM_AT(bdMotionBlurQuadInsetHook, 0x8213d18c, before, r5);
-
-// The fur shell loop writes edgeRW (VS c51) inline per shell, where .z =
-// shell/N is the volume slice and .y the extrusion, bypassing
-// SetVertexShaderConstantFN, so nothing else marks the constants dirty between
-// shells.
-REX_MIDASM_HOOK(bdFurShellConstantsDirtyHook, ()) {
-  bd::gpu::Video::MarkVSConstantsDirty();
-}
-REX_MIDASM_AT(bdFurShellConstantsDirtyHook, 0x8227FBD4, before);
 
 // The engine drops a 2D prim with no trace when the Visual::Tag frame pool has
 // under 0x25A00 bytes free, which is indistinguishable from a task never

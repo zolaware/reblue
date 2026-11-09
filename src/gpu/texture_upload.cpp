@@ -9,6 +9,7 @@
  */
 #include "gpu/frame.h"
 
+#include <atomic>
 #include <memory>
 #include <mutex>
 #include <vector>
@@ -70,8 +71,7 @@ GuestTexture *BuildBCMirrorCore(const BCMirrorDesc &d,
     return nullptr;
 
   auto *t = new GuestTexture(d.resource_type);
-  t->width = d.width;
-  t->height = d.height;
+  t->SetSize(d.width, d.height);
   t->depth = d.depth;
   t->mipLevels = d.mip_levels;
   t->format = d.format;
@@ -79,8 +79,8 @@ GuestTexture *BuildBCMirrorCore(const BCMirrorDesc &d,
 
   plume::RenderTextureDesc desc;
   desc.dimension = d.tex_dim;
-  desc.width = d.width;
-  desc.height = d.height;
+  desc.width = t->hostWidth;
+  desc.height = t->hostHeight;
   desc.depth = (d.depth > 0) ? d.depth : 1;
   desc.mipLevels = d.mip_levels;
   desc.arraySize = d.array_size;
@@ -293,6 +293,15 @@ void UploadTextureFromMapped(GuestTexture *tex) {
   BD_CPU_ZONE("UploadTextureFromMapped");
   if (!tex || !tex->texture || !tex->mappedMemory)
     return;
+  tex->cpuWritten = true;
+  if (tex->scaleX != 1.0f || tex->scaleY != 1.0f) {
+    static std::atomic<bool> warned{false};
+    if (!warned.exchange(true, std::memory_order_relaxed)) {
+      REXLOG_WARN(bd, "UploadTextureFromMapped on a host-scaled texture "
+                      "{}x{} (host {}x{})",
+                  tex->width, tex->height, tex->hostWidth, tex->hostHeight);
+    }
+  }
   auto &s = state();
   std::lock_guard lock(s.mutex);
   if (!s.ready)
@@ -332,7 +341,7 @@ void UploadTextureFromMapped(GuestTexture *tex) {
   s.command_list->copyTextureRegion(
       plume::RenderTextureCopyLocation::Subresource(tex->texture, 0),
       plume::RenderTextureCopyLocation::PlacedFootprint(
-          up.ref.ref, tex->format, tex->width, tex->height, 1, pitch / texel,
+          up.ref.ref, tex->format, tex->hostWidth, tex->hostHeight, 1, pitch / texel,
           up.ref.offset));
 
   plume::RenderTextureBarrier post(tex->texture,

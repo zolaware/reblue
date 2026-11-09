@@ -20,6 +20,12 @@ public:
   static GuestTexture *Get(u32 width, u32 height, u32 guest_format,
                            u32 sample_count);
 
+  // The next surface or texture created on this thread keeps scale 1 if it has
+  // these dims. Any create clears the pending exemption, matched or not, so a
+  // site whose create is skipped cannot leak it to a later one.
+  static void ExemptNext(u32 width, u32 height);
+  static bool TakeExemption(u32 width, u32 height);
+
   static void Tick();
 };
 

@@ -42,6 +42,23 @@ public:
 
   static double RenderDensity();
 
+  // Whether bd_host_scale is on. Latched at first use, since the engine and
+  // the host have to agree on it for the whole run.
+  static bool HostScalingActive();
+
+  // The size BD is told its render target is: the render rect, or false when
+  // the host owns the scale or the rect is not known yet. The output res hooks
+  // that rewrite engine dims all key on this.
+  static bool EngineSize(u32 &w, u32 &h);
+
+  // The size BD's own targets have, which full-frame tests compare against.
+  // The design canvas when the host owns the scale.
+  static bool LogicalSize(u32 &w, u32 &h);
+
+  // Per-axis ratio of the render rect to the design canvas, the scale a host
+  // target is allocated at. Both 1 unless the host owns the scale.
+  static void HostScale(float &kx, float &ky);
+
   // The ratio bd_aspect_ratio asks for, or 0 to take whatever the window is.
   static double ConfiguredAspect();
 

@@ -1,11 +1,9 @@
 /**
  * @file    gpu/physical_buffers.cpp
  * @brief   Real geometry bypasses D3DDevice_CreateVertexBuffer. The
- *          bdPhysical*BufferCreate and bdSceneGraphRegister midasm feeders
- *          wrap already-loaded physical memory into an
- *          IDirect3DVertexBuffer9-layout struct, so the registry keys host
- *          GuestBuffers by struct VA for SetStreamSource and SetIndices to
- *          resolve.
+ *          XGOffsetResourceAddress hook registers the engine's physical vertex
+ *          and index buffers, so the registry keys host GuestBuffers by struct
+ *          VA for SetStreamSource and SetIndices to resolve.
  * @copyright Copyright (c) 2026 Tom Clay <tomc@tctechstuff.com>
  *            All rights reserved.
  * @license   BSD 3-Clause License
@@ -21,9 +19,9 @@
 
 #include <plume_render_interface.h>
 #include <plume_render_interface_builders.h>
-#include <rex/memory/byte_swap.h>
 
 #include <rex/hook.h>
+#include <rex/memory/byte_swap.h>
 #include <rex/ppc.h>
 #include <rex/runtime.h>
 #include <rex/types.h>
@@ -449,10 +447,9 @@ bd::gpu::GuestBuffer *FindPhysicalBufferByStruct(u32 struct_va) {
 
 // Rebuild a GuestBuffer from a fully initialized X360 D3DIndexBuffer /
 // D3DVertexBuffer struct: asset-loaded meshes patched by an unhooked loader,
-// which is most of the scene geometry. Xenos fetch constant encoding, preserved
-// through XGOffsetResourceAddress:
-//   struct[+0x18] = base_va | tag_bits
-//   struct[+0x1C] = (size & 0x3FFFFFC) | 0x10000002
+// which is most of the scene geometry. The header after XGOffsetResourceAddress:
+//   struct[+0x18] = base_va, with | 3 in a vertex buffer
+//   struct[+0x1C] = size, with | 0x10000002 in a vertex buffer
 //   struct[+0x00] bit 31 = index format flag (1 = INDEX32, 0 = INDEX16)
 bd::gpu::GuestBuffer *
 AdoptPhysicalBuffer(u32 struct_va, bd::gpu::ResourceType rtype) {
@@ -511,112 +508,45 @@ void DrainBufferGraveyard(u32 slot) {
 
 } // namespace bd::gpu
 
+// The engine hands every physical vertex and index buffer here once its data
+// sits in the geometry block. The base is patched the way the original does, by
+// the Common type bits and not through D3DResource_GetType, which the host
+// answers with 0 for these structs. Nothing else calls this function.
+REX_IMPORT(__imp__XGOffsetResourceAddress, OriginalXGOffsetResourceAddress,
+           void(u32, u32));
+
 namespace {
 
-// The guest builds an IDirect3DVertexBuffer9 struct in out_buffer:
-//   [0x00] (type << 29) | 2, plus 0x200000 if flags&4,
-//          plus 0x400000 if flags&0x200
-//   [0x14] 0xFFFF0000                               BaseFlush
-//   [0x18] size                                     Size
-//   [0x1C] base_va                                  BaseAddress
-// The 16 bytes between +0x04 and +0x14 stay zeroed. Replicate that verbatim and
-// register (base_va, size) so draw-time fetch decode resolves it.
-u32 bdPhysicalVertexBufferCreate_hook(
-    u32 base_va, u32 flags_short, u32 type_bits, u32 /*unused*/, u32 size,
-    rex::MappedPtr<bd::gpu::D3DVertexBuffer> vb) {
-  if (vb) {
-    u32 common = 2u;
-    if (flags_short & 0x004u)
-      common = 0x200002u;
-    if (flags_short & 0x200u)
-      common |= 0x400000u;
-    vb->resource.Common = (type_bits << 29) | common;
-    vb->resource.ReferenceCount = 0u;
-    vb->resource.Fence = 0u;
-    vb->resource.ReadFence = 0u;
-    vb->resource.Identifier = 0u;
-    vb->resource.BaseFlush = 0xFFFF0000u;
-    vb->FetchLo = size;
-    vb->FetchHi = base_va;
+void XGOffsetResourceAddress_hook(u32 resource, u32 base) {
+  auto *header = bd::mem::at<bd::gpu::D3DVertexBuffer>(resource);
+  if (!header) {
+    OriginalXGOffsetResourceAddress(resource, base);
+    return;
   }
-  RegisterPhysicalGeometry(vb.GetGuestAddress(), base_va, size,
-                           bd::gpu::ResourceType::VertexBuffer,
-                           /*element_size=*/4, plume::RenderFormat::UNKNOWN);
-  return vb.GetGuestAddress();
-}
-
-// The guest builds an IDirect3DIndexBuffer9 struct in out_buffer:
-//   [0x00] 1, plus 0x200000 if flags&4, plus 0x400000 if flags&0x200
-//   [0x04] 1                                        ReferenceCount
-//   [0x14] 0xFFFF0000                               BaseFlush
-//   [0x18] size | 3                                 Size with low bits
-//   [0x1C] (base_va & 0x3FFFFFC) | 0x10000002       BaseAddress + flags
-// Register the raw pre-mask base_va so draw-time IB resolution finds it: the
-// mask trims to physical memory bounds, but the data lives at the unmasked VA.
-u32 bdPhysicalIndexBufferCreate_hook(
-    u32 base_va, u32 flags_short, u32 /*type_bits*/, u32 size,
-    rex::MappedPtr<bd::gpu::D3DIndexBuffer> ib) {
-  if (ib) {
-    u32 common = 1u;
-    if (flags_short & 0x004u)
-      common = 0x200001u;
-    if (flags_short & 0x200u)
-      common |= 0x400000u;
-    ib->resource.Common = common;
-    ib->resource.ReferenceCount = 1u;
-    ib->resource.Fence = 0u;
-    ib->resource.ReadFence = 0u;
-    ib->resource.Identifier = 0u;
-    ib->resource.BaseFlush = 0xFFFF0000u;
-    ib->FetchLo = size | 3u;
-    ib->FetchHi = (base_va & 0x3FFFFFCu) | 0x10000002u;
+  const u32 type = u32(header->resource.Common) & 0xFu;
+  const u32 fetch_lo = header->FetchLo;
+  const u32 fetch_hi = header->FetchHi;
+  if (type == u32(bd::gpu::D3DResourceType::kVertexBuffer)) {
+    header->FetchLo = (((fetch_lo & ~3u) + base) & ~3u) | (fetch_lo & 3u);
+    RegisterPhysicalGeometry(resource, base, fetch_hi & 0x03FFFFFCu,
+                             bd::gpu::ResourceType::VertexBuffer,
+                             /*element_size=*/4, plume::RenderFormat::UNKNOWN);
+  } else if (type == u32(bd::gpu::D3DResourceType::kIndexBuffer)) {
+    header->FetchLo = fetch_lo + base;
+    const bool index32 = (u32(header->resource.Common) & 0x80000000u) != 0;
+    RegisterPhysicalGeometry(resource, base, fetch_hi,
+                             bd::gpu::ResourceType::IndexBuffer,
+                             index32 ? 4u : 2u,
+                             index32 ? plume::RenderFormat::R32_UINT
+                                     : plume::RenderFormat::R16_UINT);
+  } else {
+    OriginalXGOffsetResourceAddress(resource, base);
   }
-  // Common bit 31 stays clear, so this is INDEX16: element_size=2 makes the
-  // upload bswap16 per index instead of bswap32 per dword, which would swap
-  // adjacent index pairs and corrupt strip IBs.
-  RegisterPhysicalGeometry(ib.GetGuestAddress(), base_va, size,
-                           bd::gpu::ResourceType::IndexBuffer,
-                           /*element_size=*/2, plume::RenderFormat::R16_UINT);
-  return ib.GetGuestAddress();
 }
 
 } // namespace
 
-REX_HOOK(bdPhysicalVertexBufferCreate, bdPhysicalVertexBufferCreate_hook);
-REX_HOOK(bdPhysicalIndexBufferCreate, bdPhysicalIndexBufferCreate_hook);
-
-// Midasm hook bodies. The generated recompiler dispatch externs these by name,
-// so neither the names nor the register order may change: see
-// config/hooks/geometry.toml. INDEX16 needs bswap16 per index, not bswap32 per
-// dword, which would swap adjacent index pairs at 4-byte boundaries.
-REX_MIDASM_HOOK(bdSceneGraphRegisterIBHook, (PPCRegister &r3, PPCRegister &r4, PPCRegister &r30)) {
-  const u32 struct_va = r3.u32;
-  const u32 base_addr = r4.u32;
-  const u32 size_bytes = r30.u32;
-  if (!struct_va || !base_addr || !size_bytes)
-    return;
-  const auto *ib = bd::mem::at<const bd::gpu::D3DIndexBuffer>(struct_va);
-  const bool index32 = ib && (ib->resource.Common & 0x80000000u) != 0;
-  const plume::RenderFormat ib_format =
-      index32 ? plume::RenderFormat::R32_UINT : plume::RenderFormat::R16_UINT;
-  RegisterPhysicalGeometry(struct_va, base_addr, size_bytes,
-                           bd::gpu::ResourceType::IndexBuffer,
-                           index32 ? 4u : 2u, ib_format);
-}
-REX_MIDASM_AT(bdSceneGraphRegisterIBHook, 0x8227E248, before, r3, r4, r30);
-
-// VB midasm hook. Fires.
-REX_MIDASM_HOOK(bdSceneGraphRegisterVBHook, (PPCRegister &r3, PPCRegister &r4, PPCRegister &r31)) {
-  const u32 struct_va = r3.u32;
-  const u32 base_addr = r4.u32;
-  const u32 size_bytes = r31.u32;
-  if (!struct_va || !base_addr || !size_bytes)
-    return;
-  RegisterPhysicalGeometry(struct_va, base_addr, size_bytes,
-                           bd::gpu::ResourceType::VertexBuffer,
-                           /*element_size=*/4, plume::RenderFormat::UNKNOWN);
-}
-REX_MIDASM_AT(bdSceneGraphRegisterVBHook, 0x8227E540, before, r3, r4, r31);
+REX_HOOK(XGOffsetResourceAddress, XGOffsetResourceAddress_hook);
 
 // Only the two fields read here are named.
 struct BdSceneGraphObject {

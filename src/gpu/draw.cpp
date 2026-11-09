@@ -28,10 +28,6 @@
 namespace bd::gpu {
 namespace {
 
-// BD g_renderStateCache: DWORD array indexed by D3DRS byte offset, written
-// only by bdSetRenderState.
-constexpr u32 kRenderStateCacheVa = 0x82DBE1A8;
-
 // Guest D3DRENDERSTATETYPE byte offsets. Only the fields
 // ReadDeviceRenderState consumes are modeled.
 struct BdRenderStateCache {
@@ -56,21 +52,21 @@ struct BdRenderStateCache {
   u8 pad_0090[212 - 144];  // +0x90
   be_u32 colorWriteEnable; // +0xD4 (212) D3DRS_COLORWRITEENABLE
 };
-static_assert(offsetof(BdRenderStateCache, zEnable) == 40);
-static_assert(offsetof(BdRenderStateCache, zFunc) == 44);
-static_assert(offsetof(BdRenderStateCache, zWriteEnable) == 48);
-static_assert(offsetof(BdRenderStateCache, fillMode) == 52);
-static_assert(offsetof(BdRenderStateCache, cullMode) == 56);
-static_assert(offsetof(BdRenderStateCache, stencilEnable) == 108);
-static_assert(offsetof(BdRenderStateCache, twoSidedStencilMode) == 112);
-static_assert(offsetof(BdRenderStateCache, stencilFail) == 116);
-static_assert(offsetof(BdRenderStateCache, stencilZFail) == 120);
-static_assert(offsetof(BdRenderStateCache, stencilPass) == 124);
-static_assert(offsetof(BdRenderStateCache, stencilFunc) == 128);
-static_assert(offsetof(BdRenderStateCache, stencilRef) == 132);
-static_assert(offsetof(BdRenderStateCache, stencilMask) == 136);
-static_assert(offsetof(BdRenderStateCache, stencilWriteMask) == 140);
-static_assert(offsetof(BdRenderStateCache, colorWriteEnable) == 212);
+static_assert(offsetof(BdRenderStateCache, zEnable) == 0x28);
+static_assert(offsetof(BdRenderStateCache, zFunc) == 0x2C);
+static_assert(offsetof(BdRenderStateCache, zWriteEnable) == 0x30);
+static_assert(offsetof(BdRenderStateCache, fillMode) == 0x34);
+static_assert(offsetof(BdRenderStateCache, cullMode) == 0x38);
+static_assert(offsetof(BdRenderStateCache, stencilEnable) == 0x6C);
+static_assert(offsetof(BdRenderStateCache, twoSidedStencilMode) == 0x70);
+static_assert(offsetof(BdRenderStateCache, stencilFail) == 0x74);
+static_assert(offsetof(BdRenderStateCache, stencilZFail) == 0x78);
+static_assert(offsetof(BdRenderStateCache, stencilPass) == 0x7C);
+static_assert(offsetof(BdRenderStateCache, stencilFunc) == 0x80);
+static_assert(offsetof(BdRenderStateCache, stencilRef) == 0x84);
+static_assert(offsetof(BdRenderStateCache, stencilMask) == 0x88);
+static_assert(offsetof(BdRenderStateCache, stencilWriteMask) == 0x8C);
+static_assert(offsetof(BdRenderStateCache, colorWriteEnable) == 0xD4);
 
 // Blend state comes from the Xenos register shadow, where the guest SDK folds
 // AlphaBlendEnable and friends together across many call sites.
@@ -120,8 +116,11 @@ void ReadDeviceRenderState(VideoState &s, u32 device_guest) {
     // reach the host only here: they bracket their draws in
     // bdSetRenderState(D3DRS_FILLMODE) with no other host-visible signal.
     Video::SetDirtyValue(dirty, ps.fillMode, ConvertFillMode(rs->fillMode));
+    const i32 color_write_override = Video::ColorWriteOverride();
     Video::SetDirtyValue(dirty, ps.colorWriteEnable,
-                         rs->colorWriteEnable & 0xFu);
+                         color_write_override >= 0
+                             ? static_cast<u32>(color_write_override) & 0xFu
+                             : rs->colorWriteEnable & 0xFu);
 
     auto mask_or_default = [](be_u32 v) -> u8 {
       return v ? static_cast<u8>(v & 0xFFu) : 0xFFu;
@@ -143,6 +142,23 @@ void ReadDeviceRenderState(VideoState &s, u32 device_guest) {
                          mask_or_default(rs->stencilMask));
     Video::SetDirtyValue(dirty, ps.stencilWriteMask,
                          mask_or_default(rs->stencilWriteMask));
+  }
+}
+
+// Every writer of the float constant shadows ORs its register group into
+// m_Mask[0] (VS) or m_Mask[1] (PS), as the original draw prologue expects. The
+// hooked draws never clear them, so they are consumed here.
+void FlushDirtyConstantMasks(VideoState &s, u32 device_guest) {
+  auto *dev = bd::mem::at<D3DDevice>(device_guest);
+  if (!dev)
+    return;
+  if (u64(dev->m_Mask[0]) != 0) {
+    s.dirtyStates.vertexShaderConstants = true;
+    dev->m_Mask[0] = 0;
+  }
+  if (u64(dev->m_Mask[1]) != 0) {
+    s.dirtyStates.pixelShaderConstants = true;
+    dev->m_Mask[1] = 0;
   }
 }
 } // namespace
@@ -249,11 +265,12 @@ bool Video::FlushRenderStateLocked(u32 device_guest) {
     return false;
   }
 
-  // The Set*ShaderConstant wrappers dirty-track these, so clean means the bound
+  // The engine's pending masks dirty-track these, so clean means the bound
   // constants are still live and the 4 KiB byte swap upload can be skipped.
-  // Vulkan push offsets 0/8/16 follow the guest PushConstants member order
-  // emitted by the recompiler.
+  // Vulkan push offsets 0/8/16 follow the PushConstants member order emitted by
+  // the recompiler.
   if (device_guest) {
+    FlushDirtyConstantMasks(s, device_guest);
     if (s.dirtyStates.vertexShaderConstants) {
       auto vs_alloc = UploadVertexShaderConstants(device_guest);
       if (vs_alloc.size) {

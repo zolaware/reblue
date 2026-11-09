@@ -545,6 +545,8 @@ u32 D3DDevice_Resolve_hook(u32 /*device_guest*/, u32 Flags, u32 /*pSourceRect*/,
     }
     return 0;
   }
+  if (DestLevel == 0)
+    bd::gpu::Video::PromoteForGPUWrite(dst);
   bd::gpu::Video::TrackResolveSource(Flags, dst, DestLevel, DestSliceOrFace);
   bd::gpu::Video::ResolveRtToTexture(dst);
   return 0;
@@ -586,6 +588,7 @@ u32 D3DDevice_EndTiling_hook(u32 /*device_guest*/, u32 ResolveFlags,
     }
     return 0;
   }
+  bd::gpu::Video::PromoteForGPUWrite(dst);
   bd::gpu::Video::TrackResolveSource(ResolveFlags, dst);
   bd::gpu::Video::ResolveRtToTexture(dst);
   return 0;

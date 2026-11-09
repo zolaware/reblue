@@ -7,6 +7,7 @@
  */
 #include "gpu/surface_registry.h"
 
+#include <functional>
 #include <mutex>
 #include <rex/types.h>
 #include <unordered_map>
@@ -20,6 +21,7 @@
 #include "gpu/device.h"
 #include "gpu/format.h"
 #include "gpu/host_resource_heap.h"
+#include "gpu/output.h"
 #include "gpu/resources.h"
 
 namespace bd::gpu {
@@ -28,11 +30,34 @@ namespace {
 
 constexpr u64 kIdleFramesBeforeRetire = 900;
 
-u64 MakeKey(u32 width, u32 height, u32 plume_format, u32 sample_count,
-            bool is_depth) {
-  return (u64(width & 0xFFFF)) | (u64(height & 0xFFFF) << 16) |
-         (u64(plume_format & 0xFF) << 32) | (u64(sample_count & 0xF) << 40) |
-         (u64(is_depth ? 1u : 0u) << 44);
+struct PendingExemption {
+  bool set = false;
+  u32 width = 0;
+  u32 height = 0;
+};
+thread_local PendingExemption t_exempt_next;
+
+struct Key {
+  u64 shape = 0;
+  u64 host = 0;
+  bool operator==(const Key &o) const {
+    return shape == o.shape && host == o.host;
+  }
+};
+
+struct KeyHash {
+  size_t operator()(const Key &k) const {
+    return std::hash<u64>()(k.shape) ^ (std::hash<u64>()(k.host) * 0x9E3779B1u);
+  }
+};
+
+Key MakeKey(u32 width, u32 height, u32 plume_format, u32 sample_count,
+            bool is_depth, u32 host_width, u32 host_height) {
+  return {(u64(width & 0xFFFF)) | (u64(height & 0xFFFF) << 16) |
+              (u64(plume_format & 0xFF) << 32) |
+              (u64(sample_count & 0xF) << 40) |
+              (u64(is_depth ? 1u : 0u) << 44),
+          (u64(host_width) << 32) | host_height};
 }
 
 struct Entry {
@@ -42,7 +67,7 @@ struct Entry {
 
 struct Registry {
   std::mutex mutex;
-  std::unordered_map<u64, std::vector<Entry>> surfaces;
+  std::unordered_map<Key, std::vector<Entry>, KeyHash> surfaces;
   u64 frame = 0;
 };
 
@@ -56,8 +81,8 @@ bool Held(const GuestTexture *surface) {
 }
 
 GuestTexture *CreateSurface(u32 width, u32 height, u32 guest_format,
-                            plume::RenderFormat plume_format,
-                            u32 sample_count) {
+                            plume::RenderFormat plume_format, u32 sample_count,
+                            float scale_x, float scale_y) {
   const bool is_depth = IsDepthFormat(plume_format);
   auto *surface = HostResourceHeap::Alloc<GuestTexture>(
       is_depth ? ResourceType::DepthStencil : ResourceType::RenderTarget);
@@ -70,8 +95,11 @@ GuestTexture *CreateSurface(u32 width, u32 height, u32 guest_format,
 
   plume::RenderTextureDesc desc;
   desc.dimension = plume::RenderTextureDimension::TEXTURE_2D;
-  desc.width = width;
-  desc.height = height;
+  surface->scaleX = scale_x;
+  surface->scaleY = scale_y;
+  surface->SetSize(width, height);
+  desc.width = surface->hostWidth;
+  desc.height = surface->hostHeight;
   desc.depth = 1;
   desc.mipLevels = 1;
   desc.arraySize = 1;
@@ -97,8 +125,6 @@ GuestTexture *CreateSurface(u32 width, u32 height, u32 guest_format,
   } else {
     REXLOG_ERROR(bd, "CreateSurface fired before Video host device exists");
   }
-  surface->width = width;
-  surface->height = height;
   surface->format = plume_format;
   surface->guestFormat = guest_format;
   surface->viewDimension = plume::RenderTextureViewDimension::TEXTURE_2D;
@@ -112,7 +138,7 @@ void ResetIssuedSurface(GuestTexture *surface, u32 guest_format,
   InitResourceHeader(surface->x360.as_surface.resource,
                      D3DResourceType::kSurface);
   Video::ReissueSurface(surface);
-  surface->resolveScale = 1.0f;
+  surface->resolveExpScale = 1.0f;
   surface->resolveLevel = 0;
   surface->resolveFace = 0;
   surface->pendingDestroy = false;
@@ -130,8 +156,14 @@ GuestTexture *SurfaceRegistry::Get(u32 width, u32 height, u32 guest_format,
                                    u32 sample_count) {
   const plume::RenderFormat plume_format = ConvertGuestFormat(guest_format);
   const bool is_depth = IsDepthFormat(plume_format);
-  const u64 key = MakeKey(width, height, static_cast<u32>(plume_format),
-                          sample_count, is_depth);
+  float scale_x = 1.0f;
+  float scale_y = 1.0f;
+  if (!TakeExemption(width, height))
+    Output::HostScale(scale_x, scale_y);
+  const Key key = MakeKey(width, height, static_cast<u32>(plume_format),
+                          sample_count, is_depth,
+                          GuestTexture::HostExtent(width, scale_x),
+                          GuestTexture::HostExtent(height, scale_y));
   Registry &r = registry();
   GuestTexture *surface = nullptr;
   {
@@ -146,7 +178,7 @@ GuestTexture *SurfaceRegistry::Get(u32 width, u32 height, u32 guest_format,
     }
     if (!surface) {
       surface = CreateSurface(width, height, guest_format, plume_format,
-                              sample_count);
+                              sample_count, scale_x, scale_y);
       if (!surface) {
         if (entries.empty())
           r.surfaces.erase(key);
@@ -158,6 +190,16 @@ GuestTexture *SurfaceRegistry::Get(u32 width, u32 height, u32 guest_format,
   }
   ResetIssuedSurface(surface, guest_format, is_depth);
   return surface;
+}
+
+void SurfaceRegistry::ExemptNext(u32 width, u32 height) {
+  t_exempt_next = {true, width, height};
+}
+
+bool SurfaceRegistry::TakeExemption(u32 width, u32 height) {
+  const PendingExemption pending = t_exempt_next;
+  t_exempt_next = {};
+  return pending.set && pending.width == width && pending.height == height;
 }
 
 void SurfaceRegistry::Tick() {

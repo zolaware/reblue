@@ -74,7 +74,7 @@ private:
 
 bool OutputResActive() {
   u32 w, h;
-  return bd::gpu::Output::RenderSize(w, h);
+  return bd::gpu::Output::EngineSize(w, h);
 }
 
 } // namespace

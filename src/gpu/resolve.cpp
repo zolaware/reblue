@@ -43,8 +43,8 @@ GuestTexture *ResolveSourceForFlagsLocked(VideoState &s, u32 flags) {
 bool CanAliasResolveLocked(const GuestTexture *src, const GuestTexture *dst) {
   return src && dst && src != dst && src->texture && dst->texture &&
          src->sampleCount == plume::RenderSampleCount::COUNT_1 &&
-         src->width == dst->width && src->height == dst->height &&
-         src->format == dst->format && dst->resolveScale == 1.0f &&
+         src->hostWidth == dst->hostWidth && src->hostHeight == dst->hostHeight &&
+         src->format == dst->format && dst->resolveExpScale == 1.0f &&
          dst->viewDimension !=
              plume::RenderTextureViewDimension::TEXTURE_CUBE &&
          dst->mipLevels <= 1 && src->descriptorIndex != kInvalidDescriptorIndex;
@@ -89,9 +89,9 @@ bool CopySurfaceToTextureLocked(VideoState &s, GuestTexture *src,
   InitializeTargetLocked(s, dst);
 
   const bool dims_match =
-      src->width == dst->width && src->height == dst->height;
+      src->hostWidth == dst->hostWidth && src->hostHeight == dst->hostHeight;
   const bool format_match = src->format == dst->format;
-  const float resolve_scale = dst->resolveScale;
+  const float resolve_scale = dst->resolveExpScale;
   const bool needs_scale = (resolve_scale != 1.0f);
   const bool dst_is_cube =
       dst->viewDimension == plume::RenderTextureViewDimension::TEXTURE_CUBE;
@@ -205,10 +205,11 @@ bool CopySurfaceToTextureLocked(VideoState &s, GuestTexture *src,
 
     s.command_list->setFramebuffer(dst_fb);
     s.command_list->setViewports(
-        plume::RenderViewport(0.0f, 0.0f, static_cast<float>(dst->width),
-                              static_cast<float>(dst->height)));
+        plume::RenderViewport(0.0f, 0.0f, static_cast<float>(dst->hostWidth),
+                              static_cast<float>(dst->hostHeight)));
     s.command_list->setScissors(plume::RenderRect(
-        0, 0, static_cast<i32>(dst->width), static_cast<i32>(dst->height)));
+        0, 0, static_cast<i32>(dst->hostWidth),
+        static_cast<i32>(dst->hostHeight)));
     plume::RenderPipeline *pipeline = nullptr;
     if (src->sampleCount != plume::RenderSampleCount::COUNT_1) {
       pipeline = GetOrCreateResolveMSAAPipeline(s, dst->format,
@@ -231,11 +232,12 @@ bool CopySurfaceToTextureLocked(VideoState &s, GuestTexture *src,
 
     u32 box_ratio = 0u;
     if (!depth_dst && src->sampleCount == plume::RenderSampleCount::COUNT_1 &&
-        dst->width != 0u && dst->height != 0u && src->width > dst->width &&
-        src->height > dst->height && (src->width % dst->width) == 0u &&
-        (src->height % dst->height) == 0u &&
-        (src->width / dst->width) == (src->height / dst->height)) {
-      box_ratio = src->width / dst->width;
+        dst->hostWidth != 0u && dst->hostHeight != 0u &&
+        src->hostWidth > dst->hostWidth && src->hostHeight > dst->hostHeight &&
+        (src->hostWidth % dst->hostWidth) == 0u &&
+        (src->hostHeight % dst->hostHeight) == 0u &&
+        (src->hostWidth / dst->hostWidth) == (src->hostHeight / dst->hostHeight)) {
+      box_ratio = src->hostWidth / dst->hostWidth;
     }
 
     struct CopyPushConstants {
@@ -287,10 +289,11 @@ bool ClearColorTargetLocked(VideoState &s, GuestTexture *dst,
   dst->layout = plume::RenderTextureLayout::COLOR_WRITE;
   s.command_list->setFramebuffer(dst_fb);
   s.command_list->setViewports(
-      plume::RenderViewport(0.0f, 0.0f, static_cast<float>(dst->width),
-                            static_cast<float>(dst->height)));
+      plume::RenderViewport(0.0f, 0.0f, static_cast<float>(dst->hostWidth),
+                            static_cast<float>(dst->hostHeight)));
   s.command_list->setScissors(plume::RenderRect(
-      0, 0, static_cast<i32>(dst->width), static_cast<i32>(dst->height)));
+      0, 0, static_cast<i32>(dst->hostWidth),
+      static_cast<i32>(dst->hostHeight)));
   s.command_list->clearColor(0, color);
   s.command_list->setFramebuffer(nullptr);
   s.draw_framebuffer_bound = false;
@@ -353,10 +356,11 @@ bool MaterializeOutboundLocked(VideoState &s, GuestTexture *source,
       continue;
     }
     const bool one_to_one =
-        source->width == dst->width && source->height == dst->height &&
+        source->hostWidth == dst->hostWidth &&
+        source->hostHeight == dst->hostHeight &&
         source->format == dst->format &&
         source->sampleCount == plume::RenderSampleCount::COUNT_1 &&
-        dst->resolveScale == 1.0f &&
+        dst->resolveExpScale == 1.0f &&
         dst->viewDimension != plume::RenderTextureViewDimension::TEXTURE_CUBE;
     if (aliasable_only && !one_to_one)
       continue;
@@ -402,7 +406,7 @@ void Video::TrackResolveSource(u32 flags, GuestTexture *dst, u32 level,
   dst->resolveLevel = level;
   dst->resolveFace = face;
   const int exp_bias = static_cast<i32>(flags) >> kResolveExponentBiasShift;
-  dst->resolveScale = static_cast<float>(std::ldexp(1.0, exp_bias));
+  dst->resolveExpScale = static_cast<float>(std::ldexp(1.0, exp_bias));
   GuestTexture *src = ResolveSourceForFlagsLocked(s, flags);
   if (!src || !src->texture || src == dst) {
     DetachSourceSurfaceLocked(s, dst);

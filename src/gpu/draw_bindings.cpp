@@ -25,6 +25,7 @@ namespace bd::gpu {
 // 100), and read when SharedConstants is rebuilt.
 namespace {
 std::atomic<u32> g_alpha_threshold_bits{0};
+std::atomic<i32> g_color_write_override{-1};
 } // namespace
 
 void Video::SetTexture(u32 index, GuestTexture *texture) {
@@ -134,16 +135,12 @@ void Video::SetVertexStream(u32 slot, plume::RenderBufferReference buffer,
   }
 }
 
-void Video::MarkVSConstantsDirty() {
-  auto &s = state();
-  std::lock_guard lock(s.mutex);
-  s.dirtyStates.vertexShaderConstants = true;
+void Video::SetColorWriteOverride(i32 value) {
+  g_color_write_override.store(value, std::memory_order_relaxed);
 }
 
-void Video::MarkPSConstantsDirty() {
-  auto &s = state();
-  std::lock_guard lock(s.mutex);
-  s.dirtyStates.pixelShaderConstants = true;
+i32 Video::ColorWriteOverride() {
+  return g_color_write_override.load(std::memory_order_relaxed);
 }
 
 void Video::SetAlphaThreshold(float value) {
@@ -211,8 +208,16 @@ void Video::FlushViewport() {
   if (!s.command_list)
     return;
 
+  float kx = 1.0f;
+  float ky = 1.0f;
+  BoundTargetScale(s, kx, ky);
+
   if (s.dirtyStates.viewport) {
     plume::RenderViewport vp = s.viewport;
+    vp.x *= kx;
+    vp.y *= ky;
+    vp.width *= kx;
+    vp.height *= ky;
     if (vp.minDepth > vp.maxDepth)
       std::swap(vp.minDepth, vp.maxDepth);
     s.command_list->setViewports(&vp, 1);
@@ -221,10 +226,11 @@ void Video::FlushViewport() {
 
   if (s.dirtyStates.scissorRect) {
     // Scissor always tracks the viewport extent.
-    plume::RenderRect rc{static_cast<i32>(s.viewport.x),
-                         static_cast<i32>(s.viewport.y),
-                         static_cast<i32>(s.viewport.x + s.viewport.width),
-                         static_cast<i32>(s.viewport.y + s.viewport.height)};
+    plume::RenderRect rc{
+        static_cast<i32>(s.viewport.x * kx),
+        static_cast<i32>(s.viewport.y * ky),
+        static_cast<i32>((s.viewport.x + s.viewport.width) * kx),
+        static_cast<i32>((s.viewport.y + s.viewport.height) * ky)};
     s.command_list->setScissors(&rc, 1);
     s.dirtyStates.scissorRect = false;
   }

@@ -100,11 +100,13 @@ void WriteGuestOutputDims(u32 w, u32 h) {
 }
 
 bool ScaleDesignDims(f64 &w, f64 &h) {
+  u32 fit_w, fit_h;
+  if (!Output::EngineSize(fit_w, fit_h))
+    return false;
   if (w > kDesignCanvasWidth || h > kDesignCanvasHeight)
     return false;
-  u32 fit_w, fit_h;
   if (w == kDesignCanvasWidth && h == kDesignCanvasHeight &&
-      Output::RenderSize(fit_w, fit_h)) {
+      Output::EngineSize(fit_w, fit_h)) {
     w = fit_w;
     h = fit_h;
     return true;
@@ -119,7 +121,7 @@ bool ScaleDesignDims(f64 &w, f64 &h) {
 
 bool IsFullFrameView(f64 width) {
   u32 fit_w, fit_h;
-  if (!Output::RenderSize(fit_w, fit_h))
+  if (!Output::LogicalSize(fit_w, fit_h))
     fit_w = static_cast<u32>(kDesignCanvasWidth);
   return width + kViewFitSlack >= fit_w;
 }
@@ -130,7 +132,7 @@ bool IsFullFrameView(f64 width) {
 // created after this point.
 REX_MIDASM_HOOK(bdOutputResScreenDimsHook, (PPCRegister &r31)) {
   u32 w, h;
-  if (!Output::RenderSize(w, h))
+  if (!Output::EngineSize(w, h))
     return;
   bd::engine::VisualRender render(r31.u32);
   render.SetScreenW(static_cast<f32>(w));
@@ -143,7 +145,7 @@ REX_MIDASM_AT(bdOutputResScreenDimsHook, 0x82133174, after, r31);
 // the resolve source rect together.
 REX_MIDASM_HOOK(bdOutputResDeviceDimsHook, ()) {
   u32 w, h;
-  if (!Output::RenderSize(w, h))
+  if (!Output::EngineSize(w, h))
     return;
   WriteGuestOutputDims(w, h);
   REXLOG_INFO(bd, "output-res BD render dims -> {}x{} (swapchain {}x{})", w, h,
@@ -153,7 +155,7 @@ REX_MIDASM_AT(bdOutputResDeviceDimsHook, 0x82272E38, before);
 
 REX_MIDASM_BRANCH(bdOutputResRenderStepNeutralizeHook, ()) {
   u32 w, h;
-  return Output::RenderSize(w, h);
+  return Output::EngineSize(w, h);
 }
 REX_MIDASM_AT(bdOutputResRenderStepNeutralizeHook, 0x82132D28, before, 0x82132D60);
 
@@ -162,7 +164,7 @@ REX_MIDASM_AT(bdOutputResRenderStepNeutralizeHook, 0x82132D28, before, 0x82132D6
 // output dims keeps that resolve 1:1 against the source rect.
 REX_MIDASM_HOOK(bdOutputResCompositeTexScaleHook, (PPCRegister &r3, PPCRegister &r4)) {
   u32 w, h;
-  if (!Output::RenderSize(w, h))
+  if (!Output::EngineSize(w, h))
     return;
   r3.u32 = w;
   r4.u32 = h;
@@ -216,7 +218,7 @@ REX_DETOUR(bdCreateRenderTargetTextures, void,
            (u32 head, f64 width, f64 height)) {
   u32 w = 0;
   u32 h = 0;
-  if (Output::RenderSize(w, h)) {
+  if (Output::EngineSize(w, h)) {
     const u32 want_w = (static_cast<u32>(width) + 7) & ~7u;
     const u32 want_h = (static_cast<u32>(height) + 7) & ~7u;
 
@@ -272,7 +274,7 @@ REX_MIDASM_AT(bdOutputResViewScaleHook, 0x82134E74, before, f31, f30);
 REX_MIDASM_HOOK(bdSubViewRenderScaleHook, (PPCRegister &r31)) {
   u32 fit_w, fit_h;
   auto *view = bd::mem::at<bd::engine::CameraView_t>(r31.u32);
-  if (!view || !Output::RenderSize(fit_w, fit_h) ||
+  if (!view || !Output::LogicalSize(fit_w, fit_h) ||
       IsFullFrameView(static_cast<float>(view->renderSize[0])))
     return;
   view->rate = 1.0f;
@@ -328,7 +330,7 @@ REX_DETOUR(VisualRender__ctor, u32, (u32 self)) {
   bd::engine::VisualRender render(self);
   render.SetSafeRate(kSafeAreaRate);
   u32 w, h;
-  if (!Output::RenderSize(w, h))
+  if (!Output::EngineSize(w, h))
     return result;
   render.SetScreenW(kDesignCanvasWidth);
   render.SetScreenH(kDesignCanvasHeight);
@@ -341,7 +343,7 @@ REX_DETOUR(VisualRender__ctor, u32, (u32 self)) {
 namespace {
 void OutputResPatchDim(PPCRegister &fr, bool height) {
   u32 w, h;
-  if (!Output::RenderSize(w, h))
+  if (!Output::EngineSize(w, h))
     return;
   fr.f64 = static_cast<double>(height ? h : w);
 }
@@ -376,7 +378,7 @@ REX_MIDASM_AT(bdOutputResScreenHf12Hook, 0x82134F90, after, f12);
 // design canvas coordinates. Pin the dim loads back and leave the struct alone.
 REX_MIDASM_HOOK(bdWorldToScreenDesignWf3Hook, (PPCRegister &f3)) {
   u32 w, h;
-  if (Output::RenderSize(w, h))
+  if (Output::EngineSize(w, h))
     f3.f64 = kDesignCanvasWidth;
 }
 REX_MIDASM_AT(bdWorldToScreenDesignWf3Hook, 0x821354D0, after, f3);
@@ -384,7 +386,7 @@ REX_MIDASM_AT(bdWorldToScreenDesignWf3Hook, 0x821356EC, after, f3);
 REX_MIDASM_AT(bdWorldToScreenDesignWf3Hook, 0x8213578C, after, f3);
 REX_MIDASM_HOOK(bdWorldToScreenDesignHf4Hook, (PPCRegister &f4)) {
   u32 w, h;
-  if (Output::RenderSize(w, h))
+  if (Output::EngineSize(w, h))
     f4.f64 = kDesignCanvasHeight;
 }
 REX_MIDASM_AT(bdWorldToScreenDesignHf4Hook, 0x821354C8, after, f4);
@@ -473,7 +475,8 @@ REX_DETOUR(bdRenderSubmitList, void, (u32 list)) {
   u32 w, h;
   auto *vw = bd::mem::at<be_f32>(kViewportWidthEA);
   auto *vh = bd::mem::at<be_f32>(kViewportHeightEA);
-  const bool pin = Output::RenderSize(w, h) && vw && vh;
+  const bool drain = Output::LogicalSize(w, h);
+  const bool pin = Output::EngineSize(w, h) && vw && vh;
 
   float saved_w = 0.0f, saved_h = 0.0f;
   if (pin) {
@@ -483,10 +486,10 @@ REX_DETOUR(bdRenderSubmitList, void, (u32 list)) {
     *vw = kDesignCanvasWidth;
     *vh = kDesignCanvasHeight;
   }
-  if (pin)
+  if (drain)
     bd::gpu::Video::SetDesignCanvasDrain(true);
   original(list);
-  if (pin)
+  if (drain)
     bd::gpu::Video::SetDesignCanvasDrain(false);
   if (pin) {
     *vw = saved_w;

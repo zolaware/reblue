@@ -51,10 +51,21 @@ struct SharedConstants {
   // Half-pixel NDC nudge read only by the substituted 2D blit VS
   float blitHalfPixelOffsetX{}; // c21.x, byte 336
   float blitHalfPixelOffsetY{}; // c21.y, byte 340
-  u32 _pad_c21_z{};             // c21.z, byte 344
-  u32 _pad_c21_w{};             // c21.w, byte 348
+  // 1 / (kx, ky) of the bound target, dividing the pixel position back to
+  // logical pixels (g_PixelScaleInv).
+  float pixelScaleInvX{1.0f}; // c21.z, byte 344
+  float pixelScaleInvY{1.0f}; // c21.w, byte 348
+  // Bit N set when the texture in fetch slot N is host-scaled, so its fetch
+  // offsets are multiplied by (fetchScaleX, fetchScaleY).
+  u32 scaledFetchSlots{};  // c22.x, byte 352
+  float fetchScaleX{1.0f}; // c22.y, byte 356
+  float fetchScaleY{1.0f}; // c22.z, byte 360
+  u32 _pad_c22_w{};        // c22.w, byte 364
 };
-static_assert(sizeof(SharedConstants) == 352);
+static_assert(sizeof(SharedConstants) == 0x170);
+static_assert(offsetof(SharedConstants, pixelScaleInvX) == 0x158);
+static_assert(offsetof(SharedConstants, scaledFetchSlots) == 0x160);
+static_assert(offsetof(SharedConstants, fetchScaleX) == 0x164);
 
 // memory stays valid until ResetFrame().
 struct ConstantAllocation {

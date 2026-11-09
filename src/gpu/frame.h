@@ -29,6 +29,9 @@ void SubmitOpenListLocked(VideoState &s);
 void ResolveEffectiveTargets(VideoState &s, GuestTexture *&rt,
                              GuestTexture *&ds);
 
+// Host scale of the target a draw lands on, 1 when nothing is bound.
+void BoundTargetScale(VideoState &s, float &kx, float &ky);
+
 plume::RenderFramebuffer *GetFramebuffer(VideoState &s, GuestTexture *rt,
                                          GuestTexture *ds);
 

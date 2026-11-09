@@ -78,6 +78,14 @@ public:
 
   static void ResizeTexture(GuestTexture *tex, u32 width, u32 height);
 
+  // Recreates the host resource at the texture's current logical size and
+  // scale. Contents are dropped.
+  static void RecreateTexture(GuestTexture *tex);
+
+  // Before the engine's first GPU write to a texture: gives it the host scale
+  // once if it is a plain render-capable 2D texture nothing has written yet.
+  static void PromoteForGPUWrite(GuestTexture *tex);
+
   static void NotifyTextureDestroyed(GuestTexture *dead);
 
   static void ReissueSurface(GuestTexture *surface);
@@ -108,10 +116,6 @@ public:
   // retired buffer would re-bind through it. Takes s.mutex.
   static void ScrubBufferBindings(plume::RenderBuffer *buffer);
 
-  // Per-stage float constant block (device+0x700 / device+0x1700).
-  // FlushRenderState gates the CBV upload + root descriptor bind on these.
-  static void MarkVSConstantsDirty();
-  static void MarkPSConstantsDirty();
   static plume::RenderCommandList *CommandList();
 
   // UINT32_MAX if full. Needs exclusive VideoState: hold state().mutex, or run
@@ -197,6 +201,12 @@ public:
   // 100), and read when SharedConstants is rebuilt.
   static void SetAlphaThreshold(float value);
   static float AlphaThreshold();
+
+  // The color write mask the device holds when it differs from BD's render
+  // state cache. Set by the ColorWriteEnable hook, cleared once bdSetRenderState
+  // really writes the state again. Negative means no override.
+  static void SetColorWriteOverride(i32 value);
+  static i32 ColorWriteOverride();
 
   // Alpha-to-coverage is gated on multi-sample RTs. Called when the bound RT or
   // its sample count changes.

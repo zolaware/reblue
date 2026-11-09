@@ -72,6 +72,15 @@ void ResolveEffectiveTargets(VideoState &s, GuestTexture *&rt,
   }
 }
 
+void BoundTargetScale(VideoState &s, float &kx, float &ky) {
+  GuestTexture *rt = nullptr;
+  GuestTexture *ds = nullptr;
+  ResolveEffectiveTargets(s, rt, ds);
+  const GuestTexture *target = rt ? rt : ds;
+  kx = target ? target->scaleX : 1.0f;
+  ky = target ? target->scaleY : 1.0f;
+}
+
 namespace {
 
 void TransitionResolveSources(VideoState &s, const GuestTexture *rt,

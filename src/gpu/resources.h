@@ -13,6 +13,8 @@
  */
 #pragma once
 
+#include <algorithm>
+#include <cmath>
 #include <memory>
 #include <rex/types.h>
 #include <unordered_map>
@@ -53,8 +55,15 @@ struct GuestTexture {
   std::unique_ptr<plume::RenderTexture> textureHolder;
   plume::RenderTexture *texture = nullptr;
   std::unique_ptr<plume::RenderTextureView> textureView;
+  // width and height are what the engine asked for and what it reads back
+  // through the GetDesc calls. The host resource is hostWidth by hostHeight,
+  // the logical size times the per-axis scale.
   u32 width = 0;
   u32 height = 0;
+  float scaleX = 1.0f;
+  float scaleY = 1.0f;
+  u32 hostWidth = 0;
+  u32 hostHeight = 0;
   u32 depth = 0;
   u32 mipLevels = 1;
   plume::RenderFormat format = plume::RenderFormat::UNKNOWN;
@@ -66,13 +75,19 @@ struct GuestTexture {
   plume::RenderSampleCounts sampleCount = plume::RenderSampleCount::COUNT_1;
   GuestTexture *sourceSurface = nullptr;
   std::unordered_set<GuestTexture *> destinationTextures;
-  float resolveScale = 1.0f;
+  float resolveExpScale = 1.0f;
   u32 resolveLevel = 0;
   u32 resolveFace = 0;
   bool registered = false;
   bool pendingDestroy = false;
   bool pendingGPURead = false;
   bool reflection = false;
+  // Set by the shadow creation sites, which have a size lever of their own.
+  bool scaleExempt = false;
+  // Any CPU write marks content that a recreate at another size would lose.
+  bool cpuWritten = false;
+  // The first GPU write decides once whether this texture takes the host scale.
+  bool scaleDecided = false;
   bool framebufferAttached = false;
   std::unordered_map<const plume::RenderTexture *,
                      std::unique_ptr<plume::RenderFramebuffer>>
@@ -80,6 +95,18 @@ struct GuestTexture {
   u32 mappedMemory = 0;
   std::unique_ptr<GuestTexture> companion2D;
   std::unique_ptr<GuestTexture> companionCube;
+
+  static u32 HostExtent(u32 logical, float scale) {
+    return logical ? std::max(1u, static_cast<u32>(std::ceil(
+                                      static_cast<float>(logical) * scale)))
+                   : 0u;
+  }
+  void SetSize(u32 w, u32 h) {
+    width = w;
+    height = h;
+    hostWidth = HostExtent(w, scaleX);
+    hostHeight = HostExtent(h, scaleY);
+  }
 
   GuestTexture() = default;
   explicit GuestTexture(ResourceType t) : type(t) {}

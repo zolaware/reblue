@@ -7,6 +7,7 @@
  * @license   BSD 3-Clause License
  *            See LICENSE file in the project root for full license text.
  */
+#include <atomic>
 #include <cstring>
 #include <mutex>
 #include <unordered_set>
@@ -53,7 +54,7 @@ constexpr double kTargetAlignment = 8.0;
 bool IsFullFrameScene(u32 width, u32 height) {
   u32 fit_w = 0;
   u32 fit_h = 0;
-  if (!bd::gpu::Output::RenderSize(fit_w, fit_h))
+  if (!bd::gpu::Output::LogicalSize(fit_w, fit_h))
     return true;
   const double scale = bd::gpu::SceneRenderScale();
   return width + kTargetAlignment >= fit_w * scale &&
@@ -83,10 +84,11 @@ bd::gpu::GuestTexture *D3DDevice_CreateTexture_hook(u32 width, u32 height,
                                                     u32 usage, u32 format,
                                                     u32 /*pool*/,
                                                     u32 d3d_type) {
-  // d3d_type: 17=D3DRTYPE_VOLUMETEXTURE -> 3D, 18=D3DRTYPE_CUBETEXTURE -> cube
-  // (Texture type, 2D dimension + arraySize 6 + CUBE flag), else plain 2D.
-  const bool is_volume = (d3d_type == 17);
-  const bool is_cube = (d3d_type == 18);
+  // d3d_type: 0x11=D3DRTYPE_VOLUMETEXTURE -> 3D, 0x12=D3DRTYPE_CUBETEXTURE ->
+  // cube (Texture type, 2D dimension + arraySize 6 + CUBE flag), else plain 2D.
+  const bool exempt = bd::gpu::SurfaceRegistry::TakeExemption(width, height);
+  const bool is_volume = (d3d_type == bd::gpu::kGetTypeVolumeTexture);
+  const bool is_cube = (d3d_type == bd::gpu::kGetTypeCubeTexture);
   const auto rtype = is_volume ? bd::gpu::ResourceType::VolumeTexture
                                : bd::gpu::ResourceType::Texture;
   const auto view_dimension =
@@ -104,12 +106,14 @@ bd::gpu::GuestTexture *D3DDevice_CreateTexture_hook(u32 width, u32 height,
                               bd::gpu::D3DResourceType::kTexture);
 
   const plume::RenderFormat plume_format = bd::gpu::ConvertGuestFormat(format);
+  texture->SetSize(width, height);
+  texture->scaleExempt = exempt;
   plume::RenderTextureDesc desc;
   desc.dimension = (rtype == bd::gpu::ResourceType::VolumeTexture)
                        ? plume::RenderTextureDimension::TEXTURE_3D
                        : plume::RenderTextureDimension::TEXTURE_2D;
-  desc.width = width;
-  desc.height = height;
+  desc.width = texture->hostWidth;
+  desc.height = texture->hostHeight;
   // Guest cube creation passes depth=6, but host faces ride arraySize instead.
   desc.depth = is_volume ? depth : 1;
   desc.mipLevels = levels;
@@ -169,8 +173,6 @@ bd::gpu::GuestTexture *D3DDevice_CreateTexture_hook(u32 width, u32 height,
   } else {
     REXLOG_ERROR(bd, "CreateTexture fired before Video host device exists");
   }
-  texture->width = width;
-  texture->height = height;
   texture->depth = depth;
   texture->mipLevels = levels;
   texture->format = plume_format;
@@ -424,15 +426,15 @@ u32 D3DResource_GetType_hook(u32 res_guest) {
     switch (type) {
     case bd::gpu::ResourceType::RenderTarget:
     case bd::gpu::ResourceType::DepthStencil:
-      return 1; // D3DRTYPE_SURFACE
+      return u32(bd::gpu::D3DResourceType::kSurface);
     case bd::gpu::ResourceType::Texture:
-      return 3; // D3DRTYPE_TEXTURE
+      return u32(bd::gpu::D3DResourceType::kTexture);
     case bd::gpu::ResourceType::VolumeTexture:
-      return 17; // D3DRTYPE_VOLUMETEXTURE (X360 = 0x11)
+      return bd::gpu::kGetTypeVolumeTexture;
     case bd::gpu::ResourceType::VertexBuffer:
-      return 6; // D3DRTYPE_VERTEXBUFFER
+      return u32(bd::gpu::D3DResourceType::kVertexBuffer);
     case bd::gpu::ResourceType::IndexBuffer:
-      return 7; // D3DRTYPE_INDEXBUFFER
+      return u32(bd::gpu::D3DResourceType::kIndexBuffer);
     default:
       return 0;
     }
@@ -442,10 +444,10 @@ u32 D3DResource_GetType_hook(u32 res_guest) {
   auto *tex = bd::gpu::ResolveGuestTexture(res_guest);
   if (tex) {
     if (tex->viewDimension == plume::RenderTextureViewDimension::TEXTURE_3D)
-      return 17; // D3DRTYPE_VOLUMETEXTURE
+      return bd::gpu::kGetTypeVolumeTexture;
     if (tex->viewDimension == plume::RenderTextureViewDimension::TEXTURE_CUBE)
-      return 5; // D3DRTYPE_CUBETEXTURE
-    return 3;   // D3DRTYPE_TEXTURE
+      return bd::gpu::kGetTypeCubeTexture;
+    return u32(bd::gpu::D3DResourceType::kTexture);
   }
   return 0;
 }
@@ -477,10 +479,22 @@ u32 D3DTexture_GetSurfaceLevel_hook(u32 texture_guest, u32 level) {
 // Point the guest D3DLOCKED_RECT at the texture's scratch mirror so the engine
 // writes texels into stable guest memory, and D3DResource_Unlock_hook uploads
 // it. Returns the pitch, or 0 (rect left zeroed) when there's no host backing.
+void WarnIfScaled(const bd::gpu::GuestTexture *tex, const char *what) {
+  if (tex->scaleX == 1.0f && tex->scaleY == 1.0f)
+    return;
+  static std::atomic<bool> warned{false};
+  if (!warned.exchange(true, std::memory_order_relaxed)) {
+    REXLOG_WARN(bd, "{} on a host-scaled texture {}x{} (host {}x{})", what,
+                tex->width, tex->height, tex->hostWidth, tex->hostHeight);
+  }
+}
+
 u32 FillLockedRectScratch(bd::gpu::GuestTexture *tex,
                           bd::gpu::D3DLockedRect *locked) {
   if (!tex || !tex->texture)
     return 0;
+  tex->cpuWritten = true;
+  WarnIfScaled(tex, "LockRect");
   const u32 pitch = bd::gpu::ComputeTexturePitch(tex);
   const u32 slice_pitch = pitch * tex->height;
   if (!slice_pitch)
@@ -606,7 +620,7 @@ void D3DSurface_GetDesc_hook(u32 surfaceVA, u32 descVA) {
   }
 
   desc->Format = tex->guestFormat;
-  desc->Type = 4u; // D3DRTYPE_SURFACE
+  desc->Type = u32(bd::gpu::D3DResourceType::kSurface);
   desc->Usage = 0u;
   desc->Pool = 0u;
   desc->MultiSampleType = 0u; // reblue surfaces are COUNT_1
@@ -647,8 +661,8 @@ void D3DTexture_GetLevelDesc_hook(u32 texture_guest, u32 level, u32 descVA) {
 
   desc->Format = tex->guestFormat;
   desc->Type = (tex->type == bd::gpu::ResourceType::VolumeTexture)
-                   ? 4u  // D3DRTYPE_VOLUMETEXTURE
-                   : 3u; // D3DRTYPE_TEXTURE
+                   ? bd::gpu::kGetTypeVolumeTexture
+                   : u32(bd::gpu::D3DResourceType::kTexture);
   desc->Usage = 0u;
   desc->Pool = 0u;
   desc->MultiSampleType = 0u;
@@ -690,7 +704,7 @@ void D3DVolumeTexture_GetLevelDesc_hook(u32 texture_guest, u32 level,
     d = 1u;
 
   desc->Format = tex->guestFormat;
-  desc->Type = 4u; // D3DRTYPE_VOLUMETEXTURE
+  desc->Type = bd::gpu::kGetTypeVolumeTexture;
   desc->Usage = 0u;
   desc->Pool = 0u;
   desc->Width = w;

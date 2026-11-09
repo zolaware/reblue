@@ -23,16 +23,19 @@
 
 namespace bd::gpu {
 
-// D3DRESOURCETYPE values from the guest D3D9 SDK. D3DResource::Common carries
-// the type in its low 4 bits, so these double as the Common base type bits.
+// D3DRESOURCETYPE values the engine uses. D3DResource::Common carries the base
+// type in its low 4 bits, so these double as the Common base type bits.
 enum class D3DResourceType : u32 {
-  kSurface = 1,
+  kVertexBuffer = 1,
+  kIndexBuffer = 2,
   kTexture = 3,
-  kVolumeTexture = 4,
-  kCubeTexture = 5,
-  kVertexBuffer = 6,
-  kIndexBuffer = 7,
+  kSurface = 4,
 };
+
+// D3DResource_GetType answers these for a texture whose fetch constant says
+// volume or cube. They are never Common bits, which stay kTexture.
+constexpr u32 kGetTypeVolumeTexture = 0x11;
+constexpr u32 kGetTypeCubeTexture = 0x12;
 
 // 24-byte header shared by every D3D9 resource (D3DResource ord 933).
 struct D3DResource {
@@ -43,7 +46,7 @@ struct D3DResource {
   be_u32 Identifier;     // +0x10
   be_u32 BaseFlush;      // +0x14
 };
-static_assert(sizeof(D3DResource) == 24);
+static_assert(sizeof(D3DResource) == 0x18);
 
 // The pViewport argument to D3DDevice_SetViewport (BD 0x82473610), and the
 // layout of the device's cached viewport at D3DDevice+0x3058.
@@ -55,7 +58,7 @@ struct D3DViewport9 {
   be_f32 MinZ;
   be_f32 MaxZ;
 };
-static_assert(sizeof(D3DViewport9) == 24);
+static_assert(sizeof(D3DViewport9) == 0x18);
 
 // Guest RECT (LTRB): the pRect argument to D3DDevice_SetScissorRect
 // (BD 0x82473548).
@@ -65,7 +68,7 @@ struct D3DRect {
   be_i32 right;
   be_i32 bottom;
 };
-static_assert(sizeof(D3DRect) == 16);
+static_assert(sizeof(D3DRect) == 0x10);
 
 // GPUTEXTURE_FETCH_CONSTANT (ord 853): 6-dword Xenos texture descriptor at
 // D3DTexture+0x1C. reblue-created textures leave it zero since their accessors
@@ -74,7 +77,7 @@ static_assert(sizeof(D3DRect) == 16);
 struct GpuTextureFetchConstant {
   be_u32 dword[6];
 };
-static_assert(sizeof(GpuTextureFetchConstant) == 24);
+static_assert(sizeof(GpuTextureFetchConstant) == 0x18);
 
 // D3DTexture / D3DBaseTexture / D3DCubeTexture / D3DVolumeTexture, 52 bytes.
 struct D3DTexture {
@@ -82,7 +85,7 @@ struct D3DTexture {
   be_u32 MipFlush;                // +0x18
   GpuTextureFetchConstant Format; // +0x1C
 };
-static_assert(sizeof(D3DTexture) == 52);
+static_assert(sizeof(D3DTexture) == 0x34);
 static_assert(offsetof(D3DTexture, Format) == 0x1C);
 
 // D3DSurface, 48 bytes. D3DSurface_GetDesc (0x8246D668, non-texture path)
@@ -99,7 +102,7 @@ struct D3DSurface {
   be_u32 Format;        // +0x28  D3DFORMAT
   be_u32 Size;          // +0x2C
 };
-static_assert(sizeof(D3DSurface) == 48);
+static_assert(sizeof(D3DSurface) == 0x30);
 
 // Verified against the code at 0x8246D668. Written by D3DSurface_GetDesc
 // and D3DTexture_GetLevelDesc.
@@ -113,42 +116,42 @@ struct D3DSurfaceDesc {
   be_u32 Width;              // +0x18  surface / mip-level width
   be_u32 Height;             // +0x1C  surface / mip-level height
 };
-static_assert(sizeof(D3DSurfaceDesc) == 32);
+static_assert(sizeof(D3DSurfaceDesc) == 0x20);
 
 // Written by D3DVolumeTexture_GetLevelDesc. Adds Depth and drops the
 // MultiSample fields, so NOT the D3DSurfaceDesc layout.
 struct D3DVolumeDesc {
   be_u32 Format; // +0x00  guest D3DFORMAT
-  be_u32 Type;   // +0x04  4 == D3DRTYPE_VOLUMETEXTURE
+  be_u32 Type;   // +0x04  0x11 == D3DRTYPE_VOLUMETEXTURE
   be_u32 Usage;  // +0x08  0
   be_u32 Pool;   // +0x0C  0
   be_u32 Width;  // +0x10  mip-level width
   be_u32 Height; // +0x14  mip-level height
   be_u32 Depth;  // +0x18  mip-level depth
 };
-static_assert(sizeof(D3DVolumeDesc) == 28);
+static_assert(sizeof(D3DVolumeDesc) == 0x1C);
 
 // D3DLOCKED_RECT. Points the engine at the texture's guest scratch mirror.
 struct D3DLockedRect {
   be_u32 Pitch; // +0x00  row pitch in bytes
   be_u32 pBits; // +0x04  guest VA of the locked pixel scratch
 };
-static_assert(sizeof(D3DLockedRect) == 8);
+static_assert(sizeof(D3DLockedRect) == 0x08);
 
-// D3DVertexBuffer / D3DIndexBuffer, 32 bytes. The +0x18/+0x1C pair is the Xenos
-// fetch constant, encoded two ways depending on who wrote it:
-//   Pre-XGOffset (bdPhysical*Create replication, raw dwords):
-//     VB writes size@FetchLo/base@FetchHi, IB writes (size|3)@FetchLo/
-//     ((base & 0x3FFFFFC)|0x10000002)@FetchHi.
-//   Post-XGOffsetResourceAddress (asset-loaded structs, Bootstrap path):
-//     FetchLo = base_va | tag_bits, FetchHi = (size & 0x3FFFFFC) | 0x10000002.
-// reblue's own mirror and bootstrap paths use the post-XGOffset encoding.
+// D3DVertexBuffer / D3DIndexBuffer, 32 bytes. XGSetVertexBufferHeader and
+// XGSetIndexBufferHeader write the +0x18/+0x1C pair with a base of 0, and
+// XGOffsetResourceAddress adds the real base afterwards:
+//   VB: FetchLo = base | 3, FetchHi = (size & 0x3FFFFFC) | 0x10000002, the Xenos
+//       vertex fetch constant.
+//   IB: FetchLo = base, FetchHi = size.
+// IB Common bit 31 selects 32-bit indices (D3DDevice_DrawIndexedVertices tests
+// it) and bits 30 to 29 are the endian swap mode.
 struct D3DVertexBuffer {
   D3DResource resource;
   be_u32 FetchLo; // +0x18
   be_u32 FetchHi; // +0x1C
 };
-static_assert(sizeof(D3DVertexBuffer) == 32);
+static_assert(sizeof(D3DVertexBuffer) == 0x20);
 static_assert(offsetof(D3DVertexBuffer, FetchLo) == 0x18);
 static_assert(offsetof(D3DVertexBuffer, FetchHi) == 0x1C);
 
@@ -157,7 +160,7 @@ struct D3DIndexBuffer {
   be_u32 FetchLo; // +0x18
   be_u32 FetchHi; // +0x1C
 };
-static_assert(sizeof(D3DIndexBuffer) == 32);
+static_assert(sizeof(D3DIndexBuffer) == 0x20);
 static_assert(offsetof(D3DIndexBuffer, FetchLo) == 0x18);
 static_assert(offsetof(D3DIndexBuffer, FetchHi) == 0x1C);
 
@@ -171,9 +174,9 @@ struct D3DPixelShader {
 struct D3DVertexDeclaration {
   D3DResource resource;
 };
-static_assert(sizeof(D3DVertexShader) == 24);
-static_assert(sizeof(D3DPixelShader) == 24);
-static_assert(sizeof(D3DVertexDeclaration) == 24);
+static_assert(sizeof(D3DVertexShader) == 0x18);
+static_assert(sizeof(D3DPixelShader) == 0x18);
+static_assert(sizeof(D3DVertexDeclaration) == 0x18);
 
 // The microcode blob CreateVertexShader/CreatePixelShader are handed, layout
 // mirrors thirdparty/XenosRecomp/XenosRecomp/shader.h.
@@ -204,15 +207,18 @@ constexpr u32 kFetchTypeVertex = 3;
 struct DeviceFetchConstant {
   be_u32 dword[6];
 };
-static_assert(sizeof(DeviceFetchConstant) == 24);
+static_assert(sizeof(DeviceFetchConstant) == 0x18);
 
 // Shared guest memory: the recompiled engine, reblue's hooks and the draw path
 // all read and write it. Only the fields reblue reads are named. Verified
 // against the recovered D3DDevice / _D3DConstants types and BD's own code. Each
 // named field past the public struct cites where it came from.
 struct D3DDevice {
-  // m_Pending (_D3DTAGCOLLECTION): 5 dirty mask u64s. Set* setters OR into
-  // m_Mask[2] (byte +0x10), SetSamplerStateInline into m_Mask[3].
+  // m_Pending (_D3DTAGCOLLECTION): 5 dirty mask u64s. [0] and [1] are the VS and
+  // PS float constant groups (group g = register / 4, bit 1 << (63 - g)), set by
+  // the Set*ShaderConstantF setters and by every inlined copy of them. Set*
+  // render state setters OR into [2] (byte +0x10), SetSamplerStateInline and
+  // the I and B constant setters into [3].
   be_u64 m_Mask[5];        // +0x000
   be_u32 m_pRing;          // +0x028
   be_u32 m_pRingLimit;     // +0x02C
@@ -323,20 +329,26 @@ static_assert(offsetof(D3DDevice, rbBlendControl1) == 0x28D8);
 static_assert(offsetof(D3DDevice, rbBlendControl2) == 0x28DC);
 static_assert(offsetof(D3DDevice, rbBlendControl3) == 0x28E0);
 
-// D3DResource_GetType decodes the type from D3DResource:
+// D3DResource_GetType (0x82480AD8) decodes the type from D3DResource:
 //   base = Common & 0xF
-//     1 -> Surface  (extended to 16 if Common & 0x40000000 + texture-backed)
+//     1 -> VertexBuffer
+//     2 -> IndexBuffer
 //     3 -> Texture, then dim = (fetch_dword5 >> 9) & 3:
-//            0 -> returns 20 (1D / line texture)
-//            1 -> returns 3 if !tiled, 19 if tiled (fetch_dword1 & 0x400)
-//            2 -> returns 17 (volume texture)
-//            3 -> returns 18 (stacked cube)
-//     6 -> VertexBuffer
-//     7 -> IndexBuffer
+//            0 -> returns 0x14 (1D / line texture)
+//            1 -> returns 3 if !tiled, 0x13 if tiled (fetch_dword1 & 0x400)
+//            2 -> returns 0x11 (volume texture)
+//            3 -> returns 0x12 (stacked cube)
+//     4 -> Surface (extended to 0x10 if Common & 0x40000000 + texture-backed)
+//     other bases come back unchanged
 // The Common low-4 bits select the base type. Texture dimensionality lives in
 // the fetch constant. Bit 30 (0x40000000) on a surface marks it texture-backed,
 // which routes D3DSurface_GetDesc through D3DTexture_GetLevelDesc.
 constexpr u32 kCommonFlagTextureBackedSurface = 0x40000000u;
+
+// BD g_renderStateCache: a DWORD array indexed by D3DRS byte offset. Written
+// only by bdSetRenderState, read by the draw flush.
+constexpr u32 kRenderStateCacheVa = 0x82DBE1A8;
+constexpr u32 kRsColorWriteEnable = 0xD4;
 
 constexpr u32 kClearTarget = 0x1u;
 constexpr u32 kClearZBuffer = 0x10u;

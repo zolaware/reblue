@@ -22,6 +22,7 @@
 #include "core/profiling.h"
 #include "gpu/d3d.h"
 #include "gpu/device.h"
+#include "gpu/frame.h"
 #include "gpu/hooks/tweaks.h"
 #include "gpu/sampler_cache.h"
 #include "gpu/settings.h"
@@ -402,6 +403,23 @@ ConstantAllocation UploadSharedConstants(u32 device_guest) {
     }
   }
 
+  float target_kx = 1.0f;
+  float target_ky = 1.0f;
+  bd::gpu::BoundTargetScale(vs, target_kx, target_ky);
+  s.shared.pixelScaleInvX = 1.0f / target_kx;
+  s.shared.pixelScaleInvY = 1.0f / target_ky;
+  s.shared.scaledFetchSlots = 0;
+  s.shared.fetchScaleX = 1.0f;
+  s.shared.fetchScaleY = 1.0f;
+  for (u32 i = 0; i < 16; ++i) {
+    const bd::gpu::GuestTexture *tex = vs.textures[i];
+    if (!tex || (tex->scaleX == 1.0f && tex->scaleY == 1.0f))
+      continue;
+    s.shared.scaledFetchSlots |= 1u << i;
+    s.shared.fetchScaleX = tex->scaleX;
+    s.shared.fetchScaleY = tex->scaleY;
+  }
+
   s.shared.alphaThreshold = bd::gpu::Video::AlphaThreshold();
   s.shared.halfPixelOffsetX = 0.0f;
   s.shared.halfPixelOffsetY = 0.0f;
@@ -424,10 +442,10 @@ ConstantAllocation UploadSharedConstants(u32 device_guest) {
 
   // Viewport extent, not the render target's: the NDC->pixel mapping this
   // cancels is the viewport's. +x/-y = half a pixel right and down.
-  s.shared.blitHalfPixelOffsetX =
-      vs.viewport.width > 0.0f ? 1.0f / vs.viewport.width : 0.0f;
-  s.shared.blitHalfPixelOffsetY =
-      vs.viewport.height > 0.0f ? -1.0f / vs.viewport.height : 0.0f;
+  const float host_vp_w = vs.viewport.width * target_kx;
+  const float host_vp_h = vs.viewport.height * target_ky;
+  s.shared.blitHalfPixelOffsetX = host_vp_w > 0.0f ? 1.0f / host_vp_w : 0.0f;
+  s.shared.blitHalfPixelOffsetY = host_vp_h > 0.0f ? -1.0f / host_vp_h : 0.0f;
 
   // Byte-identical to the block already bound on this command list: the live
   // CBV is still correct, skip the upload and let the caller skip the rebind.

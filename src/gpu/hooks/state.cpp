@@ -1,7 +1,7 @@
 /**
  * @file    gpu/hooks/state.cpp
- * @brief   Guest hooks that set the draw state: targets, viewport, bindings,
- *          render state and the shader constant dirty marks.
+ * @brief   Hooks that set the draw state: targets, viewport, bindings and
+ *          render state.
  *
  * @copyright Copyright (c) 2026 Tom Clay <tomc@tctechstuff.com>
  *            All rights reserved.
@@ -18,6 +18,7 @@
 #include <plume_render_interface.h>
 
 #include "core/logging.h"
+#include "core/memory_helpers.h"
 #include "gpu/d3d.h"
 #include "gpu/device.h"
 #include "gpu/format.h"
@@ -93,6 +94,7 @@ void D3DDevice_SetRenderTarget_hook(
   if (RenderTargetIndex != 0)
     return;
 
+  bd::gpu::Video::PromoteForGPUWrite(surface);
   auto &s = bd::gpu::state();
 
   // FlushRenderState bakes the new RT's format into the PSO, so the cached
@@ -136,6 +138,7 @@ void D3DDevice_SetDepthStencilSurface_hook(
       surface = nullptr;
   }
 
+  bd::gpu::Video::PromoteForGPUWrite(surface);
   auto &s = bd::gpu::state();
 
   // Depth surface change drops the cached framebuffer (same #613 reason as
@@ -217,7 +220,7 @@ void D3DDevice_SetStreamSource_hook(u32 /*device*/, u32 stream,
       bd::gpu::HostResourceHeap::FromGuest<bd::gpu::GuestBuffer>(buffer_guest);
   // Physical VBs wrap an engine-owned D3DVertexBuffer struct never
   // HostResourceHeap::Alloc'd, so FromGuest misses. Struct VA map covers VBs
-  // registered eagerly (bdSceneGraphRegisterVBHook), and the lazy bootstrap
+  // registered eagerly (XGOffsetResourceAddress), and the lazy bootstrap
   // reads the struct's Xenos fetch constant fields for buffers from unhooked
   // paths.
   if (!buf && buffer_guest) {
@@ -251,71 +254,16 @@ void D3DDevice_SetIndices_hook(u32 /*device*/, u32 indices_guest) {
 
 // SetSamplerState is deliberately NOT hooked: its recompiled body writes the
 // sampler state table at device+0x1BC, which FlushRenderState reads directly.
-//
-// The constant setters below only run the original and then mark dirty to gate
-// the CBV upload. Their arities differ, so each names its own parameters.
-#define REBLUE_CONSTANT_DIRTY_HOOK(fn, params, args, mark)                     \
-  REX_DETOUR(fn, void, params) {                                               \
-    original args;                                                             \
-    mark;                                                                      \
-  }
-
-REBLUE_CONSTANT_DIRTY_HOOK(
-    D3DDevice_SetVertexShaderConstantFN,
-    (u32 device, u32 startRegister, u32 data, u32 count, u64 dirtyMask),
-    (device, startRegister, data, count, dirtyMask),
-    bd::gpu::Video::MarkVSConstantsDirty())
-REBLUE_CONSTANT_DIRTY_HOOK(D3DDevice_SetVertexShaderConstantI,
-                           (u32 device, u32 startRegister, u32 data, u32 count),
-                           (device, startRegister, data, count),
-                           bd::gpu::Video::MarkVSConstantsDirty())
-REBLUE_CONSTANT_DIRTY_HOOK(D3DDevice_SetVertexShaderConstantB,
-                           (u32 device, u32 startRegister, u32 data, u32 count),
-                           (device, startRegister, data, count),
-                           bd::gpu::Video::MarkVSConstantsDirty())
-REBLUE_CONSTANT_DIRTY_HOOK(
-    D3DDevice_SetPixelShaderConstantFN,
-    (u32 device, u32 startRegister, u32 data, u32 count, u64 dirtyMask),
-    (device, startRegister, data, count, dirtyMask),
-    bd::gpu::Video::MarkPSConstantsDirty())
-REBLUE_CONSTANT_DIRTY_HOOK(D3DDevice_SetPixelShaderConstantI,
-                           (u32 device, u32 startRegister, u32 data, u32 count),
-                           (device, startRegister, data, count),
-                           bd::gpu::Video::MarkPSConstantsDirty())
-REBLUE_CONSTANT_DIRTY_HOOK(D3DDevice_SetPixelShaderConstantB,
-                           (u32 device, u32 startRegister, u32 data, u32 count),
-                           (device, startRegister, data, count),
-                           bd::gpu::Video::MarkPSConstantsDirty())
-
-// bdSetViewportConstants writes (1/W, 1/H, 0, scale) into VS c21 (device+0x850)
-// and PS c21 (device+0x1850), while Visual__DrawVerticesUP writes PS c3
-// (device+0x1730) and, when its 4th arg is non-null, VS c20 (device+0x840).
-// Both write the constant shadows directly via g_pD3DDevice and skip the D3D
-// setter path, so the FN setter hooks never see them, so mark both stages
-// dirty.
-REBLUE_CONSTANT_DIRTY_HOOK(bdSetViewportConstants, (), (),
-                           (bd::gpu::Video::MarkVSConstantsDirty(),
-                            bd::gpu::Video::MarkPSConstantsDirty()))
-REBLUE_CONSTANT_DIRTY_HOOK(Visual__DrawVerticesUP,
-                           (u32 count, u32 vertices, u32 psConstant3,
-                            u32 vsConstant20),
-                           (count, vertices, psConstant3, vsConstant20),
-                           (bd::gpu::Video::MarkVSConstantsDirty(),
-                            bd::gpu::Video::MarkPSConstantsDirty()))
-// Visual__DrawSortedQueues also writes PS c3 (device+0x1730) inline during its
-// draw setup, a separate writer from Visual__DrawVerticesUP that likewise skips
-// the setter path.
-REBLUE_CONSTANT_DIRTY_HOOK(Visual__DrawSortedQueues, (), (),
-                           (bd::gpu::Video::MarkVSConstantsDirty(),
-                            bd::gpu::Video::MarkPSConstantsDirty()))
-
-#undef REBLUE_CONSTANT_DIRTY_HOOK
+// Constant uploads are gated by the engine's own m_Mask[0] and m_Mask[1], which
+// FlushDirtyConstantMasks consumes at draw time.
 
 namespace {
 
-// bdSetRenderState. BD's chokepoint for every D3DRS write: the per-D3DRS guest
-// setters have no direct xrefs, so all state reaches them through this vtable
-// dispatch, keyed by the render state's byte offset (its index * 4).
+// bdSetRenderState. BD's chokepoint for nearly every D3DRS write. The per-state
+// setters are reached through the dispatch table at 0x82751D68, keyed by the
+// render state's byte offset (its index * 4). Five are also called directly:
+// ClipPlaneEnable, ColorWriteEnable, HalfPixelOffset, PresentInterval and
+// PresentImmediateThreshold. ColorWriteEnable is the one the draw flush reads.
 constexpr u32 kRsAlphaTestEnable = 24 * 4;
 constexpr u32 kRsAlphaRef = 25 * 4;
 constexpr float kAlphaRefScale = 1.0f / 256.0f; // ALPHAREF is 0..255
@@ -344,5 +292,23 @@ REX_DETOUR(bdSetRenderState, void, (u32 offset, u32 value)) {
     bd::gpu::Video::SetAlphaThreshold(static_cast<float>(value) *
                                       kAlphaRefScale);
   }
+  // bdSetRenderState skips the write when the cache already holds the value, so
+  // only a changed value reaches the device and retires the override.
+  if (offset == bd::gpu::kRsColorWriteEnable) {
+    const auto *cached = bd::mem::at<const be_u32>(
+        bd::gpu::kRenderStateCacheVa + bd::gpu::kRsColorWriteEnable);
+    if (!cached || u32(*cached) != value)
+      bd::gpu::Video::SetColorWriteOverride(-1);
+  }
   original(offset, value);
+}
+
+// Visual__UnitNormal__vf05 restores 0xF through this setter without going
+// through bdSetRenderState, so the cache keeps the 7 vf03 wrote while the
+// device holds 0xF. The next bdSetRenderState of that same 7 is skipped on the
+// console, so the cache is left alone and the device value rides as an override.
+REX_DETOUR(D3DDevice_SetRenderState_ColorWriteEnable, void,
+           (u32 device, u32 value)) {
+  original(device, value);
+  bd::gpu::Video::SetColorWriteOverride(static_cast<i32>(value));
 }

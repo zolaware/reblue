@@ -172,7 +172,7 @@ namespace {
 // swap-sized backbuffer on a non-16:9 output matches none of BD's fit-sized
 // composite RTs.
 void GuestBackBufferDims(u32 &w, u32 &h) {
-  if (!Output::RenderSize(w, h)) {
+  if (!Output::LogicalSize(w, h)) {
     w = static_cast<u32>(kDesignCanvasWidth);
     h = static_cast<u32>(kDesignCanvasHeight);
   }
@@ -183,8 +183,8 @@ void GuestBackBufferDims(u32 &w, u32 &h) {
 // fence wait) and rebinds the SRV slot.
 bool CreateBackBufferTexture(VideoState &s, GuestTexture *bb, u32 w, u32 h) {
   bb->framebuffers.clear();
-  bb->width = w;
-  bb->height = h;
+  Output::HostScale(bb->scaleX, bb->scaleY);
+  bb->SetSize(w, h);
   bb->format = plume::RenderFormat::B8G8R8A8_UNORM;
   bb->mipLevels = 1;
   bb->viewDimension = plume::RenderTextureViewDimension::TEXTURE_2D;
@@ -192,8 +192,8 @@ bool CreateBackBufferTexture(VideoState &s, GuestTexture *bb, u32 w, u32 h) {
 
   plume::RenderTextureDesc desc;
   desc.dimension = plume::RenderTextureDimension::TEXTURE_2D;
-  desc.width = w;
-  desc.height = h;
+  desc.width = bb->hostWidth;
+  desc.height = bb->hostHeight;
   desc.depth = 1;
   desc.mipLevels = 1;
   desc.arraySize = 1;
@@ -510,7 +510,12 @@ void Video::SyncBackBufferSizeLocked() {
   u32 w = 0;
   u32 h = 0;
   GuestBackBufferDims(w, h);
-  if (bb->width == w && bb->height == h)
+  float kx = 1.0f;
+  float ky = 1.0f;
+  Output::HostScale(kx, ky);
+  if (bb->width == w && bb->height == h &&
+      bb->hostWidth == GuestTexture::HostExtent(w, kx) &&
+      bb->hostHeight == GuestTexture::HostExtent(h, ky))
     return;
 
   SubmitOpenListLocked(s);
@@ -541,6 +546,39 @@ void Video::ResizeTexture(GuestTexture *tex, u32 width, u32 height) {
     return;
   if (tex->viewDimension != plume::RenderTextureViewDimension::TEXTURE_2D)
     return;
+  tex->width = width;
+  tex->height = height;
+  RecreateTexture(tex);
+}
+
+void Video::PromoteForGPUWrite(GuestTexture *tex) {
+  if (!tex || tex->scaleDecided || !Output::HostScalingActive())
+    return;
+  tex->scaleDecided = true;
+  float kx = 1.0f;
+  float ky = 1.0f;
+  Output::HostScale(kx, ky);
+  const bool depth = IsDepthFormat(tex->format);
+  const bool eligible =
+      tex->type == ResourceType::Texture && tex->texture &&
+      tex->viewDimension == plume::RenderTextureViewDimension::TEXTURE_2D &&
+      tex->mipLevels <= 1 && tex->depth <= 1 &&
+      tex->sampleCount == plume::RenderSampleCount::COUNT_1 &&
+      !tex->scaleExempt && !tex->cpuWritten && tex->scaleX == 1.0f &&
+      tex->scaleY == 1.0f && (depth || IsRenderTargetCapable(tex->format));
+  if (!eligible || (kx == 1.0f && ky == 1.0f))
+    return;
+  tex->scaleX = kx;
+  tex->scaleY = ky;
+  RecreateTexture(tex);
+  REXLOG_DEBUG(bd, "host scale promoted {}x{} fmt {} to {}x{}", tex->width,
+               tex->height, static_cast<int>(tex->format), tex->hostWidth,
+               tex->hostHeight);
+}
+
+void Video::RecreateTexture(GuestTexture *tex) {
+  const u32 width = tex->width;
+  const u32 height = tex->height;
   auto *device = HostDevice();
   if (!device)
     return;
@@ -551,8 +589,8 @@ void Video::ResizeTexture(GuestTexture *tex, u32 width, u32 height) {
   const bool is_depth = IsDepthFormat(tex->format);
   plume::RenderTextureDesc desc;
   desc.dimension = plume::RenderTextureDimension::TEXTURE_2D;
-  desc.width = width;
-  desc.height = height;
+  desc.width = GuestTexture::HostExtent(width, tex->scaleX);
+  desc.height = GuestTexture::HostExtent(height, tex->scaleY);
   desc.depth = 1;
   desc.mipLevels = tex->mipLevels ? tex->mipLevels : 1;
   desc.arraySize = 1;
@@ -573,8 +611,7 @@ void Video::ResizeTexture(GuestTexture *tex, u32 width, u32 height) {
     REXLOG_ERROR(bd, "Texture resize to {}x{} failed", width, height);
     return;
   }
-  tex->width = width;
-  tex->height = height;
+  tex->SetSize(width, height);
   tex->layout = plume::RenderTextureLayout::UNKNOWN;
   tex->framebufferAttached = false;
   if (!is_depth)
@@ -659,16 +696,15 @@ GuestTexture *GetOrCreateDebugTexture() {
     return nullptr;
 
   auto *t = new GuestTexture(ResourceType::RenderTarget);
-  t->width = 4;
-  t->height = 4;
+  t->SetSize(4, 4);
   t->format = plume::RenderFormat::R8G8B8A8_UNORM;
   t->mipLevels = 1;
   t->viewDimension = plume::RenderTextureViewDimension::TEXTURE_2D;
 
   plume::RenderTextureDesc desc;
   desc.dimension = plume::RenderTextureDimension::TEXTURE_2D;
-  desc.width = t->width;
-  desc.height = t->height;
+  desc.width = t->hostWidth;
+  desc.height = t->hostHeight;
   desc.depth = 1;
   desc.mipLevels = 1;
   desc.arraySize = 1;
