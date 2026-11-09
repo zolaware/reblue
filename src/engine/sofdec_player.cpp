@@ -12,8 +12,9 @@
 
 #include <rex/hook.h>
 #include <rex/ppc.h>
-#include <rex/system/thread_state.h>
+#include <rex/runtime/thread_state.h>
 #include <rex/types.h>
+#include <rex/ppc/midasm.h>
 
 #include "core/memory_helpers.h"
 #include "engine/frame_clock.h"
@@ -94,12 +95,11 @@ bool SofdecPlayer::Pause() {
   const u32 address = Address();
   if (!address || Paused())
     return false;
-  auto *memory = REX_KERNEL_MEMORY();
+  const auto memory = bd::mem::view();
   if (!memory)
     return false;
   g_held.store(address, std::memory_order_relaxed);
-  rex::CallFrame frame(*rex::runtime::ThreadState::Get()->context());
-  if (MoviePause(frame, memory->virtual_membase(), address))
+  if (MoviePause(address))
     return true;
   g_held.store(0, std::memory_order_relaxed);
   return false;
@@ -108,12 +108,11 @@ bool SofdecPlayer::Pause() {
 bool SofdecPlayer::Resume() {
   const u32 address = Address();
   bool resumed = false;
-  auto *memory = REX_KERNEL_MEMORY();
+  const auto memory = bd::mem::view();
   if (address && memory && g_held.load(std::memory_order_relaxed) == address &&
       Playing() &&
       g_player.load(std::memory_order_relaxed) == address && Paused()) {
-    rex::CallFrame frame(*rex::runtime::ThreadState::Get()->context());
-    resumed = MovieResume(frame, memory->virtual_membase(), address) != 0;
+    resumed = MovieResume(address) != 0;
   }
   g_held.store(0, std::memory_order_relaxed);
   return resumed;
@@ -127,9 +126,10 @@ engine::SofdecPlayer Game::SofdecPlayer() const {
 
 } // namespace bd::engine
 
-void bdMoviePlaybackHook(PPCRegister &r31) { bd::engine::OnPresent(r31.u32); }
+REX_MIDASM_HOOK(bdMoviePlaybackHook, (PPCRegister &r31)) { bd::engine::OnPresent(r31.u32); }
+REX_MIDASM_AT(bdMoviePlaybackHook, 0x8212FB6C, before, r31);
 
-bool bdMovieTaskDrawTickGateHook(PPCRegister &r31, PPCRegister &r11) {
+REX_MIDASM_BRANCH(bdMovieTaskDrawTickGateHook, (PPCRegister &r31, PPCRegister &r11)) {
   if (bd::engine::TickDue())
     return false;
   const u32 player = bd::engine::PlayTaskPlayer(r31.u32);
@@ -138,3 +138,4 @@ bool bdMovieTaskDrawTickGateHook(PPCRegister &r31, PPCRegister &r11) {
   r11.u32 = player;
   return true;
 }
+REX_MIDASM_AT(bdMovieTaskDrawTickGateHook, 0x8212EF20, before, 0x8212EF68, r31, r11);

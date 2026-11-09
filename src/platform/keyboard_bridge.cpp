@@ -4,17 +4,18 @@
  */
 #include "platform/keyboard_bridge.h"
 
+#include <atomic>
+
 #include <rex/runtime.h>
-#include <rex/system/kernel_state.h>
-#include <rex/ui/virtual_key.h>
+#include <rex/hid/virtual_key.h>
 
 #include "core/memory_helpers.h"
 #include "engine/engine.h"
-#include "platform/keyboard_input.h"
+#include "platform/hid.h"
 
 namespace bd::platform {
 
-using VK = rex::ui::VirtualKey;
+using VK = rex::hid::VirtualKey;
 
 inline constexpr VK kPolledKeys[] = {
     VK::kReturn,  VK::kEscape,  VK::kTab,     VK::kBack,    VK::kUp,
@@ -89,8 +90,7 @@ void ClearGuestEntry(GuestKeyEntry *entry) {
 // Write the first newly pressed key into the guest buffer. Edge-detected so
 // held keys don't repeat every frame.
 void PollKeyboardToGuest() {
-  auto *ks = REX_KERNEL_STATE();
-  if (!ks || !ks->memory())
+  if (!bd::mem::memory())
     return;
 
   auto *entry = mem::at<GuestKeyEntry>(kGuestKeyBufferAddr);
@@ -104,12 +104,12 @@ void PollKeyboardToGuest() {
   const auto &game = bd::engine::Game::Get();
   const bool overlay_visible = game.IsReady() && !game.MindowsHidden();
 
-  auto &kb = Keyboard();
+  auto &kb = HID();
   static bool prev_down[kPolledKeyCount] = {};
 
   VK found_vk = VK::kNone;
   for (size_t i = 0; i < kPolledKeyCount; ++i) {
-    const bool now_down = kb.IsDown(kPolledKeys[i]);
+    const bool now_down = kb.IsKeyDown(kPolledKeys[i]);
     if (now_down && !prev_down[i] && found_vk == VK::kNone)
       found_vk = kPolledKeys[i];
     prev_down[i] = now_down;
@@ -118,7 +118,7 @@ void PollKeyboardToGuest() {
   if (found_vk != VK::kNone && overlay_visible) {
     entry->vkCode = static_cast<u16>(found_vk);
     entry->charCode = VkToChar(found_vk);
-    entry->modifiers = kb.Modifiers();
+    entry->modifiers = static_cast<u8>(kb.GetModifiers());
   } else {
     // Clear rather than leave a stale key: guest handlers re-fire every frame
     // the buffer holds a value, not on edges.
@@ -126,11 +126,30 @@ void PollKeyboardToGuest() {
   }
 }
 
+namespace {
+
+std::atomic<bool> g_mindowsHeld{false};
+
+} // namespace
+
+void HoldPadsForMindows(bool open) {
+  if (g_mindowsHeld.exchange(open, std::memory_order_relaxed) == open)
+    return;
+  if (open)
+    HID().AcquireUIBlock();
+  else
+    HID().ReleaseUIBlock();
+}
+
+bool MindowsOwnsKeyboard() {
+  return g_mindowsHeld.load(std::memory_order_relaxed);
+}
+
 bool PollMindowsHotkey() {
-  auto &kb = Keyboard();
-  constexpr u8 kCtrlAlt = KeyboardInput::kModCtrl | KeyboardInput::kModAlt;
+  auto &kb = HID();
+  constexpr u8 kCtrlAlt = kModCtrl | kModAlt;
   const bool down =
-      (kb.Modifiers() & kCtrlAlt) == kCtrlAlt && kb.IsDown(VK::kM);
+      (static_cast<u8>(kb.GetModifiers()) & kCtrlAlt) == kCtrlAlt && kb.IsKeyDown(VK::kM);
   static bool prev = false;
   const bool fired = down && !prev;
   prev = down;

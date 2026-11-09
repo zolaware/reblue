@@ -20,10 +20,6 @@
 
 struct ImGuiIO;
 
-namespace rex::ui {
-class ImGuiDrawer;
-} // namespace rex::ui
-
 namespace bd::ui {
 
 struct UpdatePromptContext {
@@ -35,7 +31,7 @@ struct UpdatePromptContext {
 // nothing and the dialog owns no thread.
 class UpdatePromptDialog final : public rex::ui::ImGuiDialog {
 public:
-  UpdatePromptDialog(rex::ui::ImGuiDrawer *drawer, UpdatePromptContext ctx);
+  explicit UpdatePromptDialog(UpdatePromptContext ctx);
 
 protected:
   void OnDraw(ImGuiIO &io) override;

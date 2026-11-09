@@ -7,12 +7,16 @@
  */
 #include "ui/pause_overlay.h"
 
+#include <rex/ui/overlay.h>
+
 #include <algorithm>
 #include <cfloat>
 #include <string>
 
 #include <imgui.h>
 #include <rex/types.h>
+#include <rex/color.h>
+#include <rex/ui/color.h>
 
 #include "core/i18n.h"
 #include "embedded.h"
@@ -31,17 +35,16 @@ constexpr float kEdgeWidth = 2.0f;
 constexpr float kFrameInset = 4.0f;
 constexpr float kFrameWidth = 1.0f;
 
-constexpr ImU32 kWindow = IM_COL32(0, 0, 0, 192);
-constexpr ImU32 kEdge = IM_COL32(192, 192, 192, 255);
-constexpr ImU32 kFrame = IM_COL32(240, 240, 240, 255);
-constexpr ImU32 kText = IM_COL32(255, 255, 255, 255);
+constexpr rex::Color kWindow = rex::Color::FromRGBA8(0, 0, 0, 192);
+constexpr rex::Color kEdge = rex::Color::FromRGBA8(192, 192, 192);
+constexpr rex::Color kFrame = rex::Color::FromRGBA8(240, 240, 240);
+constexpr rex::Color kText = rex::colors::kWhite;
 
 ImFont *g_font = nullptr;
 
 } // namespace
 
-PauseOverlay::PauseOverlay(rex::ui::ImGuiDrawer *drawer)
-    : rex::ui::ImGuiDialog(drawer) {}
+PauseOverlay::PauseOverlay(const rex::ui::OverlayContext &) {}
 
 PauseOverlay::~PauseOverlay() = default;
 
@@ -67,11 +70,11 @@ void PauseOverlay::OnDraw(ImGuiIO &io) {
   const float inset = kFrameInset * scale;
 
   ImDrawList *dl = ImGui::GetForegroundDrawList();
-  dl->AddRectFilled(min, max, kWindow);
-  dl->AddRect(min, max, kEdge, 0.0f, 0, kEdgeWidth * scale);
+  dl->AddRectFilled(min, max, rex::ui::ToImU32(kWindow));
+  dl->AddRect(min, max, rex::ui::ToImU32(kEdge), 0.0f, 0, kEdgeWidth * scale);
   dl->AddRect(ImVec2(min.x + inset, min.y + inset),
-              ImVec2(max.x - inset, max.y - inset), kFrame, 0.0f, 0,
-              kFrameWidth * scale);
+              ImVec2(max.x - inset, max.y - inset), rex::ui::ToImU32(kFrame),
+              0.0f, 0, kFrameWidth * scale);
 
   const std::string &text = i18n::Text("common.paused");
   ImFont *font = g_font ? g_font : ImGui::GetFont();
@@ -81,7 +84,7 @@ void PauseOverlay::OnDraw(ImGuiIO &io) {
   dl->AddText(font, fontSize,
               ImVec2(min.x + (size.x - extent.x) * 0.5f,
                      min.y + (size.y - extent.y) * 0.5f),
-              kText, text.c_str());
+              rex::ui::ToImU32(kText), text.c_str());
 }
 
 } // namespace bd::ui

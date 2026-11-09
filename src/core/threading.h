@@ -10,14 +10,7 @@
 
 namespace bd {
 
-void EnableHighResTimer();
-void DisableHighResTimer();
-
 // Best effort. Never dies hard.
 void DemoteThreadToBackground();
-
-// TerminateProcess and spin. Never returns, runs no destructors (not a clean
-// exit).
-[[noreturn]] void TerminateProcessNow(int exit_code = 0);
 
 } // namespace bd

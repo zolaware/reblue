@@ -10,7 +10,7 @@
 namespace bd::platform {
 
 // Best-effort host UI language as an XLanguage id (1..12, per
-// rex::system::XLanguage). Returns 1 (English) when the host language is
+// rex::runtime::XLanguage). Returns 1 (English) when the host language is
 // undetectable or not one the engine knows.
 u32 DetectOsXLanguage();
 

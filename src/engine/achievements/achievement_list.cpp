@@ -10,11 +10,12 @@
 #include <algorithm>
 #include <utility>
 
-#include <rex/system/achievement_manager.h>
-#include <rex/system/kernel_state.h>
+#include <rex/runtime.h>
+#include <rex/runtime/achievement_manager.h>
 
 #include "core/logging.h"
 #include "engine/achievements/achievements.h"
+#include "core/memory_helpers.h"
 
 namespace bd::engine {
 
@@ -28,20 +29,19 @@ const std::vector<AchievementRow> &RefreshAchievementList() {
   Achievements::Register();
   s_rows.clear();
 
-  auto *ks = rex::system::kernel_state();
-  if (!ks) {
-    BD_WARN("[achv] no kernel state, achievement list is empty");
+  auto *rt = bd::mem::runtime();
+  if (!rt) {
+    REXLOG_WARN(bd, "achv no runtime, achievement list is empty");
     return s_rows;
   }
-  // achievements() hands back a reference to the live manager, not a pointer.
-  auto &mgr = ks->achievements();
+  auto &mgr = rt->GetAchievementManager();
 
   for (const auto &a : mgr.ListAchievements()) {
     AchievementRow row;
     row.id = a.id;
     row.label = a.label;
     row.unlocked = mgr.IsUnlocked(a.id);
-    row.unlockedAt = row.unlocked ? mgr.GetUnlockTime(a.id) : 0;
+    row.unlockedAt = row.unlocked ? mgr.GetUnlockTime(a.id).value_or(0) : 0;
     row.desc = row.unlocked ? a.description : a.unachieved_description;
     row.gamerscore = a.gamerscore;
     s_rows.push_back(std::move(row));
@@ -57,7 +57,7 @@ const std::vector<AchievementRow> &RefreshAchievementList() {
                      return a.unlocked && a.unlockedAt > b.unlockedAt;
                    });
 
-  BD_DEBUG("[achv] catalog refreshed: {} achievements", s_rows.size());
+  REXLOG_DEBUG(bd, "achv catalog refreshed: {} achievements", s_rows.size());
   return s_rows;
 }
 

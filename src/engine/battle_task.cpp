@@ -13,6 +13,8 @@
 
 #include <rex/hook.h>
 #include <rex/ppc.h>
+#include <rex/ppc/detour.h>
+#include <rex/ppc/midasm.h>
 
 #include "core/memory_helpers.h"
 #include "engine/chara.h"
@@ -306,23 +308,17 @@ engine::BattleTask Game::BattleTask() const { return Captured(); }
 } // namespace bd::engine
 
 // BattleTask has no root global. The per-frame scene update is the one reliable
-// place it appears as 'this' (r3), so the root is captured here.
-//
-// Raw, on the inherited context: a typed REX_IMPORT re-roots the engine stack
-// at ThreadState's r1 and overwrites the frames live underneath it.
-REX_EXTERN(__imp__bdBattleSceneUpdate);
-REX_HOOK_RAW(bdBattleSceneUpdate) {
-  bd::engine::OnBattleManagerSeen(ctx.r3.u32);
-  __imp__bdBattleSceneUpdate(ctx, base);
+// place it appears as 'this', so the root is captured here.
+REX_DETOUR(bdBattleSceneUpdate, void, (u32 battle)) {
+  bd::engine::OnBattleManagerSeen(battle);
+  original(battle);
 }
 
 // Mirrors the scene state machine after each update, so the GAME OVER screen is
-// caught the frame it comes up. The task is taken from r3 first because the
-// original returns over it.
-REX_EXTERN(__imp__ScriptManTask__Update);
-REX_HOOK_RAW(ScriptManTask__Update) {
-  const bd::engine::ScriptManTask scene(ctx.r3.u32);
-  __imp__ScriptManTask__Update(ctx, base);
+// caught the frame it comes up.
+REX_DETOUR(ScriptManTask__Update, void, (u32 task)) {
+  const bd::engine::ScriptManTask scene(task);
+  original(task);
   const bool gameOver = scene.SceneState() == bd::engine::kSceneStateGameOver;
   if (gameOver && !bd::engine::g_gameOverShown)
     bd::engine::Events::Publish(bd::engine::GameOverShown{});
@@ -331,22 +327,22 @@ REX_HOOK_RAW(ScriptManTask__Update) {
 
 // The EneTask append that ends every enemy spawn. The task is 0 on the
 // allocation failure path, which still runs the append.
-void bdEnemySpawnLinkHook(PPCRegister &r3) {
+REX_MIDASM_HOOK(bdEnemySpawnLinkHook, (PPCRegister &r3)) {
   const bd::engine::EneTask task(r3.u32);
   if (!task)
     return;
   bd::engine::Events::Publish(bd::engine::EnemySpawned{task.Address()});
 }
+REX_MIDASM_AT(bdEnemySpawnLinkHook, 0x82201EE4, after, r3);
 
 // Chara_AddStatus, which the whole title funnels a death through: the knocked
 // out index is the one that also zeroes current HP. It is generic over every
 // combatant, so PlayerDied publishes from here rather than from the field, and
 // the two events differ only in which side the block rebases to.
-REX_EXTERN(__imp__Chara_AddStatus);
-REX_HOOK_RAW(Chara_AddStatus) {
-  const u32 params = ctx.r3.u32;
+REX_DETOUR(Chara_AddStatus, void,
+           (u32 params, i32 status, i32 value, i32 extra, u32 source)) {
   const bool killing =
-      ctx.r4.u32 == bd::engine::kStatusIndexKnockedOut &&
+      u32(status) == bd::engine::kStatusIndexKnockedOut &&
       !bd::engine::Chara::FromParams(params).HasStatus(
           bd::engine::CharaStatus::kKnockedOut);
   const bd::engine::EneTask enemy =
@@ -355,7 +351,7 @@ REX_HOOK_RAW(Chara_AddStatus) {
       killing && !enemy ? bd::engine::MemberFromParams(params)
                         : bd::engine::PlyTask{};
 
-  __imp__Chara_AddStatus(ctx, base);
+  original(params, status, value, extra, source);
 
   if (enemy)
     bd::engine::Events::Publish(bd::engine::EnemyKilled{enemy.Address()});
@@ -365,8 +361,7 @@ REX_HOOK_RAW(Chara_AddStatus) {
 
 // Reached only for battle event scenes with step id 76, which is a Corporeal
 // special attack cinematic beginning and pack\summon\swNN.ipk loading.
-REX_EXTERN(__imp__bdSummonPackLoad);
-REX_HOOK_RAW(bdSummonPackLoad) {
+REX_DETOUR(bdSummonPackLoad, void, (u32 scene)) {
   bd::engine::Events::Publish(bd::engine::SummonBegan{});
-  __imp__bdSummonPackLoad(ctx, base);
+  original(scene);
 }

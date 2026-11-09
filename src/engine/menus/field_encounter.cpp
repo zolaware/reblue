@@ -9,6 +9,7 @@
 #include <algorithm>
 
 #include <rex/hook.h>
+#include <rex/ppc/detour.h>
 #include <rex/types.h>
 
 #include "engine/d2anime/anime_hittest.h"
@@ -18,9 +19,6 @@
 #include "engine/settings.h"
 #include "engine/sfx.h"
 #include "reblue_init.h"
-
-REX_EXTERN(__imp__bdFieldEncounterMenuOpen);
-REX_EXTERN(__imp__bdFieldEncounterMenuUpdate);
 
 namespace bd::engine {
 
@@ -129,15 +127,16 @@ void SelectAllRows(FieldEncounterMenu menu) {
 
 } // namespace bd::engine
 
-REX_HOOK_RAW(bdFieldEncounterMenuUpdate) {
-  bd::engine::DriveEncounterMouse(bd::engine::FieldEncounterMenu(ctx.r3.u32));
-  __imp__bdFieldEncounterMenuUpdate(ctx, base);
+REX_DETOUR(bdFieldEncounterMenuUpdate, u32, (u32 menu)) {
+  bd::engine::DriveEncounterMouse(bd::engine::FieldEncounterMenu(menu));
+  return original(menu);
 }
 
 // The menu's one-shot open. It builds the row list, so there is nothing to
 // select until it has returned.
-REX_HOOK_RAW(bdFieldEncounterMenuOpen) {
-  const bd::engine::FieldEncounterMenu menu(ctx.r3.u32);
-  __imp__bdFieldEncounterMenuOpen(ctx, base);
+REX_DETOUR(bdFieldEncounterMenuOpen, u32, (u32 menuVA, u32 position)) {
+  const bd::engine::FieldEncounterMenu menu(menuVA);
+  const u32 result = original(menuVA, position);
   bd::engine::SelectAllRows(menu);
+  return result;
 }

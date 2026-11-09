@@ -18,7 +18,6 @@ set(reblue_backend_only
     gpu/resolve.cpp
     gpu/shaders/guest_shaders.cpp
     gpu/vertex_declaration.cpp
-    platform/crash_handler.cpp
     reblue_app.cpp)
 
 # The runtime DXC shader linker has no Vulkan counterpart.

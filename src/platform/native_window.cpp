@@ -7,10 +7,7 @@
  */
 #include "platform/native_window.h"
 
-#include <SDL3/SDL_video.h>
 #if defined(__APPLE__)
-#include <SDL3/SDL_metal.h>
-
 #include <mach-o/dyld.h>
 #include <unistd.h>
 
@@ -19,7 +16,7 @@
 #include <string>
 #endif
 
-#include <rex/ui/window.h>
+#include <rex/ui/user_interface.h>
 
 #include "core/logging.h"
 #include "platform/host_resources.h"
@@ -28,12 +25,13 @@ namespace bd::platform {
 
 #if defined(_WIN32)
 
-bool GetNativeRenderWindow(rex::ui::Window *window, plume::RenderWindow &out) {
-  out = static_cast<plume::RenderWindow>(window->GetNativeWindowHandle());
-  if (!out) {
-    BD_ERROR("Window has no native HWND yet");
+bool GetNativeRenderWindow(rex::ui::IWindow &window, plume::RenderWindow &out) {
+  const rex::ui::NativeWindow native = window.GetNative();
+  if (native.kind != rex::ui::NativeWindow::Kind::kWin32 || !native.window) {
+    REXLOG_ERROR(bd, "Window has no native HWND yet");
     return false;
   }
+  out = static_cast<plume::RenderWindow>(native.window);
   return true;
 }
 
@@ -46,11 +44,6 @@ void SetenvIfUnset(const char *name, const char *value) {
     setenv(name, value, 1);
 }
 
-// volk dlopen's libvulkan/libMoltenVK by leaf name, and dyld snapshots
-// DYLD_LIBRARY_PATH at launch, so setting it in-process is too late: the run
-// that needs it has to be a fresh exec. Priority 101 (the lowest the attribute
-// allows) puts this ahead of every other initializer in the image, so the exec
-// cannot tear down state one of them already built.
 __attribute__((constructor(101))) void
 ConfigureMoltenVKAndReexec(int /*argc*/, char **argv) {
   RaiseFDLimit();
@@ -58,12 +51,11 @@ ConfigureMoltenVKAndReexec(int /*argc*/, char **argv) {
   SetenvIfUnset("SDL_MAC_PRESS_AND_HOLD", "0");
 
   SetenvIfUnset("MVK_CONFIG_SYNCHRONOUS_QUEUE_SUBMITS", "1");
-  // Style 3 is the single-Metal-queue mode.
   SetenvIfUnset("MVK_CONFIG_SEMAPHORE_SUPPORT_STYLE", "3");
   SetenvIfUnset("MVK_CONFIG_PRESENT_WITH_COMMAND_BUFFER", "1");
 
   if (std::getenv("REBLUE_MOLTENVK_RELAUNCHED"))
-    return; // already relaunched
+    return;
 
   char exe_buf[4096];
   uint32_t exe_size = sizeof(exe_buf);
@@ -73,8 +65,8 @@ ConfigureMoltenVKAndReexec(int /*argc*/, char **argv) {
   const std::string exe_dir = exe.substr(0, exe.find_last_of('/'));
 
   const std::string dirs[] = {
-      exe_dir + "/vulkan/lib", // SDK-staged runtime (rexglue_configure_target)
-      "/opt/homebrew/lib",     // Homebrew molten-vk
+      exe_dir + "/vulkan/lib",
+      "/opt/homebrew/lib",
       "/usr/local/lib",
   };
   std::string vk_path;
@@ -86,7 +78,7 @@ ConfigureMoltenVKAndReexec(int /*argc*/, char **argv) {
     vk_path += dir;
   }
   if (vk_path.empty())
-    return; // nothing to add, volk will report the failure
+    return;
 
   std::string dyld_path = vk_path;
   if (const char *existing = std::getenv("DYLD_LIBRARY_PATH");
@@ -99,65 +91,29 @@ ConfigureMoltenVKAndReexec(int /*argc*/, char **argv) {
   setenv("DYLD_LIBRARY_PATH", dyld_path.c_str(), 1);
   setenv("REBLUE_MOLTENVK_RELAUNCHED", "1", 1);
   execv(exe.c_str(), argv);
-  // execv only returns on failure, fall through and let startup continue.
 }
 
 } // namespace
 
-bool GetNativeRenderWindow(rex::ui::Window *window, plume::RenderWindow &out) {
-  // The SDK owns the single SDL window, fetch it the same way the X11 path and
-  // reblue_app.cpp's ApplyWindowSizeConstraints do.
-  (void)window;
-  int count = 0;
-  SDL_Window **windows = SDL_GetWindows(&count);
-  SDL_Window *sdl_window = (windows && count > 0) ? windows[0] : nullptr;
-  SDL_free(windows);
-  if (!sdl_window) {
-    BD_ERROR("No SDL window available for the Vulkan surface");
+bool GetNativeRenderWindow(rex::ui::IWindow &window, plume::RenderWindow &out) {
+  const rex::ui::NativeWindow native = window.GetNative();
+  if (native.kind != rex::ui::NativeWindow::Kind::kCocoa || !native.window ||
+      !native.layer) {
+    REXLOG_ERROR(bd,
+        "Window exposed no NSWindow/CAMetalLayer for the Metal surface");
     return false;
   }
-
-  SDL_PropertiesID props = SDL_GetWindowProperties(sdl_window);
-  out.window = SDL_GetPointerProperty(
-      props, SDL_PROP_WINDOW_COCOA_WINDOW_POINTER, nullptr);
-
-  // The view is a subview of the SDL window and dies with it, so it is cached
-  // against the window it was made for rather than unconditionally: a
-  // recreated window gets a fresh view instead of a dangling one.
-  static SDL_Window *view_owner = nullptr;
-  static SDL_MetalView metal_view = nullptr;
-  if (!metal_view || view_owner != sdl_window) {
-    metal_view = SDL_Metal_CreateView(sdl_window);
-    view_owner = sdl_window;
-  }
-  if (!metal_view) {
-    BD_ERROR("SDL_Metal_CreateView failed: {}", SDL_GetError());
-    return false;
-  }
-  out.view = SDL_Metal_GetLayer(metal_view);
-
-  if (!out.window || !out.view) {
-    BD_ERROR(
-        "SDL window exposed no NSWindow/CAMetalLayer for the Metal surface");
-    return false;
-  }
+  out.window = native.window;
+  out.view = native.layer;
   return true;
 }
 
 #else
 
-bool GetNativeRenderWindow(rex::ui::Window *window, plume::RenderWindow &out) {
-  // The SDK exposes no SDL_Window accessor and GetNativeWindowHandle is null
-  // off Windows. The app owns a single window, fetched the same way
-  // ApplyWindowSizeConstraints does. plume takes it whole so the surface
-  // follows whichever video driver SDL picked.
-  (void)window;
-  int count = 0;
-  SDL_Window **windows = SDL_GetWindows(&count);
-  out = (windows && count > 0) ? windows[0] : nullptr;
-  SDL_free(windows);
+bool GetNativeRenderWindow(rex::ui::IWindow &window, plume::RenderWindow &out) {
+  out = static_cast<SDL_Window *>(window.GetNative().sdl);
   if (!out) {
-    BD_ERROR("No SDL window available for the Vulkan surface");
+    REXLOG_ERROR(bd, "No SDL window available for the Vulkan surface");
     return false;
   }
   return true;

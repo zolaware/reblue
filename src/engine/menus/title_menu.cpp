@@ -6,10 +6,12 @@
  *            All rights reserved.
  * @license   BSD 3-Clause - see LICENSE
  */
-#include "core/encoding.h"
+#include <array>
+#include <string_view>
+
 #include "core/i18n.h"
 #include "core/logging.h"
-#include "core/shutdown.h"
+#include <rex/app.h>
 #include "engine/d2anime/anime_hittest.h"
 #include "engine/d2anime/anime_input.h"
 #include "engine/d2anime/anime_mouse.h"
@@ -28,32 +30,36 @@
 #include "ui/ui.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 #include <map>
 #include <string>
 
 #include <rex/hook.h>
-#include <rex/memory/utils.h>
 #include <rex/ppc.h>
+#include <rex/ppc/detour.h>
 #include <rex/ppc/stack.h>
-#include <rex/system/kernel_state.h>
+#include <rex/runtime.h>
+#include <rex/string.h>
 #include <rex/types.h>
+#include <rex/ppc/midasm.h>
+#include <rex/string/utf8.h>
 
 using bd::engine::Action;
 using bd::engine::ActionButton;
 using bd::engine::Button;
 using bd::engine::CheckButton;
-using rex::memory::store_and_swap;
 
 REX_IMPORT(__imp__bdColor4fToARGB, Color4fToARGB, u32(u32));
-REX_IMPORT(__imp__bdTextCalcWidth, TextCalcWidth, f64(f64, u32, u32, u32, u32));
+REX_IMPORT(__imp__bdTextCalcWidth, TextCalcWidth, f64(f64, u32, u32, u32));
 REX_IMPORT(__imp__bdSelectDiscSettings, SelectDiscSettings, u32(u32));
 REX_IMPORT(__imp__SequenceHolder_FindSequenceByName, FindSequenceByName,
            u32(u32, u32));
-REX_EXTERN(__imp__Visual__method_7E60);
-REX_EXTERN(__imp__TitleTask_Update);
-REX_EXTERN(__imp__TitleTask_Draw);
-REX_EXTERN(__imp__TitleTask_OnChildComplete);
+REX_IMPORT(__imp__Visual__method_7E60, PushText,
+           void(f64, f64, f64, f64, f64, u32, u32, u32, u32));
+REX_IMPORT(__imp__TitleTask_Update, TitleTaskUpdate, void(u32));
+REX_IMPORT(__imp__TitleTask_OnChildComplete, TitleTaskOnChildComplete,
+           void(u32, u32));
 
 namespace {
 
@@ -105,7 +111,7 @@ const std::u16string &RowLabel(const char *key) {
   }
   auto it = cache.find(key);
   if (it == cache.end())
-    it = cache.emplace(key, bd::Utf8ToU16(bd::i18n::Text(key))).first;
+    it = cache.emplace(key, rex::ToUTF16(bd::i18n::Text(key))).first;
   return it->second;
 }
 
@@ -243,65 +249,34 @@ float TitleRowTextY(u32 index) {
 }
 
 // Draw a centered custom menu label at the given cursor row.
-void DrawTitleLabel(PPCContext &ctx, u8 *base, u32 index,
-                    std::u16string_view text) {
-  u16 str[24];
-  const int len =
-      static_cast<int>(std::min<size_t>(text.size(), std::size(str) - 1));
-  for (int i = 0; i < len; ++i)
-    str[i] = static_cast<u16>(text[i]);
-  str[len] = 0;
+void DrawTitleLabel(u32 index, std::u16string_view text) {
+  char16_t str[24];
+  const int len = static_cast<int>(rex::CopyTruncating(str, text, std::size(str)));
 
   float yPos = TitleRowTextY(index);
 
-  rex::ppc::stack_guard guard(ctx);
+  rex::ppc::StackFrame frame;
 
   // bdColor4fToARGB reads big-endian floats in {r, g, b, a} order.
-  u32 be_color[4];
-  {
-    float vals[] = {0.7f, 0.7f, 0.7f, 1.0f};
-    for (int i = 0; i < 4; ++i) {
-      u32 bits;
-      std::memcpy(&bits, &vals[i], 4);
-      be_color[i] = __builtin_bswap32(bits);
-    }
-  }
-  u32 colorAddr = rex::ppc::stack_push(ctx, base, be_color, sizeof(be_color));
+  const std::array<be_f32, 4> be_color = {0.7f, 0.7f, 0.7f, 1.0f};
+  u32 colorAddr = frame.Push(be_color).GetGuestAddress();
   u32 color = Color4fToARGB(colorAddr);
 
-  u16 be_str[std::size(str)];
-  for (int i = 0; i <= len; ++i)
-    be_str[i] = __builtin_bswap16(str[i]);
-  u32 strAddr = rex::ppc::stack_push(ctx, base, be_str, (len + 1) * 2);
+  u32 strAddr = frame.PushWideString(std::u16string_view(str, len)).GetGuestAddress();
 
-  float textW = TextCalcWidth(24.0, color, strAddr, 1, -1);
+  float textW = TextCalcWidth(24.0, strAddr, 1, -1);
 
   const bd::engine::VisualRender visual = bd::engine::VisualRender::Get();
   if (!visual)
     return;
   float xPos = (visual.ScreenW() * 0.5f) - (textW * 0.5f);
 
-  rex::CallFrame cf(ctx);
-  cf.ctx.f1.f64 = (double)xPos;
-  cf.ctx.f2.f64 = (double)yPos;
-  cf.ctx.f3.f64 = 0.0;
-  cf.ctx.f4.f64 = 24.0;
-  cf.ctx.f5.f64 = 24.0;
-  cf.ctx.r9.u32 = color;
-  cf.ctx.r10.u32 = 1;
-  // Callee reads ~18 u32s of stack params: zero them, then rewrite the string
-  // (the zeroed param region can overlap the pushed string).
-  for (int i = 0; i < 20; ++i)
-    store_and_swap<u32>(base + cf.ctx.r1.u32 + 0x08 + i * 4, 0);
-  for (int i = 0; i <= len; ++i)
-    store_and_swap<u16>(base + strAddr + i * 2, str[i]);
-  cf.ctx.r8.u32 = strAddr;
-  __imp__Visual__method_7E60(cf, base);
+  PushText(xPos, yPos, 0.0, 24.0, 24.0, strAddr, color, 1, 0);
 }
 
 } // namespace
 
-void bdTitleActionButtonHook(PPCRegister &r5) {
+REX_MIDASM_HOOK(bdTitleActionButtonHook, (PPCRegister &r5)) {
   Action action;
   if (r5.u32 == static_cast<u32>(Button::A))
     action = Action::Confirm;
@@ -311,21 +286,29 @@ void bdTitleActionButtonHook(PPCRegister &r5) {
     return;
   r5.u32 = static_cast<u32>(ActionButton(action));
 }
+REX_MIDASM_AT(bdTitleActionButtonHook, 0x820CA11C, before, r5);
+REX_MIDASM_AT(bdTitleActionButtonHook, 0x820CA130, before, r5);
+REX_MIDASM_AT(bdTitleActionButtonHook, 0x820CA324, before, r5);
+REX_MIDASM_AT(bdTitleActionButtonHook, 0x820CA338, before, r5);
+REX_MIDASM_AT(bdTitleActionButtonHook, 0x820CA5FC, before, r5);
+REX_MIDASM_AT(bdTitleActionButtonHook, 0x820CA610, before, r5);
 
 // Extend the cursor wrap past the custom rows: +1 config, +1 "debug menu" when
 // present, +1 "exit". Fires only when hasSaveData.
-void bdTitleNavBoundsHook(PPCRegister &r30, PPCRegister &r31) {
+REX_MIDASM_HOOK(bdTitleNavBoundsHook, (PPCRegister &r30, PPCRegister &r31)) {
   r30.u64 += DebugMenuAvailable() ? 3 : 2;
 }
+REX_MIDASM_AT(bdTitleNavBoundsHook, 0x820CA654, before, r30, r31);
 
 // Force the navigable menu state instead of the direct
 // disc settings/language/DeviceSelect jump. Cursor is already 1 (New Game row),
 // and hasSaveData stays 0 so the Load and New Game+ rows remain hidden and save
 // creation reverts the title on its own.
-bool bdTitleNoSaveMenuHook(PPCRegister &r11) {
+REX_MIDASM_BRANCH(bdTitleNoSaveMenuHook, (PPCRegister &r11)) {
   r11.u64 = kTitleStateMenu;
   return true;
 }
+REX_MIDASM_AT(bdTitleNoSaveMenuHook, 0x820CA488, before, 0x820CA55C, r11);
 
 // B in the back states computes next state (hasSaveData != 0) + 1, which is 1
 // (press start) with no saves. Force the menu state so B returns to it.
@@ -336,21 +319,20 @@ void ForceMenuOnNoSaveBack(PPCRegister &r11, PPCRegister &r31) {
 }
 } // namespace
 
-void bdTitleNoSaveBackHook7(PPCRegister &r11, PPCRegister &r31) {
+REX_MIDASM_HOOK(bdTitleNoSaveBackHook7, (PPCRegister &r11, PPCRegister &r31)) {
   ForceMenuOnNoSaveBack(r11, r31);
 }
+REX_MIDASM_AT(bdTitleNoSaveBackHook7, 0x820CA19C, before, r11, r31);
 
-void bdTitleNoSaveBackHook6(PPCRegister &r11, PPCRegister &r31) {
+REX_MIDASM_HOOK(bdTitleNoSaveBackHook6, (PPCRegister &r11, PPCRegister &r31)) {
   ForceMenuOnNoSaveBack(r11, r31);
 }
-
-// The three task hooks below stay raw: DrawTitleLabel and ConfigMenu::Update
-// run engine calls on this hook's own stack, which only ctx carries.
+REX_MIDASM_AT(bdTitleNoSaveBackHook6, 0x820CA368, before, r11, r31);
 
 // Draw the custom rows after the original draw, only in the menu state.
-REX_HOOK_RAW(TitleTask_Draw) {
-  const bd::engine::TitleTask title(ctx.r3.u32);
-  __imp__TitleTask_Draw(ctx, base);
+REX_DETOUR(TitleTask_Draw, void, (u32 titleVA)) {
+  const bd::engine::TitleTask title(titleVA);
+  original(titleVA);
 
   if (title.State() != kTitleStateMenu)
     return;
@@ -358,18 +340,17 @@ REX_HOOK_RAW(TitleTask_Draw) {
   // First place our text is drawn, and bd_boot.ini is parsed by now.
   bd::i18n::SyncLocale();
 
-  DrawTitleLabel(ctx, base, ConfigIndex(title), RowLabel("title.config"));
+  DrawTitleLabel(ConfigIndex(title), RowLabel("title.config"));
   if (DebugMenuAvailable())
-    DrawTitleLabel(ctx, base, DebugMenuIndex(title),
-                   RowLabel("title.debug_menu"));
-  DrawTitleLabel(ctx, base, ExitIndex(title), RowLabel("title.exit"));
+    DrawTitleLabel(DebugMenuIndex(title), RowLabel("title.debug_menu"));
+  DrawTitleLabel(ExitIndex(title), RowLabel("title.exit"));
 }
 
 // A-button dispatch. "config" flags deferred creation and sets state 4
 // (CHILD_RUNNING). "debug menu" writes the "DebugMenu" sequence id to
 // nextSeqId so the engine fades out and transitions, the LoadGame idiom.
 // "exit" hard-terminates the process.
-bool bdTitleModsDispatchHook(PPCRegister &r31, PPCRegister &r11) {
+REX_MIDASM_BRANCH(bdTitleModsDispatchHook, (PPCRegister &r31, PPCRegister &r11)) {
   bd::engine::TitleTask title(r31.u32);
   u32 cursor = title.Cursor();
 
@@ -391,17 +372,16 @@ bool bdTitleModsDispatchHook(PPCRegister &r31, PPCRegister &r11) {
   }
 
   if (cursor == ExitIndex(title)) {
-    bd::RequestShutdown(bd::ShutdownReason::GuestExit); // never returns
+    rex::RequestShutdown(0);
   }
 
   return false;
 }
+REX_MIDASM_AT(bdTitleModsDispatchHook, 0x820CA6C4, before, 0x820CA7C8, r31, r11);
 
-REX_HOOK_RAW(TitleTask_OnChildComplete) {
-  u32 childTask = ctx.r4.u32;
-
+void TitleTaskOnChildComplete_hook(u32 titleVA, u32 childTask) {
   if (s_config_menu.IsActive() && childTask == s_config_menu.TaskAddr()) {
-    bd::engine::TitleTask(ctx.r3.u32).ClearChild();
+    bd::engine::TitleTask(titleVA).ClearChild();
 
     s_config_menu.Destroy();
     bd::engine::UnregisterVFS();
@@ -410,12 +390,13 @@ REX_HOOK_RAW(TitleTask_OnChildComplete) {
     return;
   }
 
-  __imp__TitleTask_OnChildComplete(ctx, base);
+  TitleTaskOnChildComplete(titleVA, childTask);
 }
+REX_HOOK(TitleTask_OnChildComplete, TitleTaskOnChildComplete_hook);
 
-REX_HOOK_RAW(TitleTask_Update) {
-  bd::engine::TitleTask title(ctx.r3.u32);
-  static float s_exit_hold_timer = 0.0f;
+void TitleTaskUpdate_hook(u32 titleVA) {
+  bd::engine::TitleTask title(titleVA);
+  static std::chrono::steady_clock::time_point s_exit_hold_start{};
 
   // Resolve the built-in "DebugMenu" sequence id once. Only registered when
   // debugMenuBoot was set at boot (devmode), so 0 keeps the row hidden.
@@ -458,7 +439,7 @@ REX_HOOK_RAW(TitleTask_Update) {
       }
       else {
           // INSTEAD of fading immediately, just prime the timer and stay in Hold.
-          s_exit_hold_timer = 0.0f;
+          s_exit_hold_start = std::chrono::steady_clock::now();
       }
   }
 
@@ -470,7 +451,7 @@ REX_HOOK_RAW(TitleTask_Update) {
                          &__imp__TitleTask_Update);
 
     if (!s_config_menu.IsActive()) {
-      BD_ERROR("[config] Create failed, restoring the menu state");
+      REXLOG_ERROR(bd, "config Create failed, restoring the menu state");
       title.SetState(kTitleStateMenu);
       bd::engine::UnregisterVFS();
       fade.FadeTo(0.0f, kFadeInSeconds);
@@ -481,7 +462,9 @@ REX_HOOK_RAW(TitleTask_Update) {
   }
 
   if (s_config_menu.IsActive()) {
-    s_config_menu.Update(ctx, base);
+    auto *state = rex::runtime::ThreadState::Get();
+    s_config_menu.Update(*state->GetContext(),
+                         state->GetMemory()->GetVirtualMembase());
 
     // The load is done: the finished screen cuts in from under the veil.
     if (s_config_fade == ConfigFade::Hold && s_config_menu.IsOnScreen()) {
@@ -505,10 +488,9 @@ REX_HOOK_RAW(TitleTask_Update) {
 
           // We are holding black, and the menu is gone (exit delay)
           if (s_config_fade == ConfigFade::Hold) {
-              s_exit_hold_timer += ImGui::GetIO().DeltaTime;
-              const float kExitHoldSeconds = 0.07f;
+              constexpr auto kExitHold = std::chrono::milliseconds(70);
 
-              if (s_exit_hold_timer >= kExitHoldSeconds) {
+              if (std::chrono::steady_clock::now() - s_exit_hold_start >= kExitHold) {
                   fade.FadeTo(0.0f, kFadeInSeconds); // Now start lifting the veil
                   s_config_fade = ConfigFade::Lift;
               }
@@ -528,6 +510,7 @@ REX_HOOK_RAW(TitleTask_Update) {
         if (voice >= 1)
           title.SetVoicePick(static_cast<u32>(voice - 1));
       }
-      __imp__TitleTask_Update(ctx, base);
+      TitleTaskUpdate(titleVA);
     }
   }
+REX_HOOK(TitleTask_Update, TitleTaskUpdate_hook);

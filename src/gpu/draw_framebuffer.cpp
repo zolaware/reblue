@@ -18,6 +18,7 @@
 #include "gpu/gpu_profiling.h"
 
 #include "core/logging.h"
+#include "core/settings.h"
 
 namespace bd::gpu {
 
@@ -44,7 +45,7 @@ plume::RenderFramebuffer *GetFramebuffer(VideoState &s, GuestTexture *rt,
     desc.depthAttachment = ds->texture;
   auto fb = s.device->createFramebuffer(desc);
   if (!fb) {
-    BD_ERROR("createFramebuffer failed for (rt={} ds={})",
+    REXLOG_ERROR(bd, "createFramebuffer failed for (rt={} ds={})",
              static_cast<void *>(rt), static_cast<void *>(ds));
     return nullptr;
   }
@@ -78,11 +79,16 @@ void TransitionResolveSources(VideoState &s, const GuestTexture *rt,
   plume::RenderTextureBarrier sampled[16];
   u32 sampled_count = 0;
   for (GuestTexture *t : s.textures) {
+    // A bound texture BD has not written yet (no upload, resolve or draw) is
+    // still sampled through its bindless slot.
+    if (t && t != rt && t != ds)
+      InitializeTargetLocked(s, t);
     GuestTexture *src = t ? t->sourceSurface : nullptr;
     if (!src || src == t || !src->texture)
       continue;
     if (src == rt || src == ds)
       continue;
+    InitializeTargetLocked(s, src);
     if (src->layout == plume::RenderTextureLayout::SHADER_READ)
       continue;
     sampled[sampled_count++] = plume::RenderTextureBarrier(
@@ -154,13 +160,14 @@ void SeedFreshColorTarget(VideoState &s, GuestTexture *rt, bool full_screen) {
   if (full_screen) {
     u32 n;
     if (DiagShouldLog(6, rt, &n)) {
-      BD_DEV_WARN("[composite-seed] #{} fullscreen {}x{} composite DISCARDED "
-                  "({})",
-                  n, rt->width, rt->height,
-                  starved ? starved : "seed copy failed");
+      if (::bd::Settings::Get().Devmode()) {
+        REXLOG_WARN(bd, "composite-seed #{} fullscreen {}x{} composite DISCARDED "
+                    "({})",
+                    n, rt->width, rt->height,
+                    starved ? starved : "seed copy failed");
+      }
     }
   }
-  s.command_list->discardTexture(rt->texture);
 }
 
 } // namespace
@@ -196,10 +203,12 @@ bool Video::BindDrawFramebufferLocked(bool color_clear_follows) {
   if (!rt && !ds) {
     u32 n;
     if (DiagShouldLog(5, s.render_target, &n)) {
-      BD_DEV_WARN("[draw-diag] #{} draw dropped: no effective RT/DS "
-                  "(s.render_target={} s.depth_stencil={})",
-                  n, static_cast<void *>(s.render_target),
-                  static_cast<void *>(s.depth_stencil));
+      if (::bd::Settings::Get().Devmode()) {
+        REXLOG_WARN(bd, "draw-diag #{} draw dropped: no effective RT/DS "
+                    "(s.render_target={} s.depth_stencil={})",
+                    n, static_cast<void *>(s.render_target),
+                    static_cast<void *>(s.depth_stencil));
+      }
     }
     return false;
   }
@@ -211,11 +220,13 @@ bool Video::BindDrawFramebufferLocked(bool color_clear_follows) {
   const bool full_screen = FullscreenChainClassLocked(s, rt);
   const bool msaa_rt =
       rt && rt->sampleCount != plume::RenderSampleCount::COUNT_1;
-  if (discard_rt && (msaa_rt || color_clear_follows)) {
+  // Discard before seeding: TransitionTargetsToWrite already moved the layout
+  // off UNKNOWN, so a shader-resolve seed would draw into an uninitialized
+  // target without discarding it.
+  if (discard_rt)
     s.command_list->discardTexture(rt->texture);
-  } else if (discard_rt) {
+  if (discard_rt && !msaa_rt && !color_clear_follows)
     SeedFreshColorTarget(s, rt, full_screen);
-  }
   if (full_screen)
     s.fullscreen_chain_head = rt;
   if (discard_ds)

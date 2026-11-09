@@ -41,7 +41,7 @@ VFS &VFS::Get() {
 void VFS::Init(const std::filesystem::path &game_root,
                const std::filesystem::path &cache_root) {
   paths_ = vfs::Paths(game_root, paths_.Profile());
-  BD_INFO("[vfs] install root {}", paths_.Install().string());
+  REXLOG_INFO(bd, "vfs install root {}", paths_.Install().string());
   files_.SetDiscRoot(paths_.Game());
   dlc_.Init(paths_.DLC());
   mods_.Init(paths_.Mods(), files_);
@@ -94,7 +94,7 @@ void VFS::PrepareDevWriteDirs() {
     std::error_code ec;
     std::filesystem::create_directories(paths_.Game() / rel, ec);
     if (ec)
-      BD_WARN("debug write dir '{}' not created: {}", rel, ec.message());
+      REXLOG_WARN(bd, "debug write dir '{}' not created: {}", rel, ec.message());
   }
 }
 

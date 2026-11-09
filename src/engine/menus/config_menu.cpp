@@ -8,6 +8,7 @@
  *            See LICENSE file in the project root for full license text.
  */
 #include "engine/menus/config_menu.h"
+#include "core/cvar_table.h"
 #include "core/i18n.h"
 #include "core/logging.h"
 #include "core/memory_helpers.h"
@@ -15,7 +16,7 @@
 #include "engine/achievements/achievement_list.h"
 #include "engine/d2anime/anime_mouse.h"
 #include "engine/d2anime/d2anime.h"
-#include "engine/input/binding_store.h"
+#include "engine/input/binding_registry.h"
 #include "engine/input/input_sources.h"
 #include "engine/sfx.h"
 #include "engine/glyph_set.h"
@@ -26,6 +27,8 @@
 
 #include <algorithm>
 
+#include <rex/api.h>
+#include <rex/platform/process.h>
 #include <rex/cvar.h>
 #include <rex/hook.h>
 #include <rex/types.h>
@@ -246,7 +249,7 @@ void ConfigMenu::Create(Task parent, Surface surface, PPCFunc *parentUpdate) {
   task_ = D2AnimeTask::Load(parent, "d2anime\\modmgr\\L_modmgr.csv",
                             D2AnimeTask::Reveal::Held);
   if (!task_) {
-    BD_ERROR("[config] LoadAsync failed");
+    REXLOG_ERROR(bd, "config LoadAsync failed");
     active_ = false;
     return;
   }
@@ -278,7 +281,7 @@ void ConfigMenu::Create(Task parent, Surface surface, PPCFunc *parentUpdate) {
     }
     return true;
   });
-  BD_DEBUG("[config] child task at 0x{:08X}", task_.Address());
+  REXLOG_DEBUG(bd, "config child task at 0x{:08X}", task_.Address());
 }
 
 void ConfigMenu::Destroy() {
@@ -293,7 +296,8 @@ void ConfigMenu::Destroy() {
   // Persist cvar changes so hot settings survive the next launch. The warm
   // reboot path saves too, and a double-write here is harmless (last wins).
   if (settings_dirty_) {
-    rex::cvar::SaveConfig(bd::platform::ConfigFilePath());
+    if (auto saved = rex::SaveConfigFile(bd::Cvars(), bd::platform::ConfigFilePath()); !saved)
+      REXLOG_WARN(bd, "config save failed: {}", saved.error().message);
     settings_dirty_ = false;
   }
 
@@ -320,12 +324,13 @@ void ConfigMenu::Destroy() {
   capture_slot_ = -1;
   conflict_shown_ = false;
 
-  BD_DEBUG("[config] destroyed");
+  REXLOG_DEBUG(bd, "config destroyed");
 }
 
 void ConfigMenu::Dismiss() {
   if (settings_dirty_) {
-    rex::cvar::SaveConfig(bd::platform::ConfigFilePath());
+    if (auto saved = rex::SaveConfigFile(bd::Cvars(), bd::platform::ConfigFilePath()); !saved)
+      REXLOG_WARN(bd, "config save failed: {}", saved.error().message);
     settings_dirty_ = false;
   }
 
@@ -350,7 +355,7 @@ void ConfigMenu::Dismiss() {
   drag_row_ = -1;
   hop_blocked_ = false;
 
-  BD_DEBUG("[config] dismissed");
+  REXLOG_DEBUG(bd, "config dismissed");
 }
 
 AnimeMenu &ConfigMenu::CurrentSettingsList() {
@@ -388,7 +393,7 @@ bool ConfigMenu::DiscoverMenus() {
     settings_menus_[p].SeedEntries(
         SettingsSlotCount(static_cast<SettingsPage>(p)));
 
-  BD_DEBUG("[config] discovered menus: section=0x{:08X} modlist=0x{:08X} "
+  REXLOG_DEBUG(bd, "config discovered menus: section=0x{:08X} modlist=0x{:08X} "
            "dlclist=0x{:08X} ({}mods, {}dlc)",
            section_menu_.Address(), modlist_menu_.Address(),
            dlclist_menu_.Address(), ModCount(), DlcCount());
@@ -505,7 +510,7 @@ void ConfigMenu::Transition(State next) {
     HideDLCDetail();
     SyncPreview(section_menu_.CursorIndex());
     PopulateNames();
-    BD_DEBUG("[config] state -> SECTION");
+    REXLOG_DEBUG(bd, "config state -> SECTION");
     break;
 
   case State::MODLIST:
@@ -521,7 +526,7 @@ void ConfigMenu::Transition(State next) {
                  i18n::Text("menu.header.details"));
     }
     PopulateNames();
-    BD_DEBUG("[config] state -> MODLIST");
+    REXLOG_DEBUG(bd, "config state -> MODLIST");
     break;
 
   case State::DLCLIST:
@@ -539,7 +544,7 @@ void ConfigMenu::Transition(State next) {
                  i18n::Text("menu.header.details"));
     }
     PopulateNames();
-    BD_DEBUG("[config] state -> DLCLIST");
+    REXLOG_DEBUG(bd, "config state -> DLCLIST");
     break;
 
   case State::LANGLIST:
@@ -555,7 +560,7 @@ void ConfigMenu::Transition(State next) {
     }
     PopulateNames();
     UpdateLanguageDetail(langlist_menu_.CursorIndex());
-    BD_DEBUG("[config] state -> LANGLIST ({} installed)", LanguageCount());
+    REXLOG_DEBUG(bd, "config state -> LANGLIST ({} installed)", LanguageCount());
     break;
 
   case State::LANGADD: {
@@ -568,7 +573,7 @@ void ConfigMenu::Transition(State next) {
     confirm_popup_.Create(task_, q1.c_str(), q2.c_str(), "", nullptr, nullptr,
                           0);
     ActivateOnly(nullptr);
-    BD_DEBUG("[config] state -> LANGADD (missing \"{}\")", lang_prompt_);
+    REXLOG_DEBUG(bd, "config state -> LANGADD (missing \"{}\")", lang_prompt_);
     break;
   }
 
@@ -584,7 +589,7 @@ void ConfigMenu::Transition(State next) {
     confirm_popup_.Create(task_, q1.c_str(), q2.c_str(), "", nullptr, nullptr,
                           0);
     ActivateOnly(nullptr);
-    BD_DEBUG("[config] state -> LANGPICK ({} of {})", lang_pick_, offers);
+    REXLOG_DEBUG(bd, "config state -> LANGPICK ({} of {})", lang_pick_, offers);
     break;
   }
 
@@ -592,13 +597,13 @@ void ConfigMenu::Transition(State next) {
     SetHeaders("", i18n::Text("menu.header.languages"),
                i18n::Text("menu.header.details"));
     ActivateOnly(nullptr);
-    BD_DEBUG("[config] state -> LANGJOB");
+    REXLOG_DEBUG(bd, "config state -> LANGJOB");
     break;
 
   case State::LANGNOTICE:
     ShowLanguageNotice(lang_notice_);
     ActivateOnly(nullptr);
-    BD_DEBUG("[config] state -> LANGNOTICE (\"{}\")", lang_notice_);
+    REXLOG_DEBUG(bd, "config state -> LANGNOTICE (\"{}\")", lang_notice_);
     break;
 
   case State::ACHVLIST: {
@@ -609,10 +614,10 @@ void ConfigMenu::Transition(State next) {
     RefreshAchvVisuals();
     const AchievementSummary s = GetAchievementSummary();
     SetHeaders("", i18n::Text("menu.header.achievements"),
-               fmt::format("{} / {}   {}G / {}G", s.unlocked, s.total,
+               std::format("{} / {}   {}G / {}G", s.unlocked, s.total,
                            s.earnedScore, s.totalScore));
     PopulateNames();
-    BD_DEBUG("[config] state -> ACHVLIST ({}/{})", s.unlocked, s.total);
+    REXLOG_DEBUG(bd, "config state -> ACHVLIST ({}/{})", s.unlocked, s.total);
     break;
   }
 
@@ -633,7 +638,7 @@ void ConfigMenu::Transition(State next) {
     RefreshSettingsVisuals();
     SetHeaders("", SettingsPageLabel(settings_page_), "");
     layout.restartVis.set(SettingsPageHasRestart(settings_page_) ? 1.0 : -1.0);
-    BD_DEBUG("[config] state -> SETTINGS ({})",
+    REXLOG_DEBUG(bd, "config state -> SETTINGS ({})",
              SettingsPageLabel(settings_page_));
     break;
   }
@@ -656,14 +661,14 @@ void ConfigMenu::Transition(State next) {
     SetHeaders("", "", "");
     // The pointer interactions are the ones nothing on screen names.
     SetKeybindChrome("menu.hint.binds");
-    BD_DEBUG("[config] state -> KEYBINDS");
+    REXLOG_DEBUG(bd, "config state -> KEYBINDS");
     break;
 
   case State::KEYBIND_CAPTURE:
     RefreshKeybindVisuals();
     SetKeybindChrome(capture_chip_ == kBindPadChip ? "menu.hint.capture_pad"
                                                    : "menu.hint.capture");
-    BD_DEBUG("[config] state -> KEYBIND_CAPTURE ({} chip {})",
+    REXLOG_DEBUG(bd, "config state -> KEYBIND_CAPTURE ({} chip {})",
              BindEntryLabel(BindGridEntry(capture_slot_)), capture_chip_);
     break;
 
@@ -671,7 +676,7 @@ void ConfigMenu::Transition(State next) {
     reorder_origin_ = modlist_menu_.CursorIndex();
     HideDetailPanel();
     layout.hdrDetails.set("");
-    BD_DEBUG("[config] state -> REORDER, origin={}", reorder_origin_);
+    REXLOG_DEBUG(bd, "config state -> REORDER, origin={}", reorder_origin_);
     break;
 
   case State::CONFIRM_DELETE: {
@@ -693,18 +698,18 @@ void ConfigMenu::Transition(State next) {
     confirm_popup_.Create(task_, i18n::Fmt("menu.confirm.delete", name).c_str(),
                           i18n::Text("menu.confirm.undone").c_str());
     ActivateOnly(nullptr);
-    BD_DEBUG("[config] state -> CONFIRM_DELETE ({}[{}] \"{}\")",
+    REXLOG_DEBUG(bd, "config state -> CONFIRM_DELETE ({}[{}] \"{}\")",
              DeleteKindName(delete_kind_), delete_index_, name);
     break;
   }
 
   case State::CONFIRM_REBOOT:
-    confirm_popup_.Create(task_, i18n::Text(bd::platform::IsSteamGameMode()
+    confirm_popup_.Create(task_, i18n::Text(!rex::platform::CanRelaunch()
                                                 ? "menu.confirm.quit"
                                                 : "menu.confirm.restart")
                                      .c_str());
     ActivateOnly(nullptr);
-    BD_DEBUG("[config] state -> CONFIRM_REBOOT");
+    REXLOG_DEBUG(bd, "config state -> CONFIRM_REBOOT");
     break;
 
   case State::CONFIRM_RESET_BINDS:
@@ -714,11 +719,11 @@ void ConfigMenu::Transition(State next) {
     confirm_popup_.Create(task_, i18n::Text("menu.confirm.reset_binds").c_str(),
                           i18n::Text("menu.confirm.undone").c_str());
     ActivateOnly(nullptr);
-    BD_DEBUG("[config] state -> CONFIRM_RESET_BINDS");
+    REXLOG_DEBUG(bd, "config state -> CONFIRM_RESET_BINDS");
     break;
 
   case State::CLOSING:
-    BD_DEBUG("[config] state -> CLOSING");
+    REXLOG_DEBUG(bd, "config state -> CLOSING");
     break;
 
   default:

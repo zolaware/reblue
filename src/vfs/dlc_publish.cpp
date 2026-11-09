@@ -14,11 +14,11 @@
 #include "vfs/vfs.h"
 
 #include <algorithm>
-#include <cctype>
 #include <set>
 #include <system_error>
 #include <utility>
 
+#include <rex/string/utf8.h>
 #include <rex/types.h>
 
 namespace bd::vfs {
@@ -33,12 +33,6 @@ constexpr char kXUIDDir[] = "0000000000000000";
 constexpr char kTitleDir[] = "4D5307DF";
 constexpr char kTypeDir[] = "00000002";
 constexpr char kHeadersDir[] = "Headers";
-
-std::string LowerAscii(std::string s) {
-  std::transform(s.begin(), s.end(), s.begin(),
-                 [](unsigned char c) { return std::tolower(c); });
-  return s;
-}
 
 // DL_Param.ipk is registered natively through the guest's single "download"
 // IPK slot (item grants + DL_config parsing). Each pack ships its own, so
@@ -61,7 +55,7 @@ void DLCCatalog::RemovePublished(const std::string &name) const {
   const auto title = profile_ / kXUIDDir / kTitleDir;
   std::filesystem::remove_all(title / kTypeDir / name, ec);
   if (ec)
-    BD_WARN("[dlc] could not remove published pack '{}': {}", name,
+    REXLOG_WARN(bd, "dlc could not remove published pack '{}': {}", name,
             ec.message());
   std::filesystem::remove(title / kHeadersDir / kTypeDir / (name + ".header"),
                           ec);
@@ -109,7 +103,7 @@ void DLCCatalog::Publish() {
       std::filesystem::copy(e.path(), dest,
                             std::filesystem::copy_options::recursive, cp);
       if (cp) {
-        BD_ERROR("[dlc] failed to adopt orphaned pack '{}': {}", name,
+        REXLOG_ERROR(bd, "dlc failed to adopt orphaned pack '{}': {}", name,
                  cp.message());
         std::filesystem::remove_all(dest, cp);
         continue;
@@ -122,7 +116,7 @@ void DLCCatalog::Publish() {
             header, root / ".headers" / (name + ".header"),
             std::filesystem::copy_options::overwrite_existing, hp);
       }
-      BD_DEBUG("[dlc] adopted orphaned pack '{}' from profile content tree",
+      REXLOG_DEBUG(bd, "dlc adopted orphaned pack '{}' from profile content tree",
                name);
       adopted = true;
     }
@@ -176,7 +170,7 @@ void DLCCatalog::Publish() {
       std::filesystem::copy(p.root, dest,
                             std::filesystem::copy_options::recursive, cp);
       if (cp) {
-        BD_ERROR("[dlc] failed to stage pack '{}': {}", p.name, cp.message());
+        REXLOG_ERROR(bd, "dlc failed to stage pack '{}': {}", p.name, cp.message());
         std::filesystem::remove_all(dest, cp);
         continue;
       }
@@ -194,16 +188,16 @@ void DLCCatalog::Publish() {
             sidecar, header, std::filesystem::copy_options::overwrite_existing,
             cp);
         if (!cp)
-          BD_DEBUG("[dlc] restored header for '{}' from store sidecar", p.name);
+          REXLOG_DEBUG(bd, "dlc restored header for '{}' from store sidecar", p.name);
       }
       if (!std::filesystem::exists(header, ec))
-        BD_WARN("[dlc] no header sidecar for '{}': its items will not be "
+        REXLOG_WARN(bd, "dlc no header sidecar for '{}': its items will not be "
                 "granted (worthless junk)",
                 p.name);
     }
     ++ready;
   }
-  BD_DEBUG("[dlc] published {} enabled pack(s) into profile content tree",
+  REXLOG_DEBUG(bd, "dlc published {} enabled pack(s) into profile content tree",
            ready);
 }
 
@@ -231,7 +225,7 @@ void DLCCatalog::MountArchives() {
     bool any = false;
     for (const auto &de :
          std::filesystem::directory_iterator(pack.download_dir, ec)) {
-      auto file = LowerAscii(de.path().filename().string());
+      auto file = rex::utf8_lower_ascii(de.path().filename().string());
       if (!IsOverlayArchive(file))
         continue;
 
@@ -251,7 +245,7 @@ void DLCCatalog::MountArchives() {
       ++packs;
   }
 
-  BD_INFO("[dlc] mounted {} archive(s) from {} pack(s)", archives, packs);
+  REXLOG_INFO(bd, "dlc mounted {} archive(s) from {} pack(s)", archives, packs);
 }
 
 void DLCCatalog::UnmountArchives(const DLCPackage &pack) const {
@@ -261,7 +255,7 @@ void DLCCatalog::UnmountArchives(const DLCPackage &pack) const {
   std::error_code ec;
   for (const auto &de :
        std::filesystem::directory_iterator(pack.download_dir, ec)) {
-    const auto file = LowerAscii(de.path().filename().string());
+    const auto file = rex::utf8_lower_ascii(de.path().filename().string());
     if (IsOverlayArchive(file))
       VFS::Get().Files().Remove(ArchiveMountName(pack.name, file));
   }

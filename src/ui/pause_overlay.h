@@ -15,14 +15,14 @@ struct ImFontAtlas;
 struct ImGuiIO;
 
 namespace rex::ui {
-class ImGuiDrawer;
+struct OverlayContext;
 } // namespace rex::ui
 
 namespace bd::ui {
 
 class PauseOverlay final : public rex::ui::ImGuiDialog {
 public:
-  explicit PauseOverlay(rex::ui::ImGuiDrawer *drawer);
+  explicit PauseOverlay(const rex::ui::OverlayContext &context);
   ~PauseOverlay();
 
   static void InitFonts(ImFontAtlas *atlas);

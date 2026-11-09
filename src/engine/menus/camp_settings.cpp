@@ -15,7 +15,7 @@
 #include "engine/menus/config_menu_data.h"
 #include "engine/sfx.h"
 
-REX_EXTERN(__imp__Camp__Config__MainTask__Update);
+REX_IMPORT(__imp__Camp__Config__MainTask__Update, CampConfigMainTaskUpdate, void(u32));
 REX_IMPORT(__imp__bdCampConfigSetState, CampConfigSetState, u32(u32, u32));
 
 namespace bd::engine {
@@ -119,7 +119,7 @@ void CampSettings::Tick() {
 void CampSettings::Open(const CampConfigMainTask &config) {
   if (!menu_.IsActive()) {
     if (warned_.Rebind(config.Address()))
-      BD_WARN("[camp-settings] no menu loaded, leaving the stock screen up");
+      REXLOG_WARN(bd, "camp-settings no menu loaded, leaving the stock screen up");
     return;
   }
   // Up before the stock pages go down, so the swap finishes whole inside one
@@ -218,9 +218,11 @@ bool CampSettings::Update(PPCContext &ctx, u8 *base, u32 taskAddr) {
 
 } // namespace bd::engine
 
-REX_HOOK_RAW(Camp__Config__MainTask__Update) {
-  const u32 task = ctx.r3.u32;
-  if (bd::engine::CampSettings::Get().Update(ctx, base, task))
+void CampConfigMainTaskUpdate_hook(u32 task) {
+  auto *state = rex::runtime::ThreadState::Get();
+  if (bd::engine::CampSettings::Get().Update(
+          *state->GetContext(), state->GetMemory()->GetVirtualMembase(), task))
     return;
-  __imp__Camp__Config__MainTask__Update(ctx, base);
+  CampConfigMainTaskUpdate(task);
 }
+REX_HOOK(Camp__Config__MainTask__Update, CampConfigMainTaskUpdate_hook);

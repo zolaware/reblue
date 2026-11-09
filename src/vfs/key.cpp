@@ -7,8 +7,8 @@
 #include "vfs/key.h"
 
 #include <algorithm>
-#include <cctype>
 
+#include <rex/string/utf8.h>
 #include <rex/types.h>
 
 #include "core/memory_helpers.h"
@@ -31,17 +31,6 @@ std::string ReadLocaleString(int locale_index) {
   return mem::str(str_addr);
 }
 
-bool StartsWithNoCase(std::string_view text, std::string_view prefix) {
-  if (prefix.empty() || text.size() < prefix.size())
-    return false;
-  for (size_t i = 0; i < prefix.size(); ++i) {
-    if (std::tolower(static_cast<unsigned char>(text[i])) !=
-        std::tolower(static_cast<unsigned char>(prefix[i])))
-      return false;
-  }
-  return true;
-}
-
 std::string Normalize(std::string_view raw_path, std::string_view base_path) {
   std::string_view path = raw_path;
 
@@ -54,12 +43,10 @@ std::string Normalize(std::string_view raw_path, std::string_view base_path) {
       path.remove_prefix(1);
   }
 
-  if (StartsWithNoCase(path, base_path))
+  if (rex::utf8_starts_with_case(path, base_path))
     path.remove_prefix(base_path.size());
 
-  std::string key(path);
-  std::transform(key.begin(), key.end(), key.begin(),
-                 [](unsigned char c) { return std::tolower(c); });
+  std::string key = rex::utf8_lower_ascii(path);
   std::replace(key.begin(), key.end(), '/', '\\');
 
   if (!key.empty() && key.front() == '\\')

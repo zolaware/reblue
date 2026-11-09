@@ -10,7 +10,9 @@
 #include <string>
 #include <vector>
 
+#include <rex/color.h>
 #include <rex/hook.h>
+#include <rex/ppc/detour.h>
 #include <rex/types.h>
 
 #include "core/memory_helpers.h"
@@ -21,8 +23,6 @@
 #include "engine/mini_map_task.h"
 #include "engine/settings.h"
 #include "gpu/gpu.h"
-
-REX_EXTERN(__imp__MiniMapTask__DrawWidget);
 
 namespace bd::engine {
 
@@ -44,7 +44,7 @@ constexpr float kCompassFade = 0.9f;
 constexpr float kCompassMarkerZ = 20.098f;
 constexpr float kCompassMarkerZFloor = 20.09f;
 constexpr float kCompassArrowZ = 20.088f;
-constexpr u32 kCompassArrowColor = 0xB0FFFFFFu; // the widget's own arrow tint
+constexpr rex::Color kCompassArrowColor = rex::Color::FromARGB8(0xB0FFFFFFu);
 // The widget stands down on the maps past this id, and so do the markers.
 constexpr u32 kCompassMapIdCap = 1810;
 // A marker this close to the center can stand on the arrow, which earns the
@@ -141,8 +141,9 @@ void MiniMapMarkers::Draw(const MiniMapTask &miniMap) {
   const float heading = (db.TexRot() + db.PlyRot()) * kDegToRad +
                         leader.Rotation()[1] - kHalfPi;
   PrimSelectTexture(kChromeArrow, miniMap.ChromeTexAddress());
-  const u32 arrow = (u32(f32(kCompassArrowColor >> 24) * fade) << 24) |
-                    (kCompassArrowColor & 0x00FFFFFFu);
+  const u32 tint = kCompassArrowColor.ToARGB8();
+  const u32 arrow =
+      (u32(f32(tint >> 24) * fade) << 24) | (tint & 0x00FFFFFFu);
   PrimDrawRectRotated(compassX, compassY, kCompassArrowZ, kMarkerSize,
                       kMarkerSize, heading, 0, 0, 0, 0, 0, 0, arrow);
 }
@@ -151,8 +152,8 @@ void MiniMapMarkers::Draw(const MiniMapTask &miniMap) {
 
 } // namespace bd::engine
 
-REX_HOOK_RAW(MiniMapTask__DrawWidget) {
-  const bd::engine::MiniMapTask miniMap(ctx.r3.u32);
-  __imp__MiniMapTask__DrawWidget(ctx, base);
+REX_DETOUR(MiniMapTask__DrawWidget, void, (u32 taskVA)) {
+  const bd::engine::MiniMapTask miniMap(taskVA);
+  original(taskVA);
   bd::engine::MiniMapMarkers::Get().Draw(miniMap);
 }

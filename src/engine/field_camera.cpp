@@ -14,8 +14,10 @@
 
 #include <rex/cvar.h>
 #include <rex/hook.h>
+#include <rex/ppc/detour.h>
 #include <rex/types.h>
 
+#include "core/cvar_table.h"
 #include "engine/config.h"
 #include "engine/field_camera.h"
 #include "engine/frame_clock.h"
@@ -27,8 +29,6 @@
 #include "engine/script_man_task.h"
 #include "engine/settings.h"
 #include "platform/platform.h"
-
-REX_EXTERN(__imp__bdFieldCameraStickUpdate);
 
 namespace bd::engine {
 namespace {
@@ -95,7 +95,7 @@ constexpr f32 kRadiansPerCount = 0.0004f;
 constexpr auto kStaleLook = std::chrono::milliseconds(250);
 
 f32 RadiansPerCount() {
-  const f64 sensitivity = REXCVAR_QUERY(f64, mnk_sensitivity);
+  const f64 sensitivity = bd::CvarDouble("hid.mnk_sensitivity", 1.0);
   return sensitivity > 0.0 ? kRadiansPerCount * static_cast<f32>(sensitivity)
                            : kRadiansPerCount;
 }
@@ -253,7 +253,13 @@ void MouseLook(u32 camera, u32 activityBefore) {
 
   f32 dx = 0.0f;
   f32 dy = 0.0f;
-  if (!platform::Mouse().TakeLookDelta(dx, dy) || stale) {
+  const auto motion = platform::HID().TakeMotion();
+  const bool moved = motion.dx != 0.0f || motion.dy != 0.0f;
+  if (moved) {
+    dx = motion.dx;
+    dy = motion.dy;
+  }
+  if (!moved || stale) {
     dx = 0.0f;
     dy = 0.0f;
   }
@@ -279,9 +285,9 @@ void MouseLook(u32 camera, u32 activityBefore) {
 } // namespace
 
 bool PendingMouseLook(u64 tick, f32 alpha, PendingLook &out) {
-  f32 dx = 0.0f;
-  f32 dy = 0.0f;
-  platform::Mouse().PeekLookDelta(dx, dy);
+  const auto motion = platform::HID().PeekMotion();
+  const f32 dx = motion.dx;
+  const f32 dy = motion.dy;
   std::lock_guard lock(g_shared.mutex);
   if (!g_shared.live || g_shared.tick + 1 < tick)
     return false;
@@ -304,10 +310,9 @@ bool PendingMouseLook(u64 tick, f32 alpha, PendingLook &out) {
 
 } // namespace bd::engine
 
-REX_HOOK_RAW(bdFieldCameraStickUpdate) {
-  const u32 camera = ctx.r3.u32;
+REX_DETOUR(bdFieldCameraStickUpdate, void, (u32 camera)) {
   const u32 activityBefore =
       bd::engine::FieldCamera(camera).StickActivity();
-  __imp__bdFieldCameraStickUpdate(ctx, base);
+  original(camera);
   bd::engine::MouseLook(camera, activityBefore);
 }

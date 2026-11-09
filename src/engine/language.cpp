@@ -12,6 +12,7 @@
 #include "vfs/vfs.h"
 
 #include <rex/ppc.h>
+#include <rex/ppc/midasm.h>
 
 #include <algorithm>
 #include <string>
@@ -122,12 +123,15 @@ i32 Language::MovieVoiceType(i32 voiceType) const {
 
 } // namespace bd::engine
 
-void bdDemoPlayMovieVoiceHook(PPCRegister &r4) {
+REX_MIDASM_HOOK(bdDemoPlayMovieVoiceHook, (PPCRegister &r4)) {
   bd::engine::RemapMovieVoice(r4);
 }
+REX_MIDASM_AT(bdDemoPlayMovieVoiceHook, 0x820C3060, after, r4);
 
-void viewMovieVoiceHook(PPCRegister &r4) { bd::engine::RemapMovieVoice(r4); }
+REX_MIDASM_HOOK(viewMovieVoiceHook, (PPCRegister &r4)) { bd::engine::RemapMovieVoice(r4); }
+REX_MIDASM_AT(viewMovieVoiceHook, 0x823D6FB0, after, r4);
 
-void bdEventSceneMovieVoiceHook(PPCRegister &r4) {
+REX_MIDASM_HOOK(bdEventSceneMovieVoiceHook, (PPCRegister &r4)) {
   bd::engine::RemapMovieVoice(r4);
 }
+REX_MIDASM_AT(bdEventSceneMovieVoiceHook, 0x824185CC, after, r4);

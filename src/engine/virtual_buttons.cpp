@@ -7,6 +7,7 @@
 #include <atomic>
 
 #include <rex/hook.h>
+#include <rex/ppc/detour.h>
 #include <rex/types.h>
 
 #include "engine/d2anime/anime_input.h"
@@ -15,8 +16,6 @@
 #include "engine/settings.h"
 #include "platform/platform.h"
 #include "reblue_init.h"
-
-REX_EXTERN(__imp__bdInputCheckButton);
 
 namespace bd::engine {
 
@@ -55,26 +54,23 @@ HostPointerClaim::~HostPointerClaim() {
 }
 
 void UpdateMouseLook() {
-  platform::Mouse().SetLookActive(Settings::Get().MouseInput() &&
+  platform::SetLookActive(Settings::Get().MouseInput() &&
                                   !MenuOwnsInput() &&
                                   !HostOverlayOwnsPointer());
 }
 
 } // namespace bd::engine
 
-// r3 is the input manager, r4 the pad index, r5 the button id, and the result
-// volatile argument register and the original is free to leave anything in it.
-REX_HOOK_RAW(bdInputCheckButton) {
-  const u32 button = ctx.r5.u32;
-  __imp__bdInputCheckButton(ctx, base);
+REX_DETOUR(bdInputCheckButton, u32, (u32 inputMgr, u32 padIndex, u32 button)) {
+  const u32 pressed = original(inputMgr, padIndex, button);
   // The click that holds a scrollbar is spent on the bar. Without this the
   // screen behind it reads the same press as a confirm and acts on whichever
   // row the cursor happens to hold.
   if (button == u32(bd::engine::Button::A) &&
       bd::engine::MenuMouse::Get().DraggingScrollbar()) {
-    ctx.r3.u32 = 0;
-    return;
+    return 0;
   }
-  if (ctx.r3.u32 != 0 && !bd::engine::InputActions::Get().Forced())
+  if (pressed != 0 && !bd::engine::InputActions::Get().Forced())
     bd::engine::PadInputSeen();
+  return pressed;
 }

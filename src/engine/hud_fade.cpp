@@ -13,6 +13,7 @@
 
 #include <rex/ppc.h>
 #include <rex/types.h>
+#include <rex/ppc/midasm.h>
 
 #include "engine/d2anime/anime_data.h"
 #include "engine/d2anime/anime_input.h"
@@ -119,7 +120,7 @@ void HudFade::Poll() {
 // The ailment icons ride the party cards but blink through their own color, so
 // they follow the cards' fade rather than the idle clock. The flag keeps the
 // battle result screen's icons out of it.
-void bdStatusAilmentIconFadeHook(PPCRegister &r8) {
+REX_MIDASM_HOOK(bdStatusAilmentIconFadeHook, (PPCRegister &r8)) {
   if (!g_partyCardsFaded)
     return;
   const float a = bd::engine::HudFade::Get().Alpha();
@@ -127,18 +128,23 @@ void bdStatusAilmentIconFadeHook(PPCRegister &r8) {
   const u32 alpha = static_cast<u32>(((argb >> 24) & 0xFF) * a + 0.5f);
   r8.u64 = (alpha << 24) | (argb & 0x00FFFFFF);
 }
+REX_MIDASM_AT(bdStatusAilmentIconFadeHook, 0x824334F4, after, r8);
 
-void bdCompassFadeHook(PPCRegister &r30) { ScaleHudColor(r30); }
+REX_MIDASM_HOOK(bdCompassFadeHook, (PPCRegister &r30)) { ScaleHudColor(r30); }
+REX_MIDASM_AT(bdCompassFadeHook, 0x8239CC84, after, r30);
 
-void bdMiniMapWidgetFadeHook(PPCRegister &r27) { ScaleHudColor(r27); }
+REX_MIDASM_HOOK(bdMiniMapWidgetFadeHook, (PPCRegister &r27)) { ScaleHudColor(r27); }
+REX_MIDASM_AT(bdMiniMapWidgetFadeHook, 0x8239B080, after, r27);
 
-void bdMiniMapMarkerFadeHook(PPCRegister &r30) { ScaleHudColor(r30); }
+REX_MIDASM_HOOK(bdMiniMapMarkerFadeHook, (PPCRegister &r30)) { ScaleHudColor(r30); }
+REX_MIDASM_AT(bdMiniMapMarkerFadeHook, 0x8239B530, after, r30);
 
-void bdMiniMapLayerFadeHook(PPCRegister &r31) { ScaleHudColor(r31); }
+REX_MIDASM_HOOK(bdMiniMapLayerFadeHook, (PPCRegister &r31)) { ScaleHudColor(r31); }
+REX_MIDASM_AT(bdMiniMapLayerFadeHook, 0x821494EC, after, r31);
 
 // A CSV transition drives the same 'alpha', so the write repeats every frame to
 // run last. 'SpAlpha' and 'SpColor' are the battle-only tension bar.
-void bdPartyCardFadeHook(PPCRegister &r29) {
+REX_MIDASM_HOOK(bdPartyCardFadeHook, (PPCRegister &r29)) {
   const bd::engine::SimpleStatusTask task(r29.u32);
 
   const bool shown = task.Anime().IsVisible() && task.Mode() == kModeField;
@@ -158,3 +164,4 @@ void bdPartyCardFadeHook(PPCRegister &r29) {
       bag.SetFloat("alpha", alpha);
   }
 }
+REX_MIDASM_AT(bdPartyCardFadeHook, 0x823714C4, before, r29);

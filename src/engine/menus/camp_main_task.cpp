@@ -24,14 +24,14 @@ struct CampMainTask_t {
   /* 0x00B8 */ u8 _pad00B8[0x16AC - 0x00B8];
   /* 0x16AC */ be_u32 ftrTask;
 };
-static_assert(offsetof(CampMainTask_t, layouts) == 120);
-static_assert(offsetof(CampMainTask_t, ftrTask) == 5804);
+static_assert(offsetof(CampMainTask_t, layouts) == 0x78);
+static_assert(offsetof(CampMainTask_t, ftrTask) == 0x16AC);
 
 struct CampFtrTask_t {
   /* 0x0000 */ u8 _pad0000[0x78];
   /* 0x0078 */ be_u32 layout;
 };
-static_assert(offsetof(CampFtrTask_t, layout) == 120);
+static_assert(offsetof(CampFtrTask_t, layout) == 0x78);
 
 } // namespace
 

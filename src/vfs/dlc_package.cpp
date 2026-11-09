@@ -6,7 +6,6 @@
  *              All rights reserved.
  * @license     BSD 3-Clause - see LICENSE
  */
-#include "core/encoding.h"
 #include "core/logging.h"
 #include "core/xcontent.h"
 #include "vfs/dlc_catalog.h"
@@ -15,19 +14,17 @@
 #include <array>
 #include <cctype>
 #include <fstream>
-#include <queue>
 #include <system_error>
 
-#include <rex/filesystem.h>
-#include <rex/filesystem/devices/stfs_container_device.h>
-#include <rex/filesystem/entry.h>
+#include <rex/filesystem/container.h>
+#include <rex/filesystem/xcontent_layout.h>
 #include <rex/string.h>
-#include <rex/system/xam/content_manager.h>
-#include <rex/system/xcontent.h>
+#include <rex/runtime/xcontent_data.h>
 #include <rex/types.h>
+#include <rex/string/utf8.h>
 
-using rex::filesystem::StfsContainerDevice;
-using rex::system::XLanguage;
+using rex::filesystem::ReadSTFSHeader;
+using rex::runtime::XLanguage;
 
 namespace bd::vfs {
 
@@ -73,14 +70,14 @@ std::string SanitizeFolderName(const std::string &name) {
 // bdIsDownloadPackageInstalled sees license 0 and grants junk.
 bool WriteHeaderSidecar(const std::filesystem::path &sidecar_dir,
                         const std::string &folder,
-                        const rex::filesystem::StfsHeader &stfs) {
-  rex::system::xam::XCONTENT_AGGREGATE_DATA data{};
+                        const rex::filesystem::XContentPackageHeader &stfs) {
+  rex::runtime::XCONTENT_AGGREGATE_DATA data{};
   data.device_id = 1;
-  data.content_type = rex::system::XContentType::kMarketplaceContent;
+  data.content_type = rex::runtime::XContentType::kMarketplaceContent;
   data.title_id = stfs.metadata.execution_info.title_id;
   data.xuid = 0;
-  data.set_display_name(stfs.metadata.display_name(XLanguage::kEnglish));
-  data.set_file_name(folder);
+  data.SetDisplayName(stfs.metadata.GetDisplayName(XLanguage::kEnglish));
+  data.SetFileName(folder);
 
   u32 license_mask = 0;
   for (const auto &lic : stfs.header.licenses) {
@@ -110,57 +107,57 @@ DLCValidation DLCCatalog::Validate(const std::filesystem::path &package) {
     return result;
   }
 
-  // ReadPackageHeader rejects missing/too-small files and invalid magic.
-  auto header = StfsContainerDevice::ReadPackageHeader(package);
-  if (!header || !header->header.is_magic_valid()) {
+  // ReadSTFSHeader rejects missing/too-small files and invalid magic.
+  auto header = ReadSTFSHeader(package);
+  if (!header) {
     result.error = "Not a valid Xbox 360 content package (STFS).";
     return result;
   }
 
   const u32 title_id = header->metadata.execution_info.title_id;
   if (title_id != kBlueDragonTitleId) {
-    BD_ERROR("[dlc] rejecting '{}': title {:08X} is not Blue Dragon ({:08X})",
+    REXLOG_ERROR(bd, "dlc rejecting '{}': title {:08X} is not Blue Dragon ({:08X})",
              package.string(), title_id, kBlueDragonTitleId);
     result.error = "This package is not Blue Dragon content.";
     return result;
   }
 
-  if (static_cast<rex::system::XContentType>(header->metadata.content_type) !=
-      rex::system::XContentType::kMarketplaceContent) {
+  if (static_cast<rex::runtime::XContentType>(header->metadata.content_type) !=
+      rex::runtime::XContentType::kMarketplaceContent) {
     result.error = "This package is not downloadable content (DLC).";
     return result;
   }
 
   if (!IsSupportedContent(header->header.content_id)) {
-    BD_ERROR("[dlc] rejecting '{}': not a supported pack", package.string());
+    REXLOG_ERROR(bd, "dlc rejecting '{}': not a supported pack", package.string());
     result.error = "This package is not a supported Blue Dragon DLC.";
     return result;
   }
 
   result.ok = true;
   result.display_name =
-      U16ToUtf8(header->metadata.display_name(XLanguage::kEnglish));
+      rex::ToUTF8(header->metadata.GetDisplayName(XLanguage::kEnglish));
   return result;
 }
 
 bool DLCCatalog::Install(const std::filesystem::path &package) {
   auto validation = Validate(package);
   if (!validation.ok) {
-    BD_ERROR("[dlc] rejected '{}': {}", package.string(), validation.error);
+    REXLOG_ERROR(bd, "dlc rejected '{}': {}", package.string(), validation.error);
     return false;
   }
 
-  auto header = StfsContainerDevice::ReadPackageHeader(package);
+  auto header = ReadSTFSHeader(package);
   if (!header) {
-    BD_ERROR("[dlc] failed to read package header: {}", package.string());
+    REXLOG_ERROR(bd, "dlc failed to read package header: {}", package.string());
     return false;
   }
 
   std::string display_name =
-      U16ToUtf8(header->metadata.display_name(XLanguage::kEnglish));
+      rex::ToUTF8(header->metadata.GetDisplayName(XLanguage::kEnglish));
   std::string description =
-      U16ToUtf8(header->metadata.description(XLanguage::kEnglish));
-  std::string publisher = U16ToUtf8(header->metadata.publisher());
+      rex::ToUTF8(header->metadata.GetDescription(XLanguage::kEnglish));
+  std::string publisher = rex::ToUTF8(header->metadata.GetPublisher());
 
   std::string folder = SanitizeFolderName(display_name);
   if (folder.empty())
@@ -173,64 +170,37 @@ bool DLCCatalog::Install(const std::filesystem::path &package) {
 
   auto dest = root_ / folder;
   if (std::filesystem::exists(dest)) {
-    BD_WARN("[dlc] already installed: {}", folder);
+    REXLOG_WARN(bd, "dlc already installed: {}", folder);
     return false;
   }
 
-  BD_INFO("[dlc] installing '{}' from {}", display_name, package.string());
+  REXLOG_INFO(bd, "dlc installing '{}' from {}", display_name, package.string());
 
-  StfsContainerDevice device("", package);
-  if (!device.Initialize()) {
-    BD_ERROR("[dlc] failed to open STFS package: {}", package.string());
-    return false;
-  }
-
-  auto *root = device.ResolvePath("");
-  if (!root) {
-    BD_ERROR("[dlc] empty STFS package: {}", package.string());
+  auto container = rex::filesystem::Container::Open(package);
+  if (!container) {
+    REXLOG_ERROR(bd, "dlc failed to open STFS package: {}: {}", package.string(),
+             container.error().message);
     return false;
   }
 
   std::error_code ec;
-  std::filesystem::create_directories(dest, ec);
-
-  bool ok = true;
-  std::queue<rex::filesystem::Entry *> queue;
-  queue.push(root);
-  while (ok && !queue.empty()) {
-    auto *entry = queue.front();
-    queue.pop();
-    for (auto &child : entry->children())
-      queue.push(child.get());
-    if (entry == root)
-      continue;
-    const auto entry_dest =
-        dest /
-        rex::to_path(rex::string::utf8_fix_path_separators(entry->path()));
-    if (entry->attributes() & rex::filesystem::kFileAttributeDirectory) {
-      std::filesystem::create_directories(entry_dest, ec);
-      ok = !ec;
-    } else {
-      ok = CopyEntry(*entry, entry_dest);
-    }
-  }
-
+  const bool ok = container->Extract(dest).has_value();
   if (!ok) {
-    BD_ERROR("[dlc] extraction failed: {}", package.string());
+    REXLOG_ERROR(bd, "dlc extraction failed: {}", package.string());
     std::filesystem::remove_all(dest, ec);
     return false;
   }
 
   if (!std::filesystem::exists(dest / "Download" / "DL_Param.ipk") &&
       !std::filesystem::exists(dest / "data" / "Download" / "DL_Param.ipk")) {
-    BD_ERROR(
-        "[dlc] package has no Download\\DL_Param.ipk, not Blue Dragon DLC");
+    REXLOG_ERROR(bd, 
+        "dlc package has no Download\\DL_Param.ipk, not Blue Dragon DLC");
     std::filesystem::remove_all(dest, ec);
     return false;
   }
 
   if (!WriteHeaderSidecar(root_ / ".headers", folder, *header)) {
-    BD_ERROR("[dlc] failed to write header sidecar for '{}'", folder);
+    REXLOG_ERROR(bd, "dlc failed to write header sidecar for '{}'", folder);
     std::filesystem::remove_all(dest, ec);
     return false;
   }
@@ -248,7 +218,7 @@ bool DLCCatalog::Install(const std::filesystem::path &package) {
   }
   SaveMetadataLocked();
 
-  BD_INFO("[dlc] installed successfully: {} ({})", display_name, folder);
+  REXLOG_INFO(bd, "dlc installed successfully: {} ({})", display_name, folder);
   return true;
 }
 

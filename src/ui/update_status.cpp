@@ -10,6 +10,7 @@
 #include <string>
 
 #include <imgui.h>
+#include <rex/ui/color.h>
 
 #include "core/i18n.h"
 #include "engine/engine.h"
@@ -46,9 +47,6 @@ std::string CurrentLine() {
 
 } // namespace
 
-UpdateStatusOverlay::UpdateStatusOverlay(rex::ui::ImGuiDrawer *drawer)
-    : rex::ui::ImGuiDialog(drawer) {}
-
 UpdateStatusOverlay::~UpdateStatusOverlay() = default;
 
 bool UpdateStatusOverlay::Finished() { return CurrentLine().empty(); }
@@ -59,13 +57,13 @@ void UpdateStatusOverlay::OnDraw(ImGuiIO &io) {
     return;
 
   constexpr float kPad = 10.0f;
-  constexpr ImU32 kText = IM_COL32(255, 255, 255, 140);
-  constexpr ImU32 kShadow = IM_COL32(0, 0, 0, 128);
+  constexpr rex::Color kText = rex::Color::FromRGBA8(255, 255, 255, 140);
+  constexpr rex::Color kShadow = rex::Color::FromRGBA8(0, 0, 0, 128);
 
   ImDrawList *dl = ImGui::GetForegroundDrawList();
   const ImVec2 pos(kPad, io.DisplaySize.y - kPad - ImGui::GetTextLineHeight());
-  dl->AddText(ImVec2(pos.x + 1.0f, pos.y + 1.0f), kShadow, line.c_str());
-  dl->AddText(pos, kText, line.c_str());
+  dl->AddText(ImVec2(pos.x + 1.0f, pos.y + 1.0f), rex::ui::ToImU32(kShadow), line.c_str());
+  dl->AddText(pos, rex::ui::ToImU32(kText), line.c_str());
 }
 
 } // namespace bd::ui

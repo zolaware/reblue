@@ -7,7 +7,9 @@
  */
 #include "installer/boot_languages.h"
 
-#include <rex/filesystem/entry.h>
+#include <rex/filesystem/container.h>
+#include <rex/platform/file.h>
+#include <rex/string/utf8.h>
 
 #include <algorithm>
 #include <array>
@@ -54,9 +56,7 @@ std::vector<std::string> SplitLangCodes(std::string_view rest) {
            !std::isspace(static_cast<unsigned char>(rest[q])))
       ++q;
     if (q > p) {
-      std::string token(rest.substr(p, q - p));
-      for (auto &ch : token)
-        ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+      std::string token = rex::utf8_lower_ascii(rest.substr(p, q - p));
       if (IsKnownLang(token))
         out.push_back(std::move(token));
     }
@@ -118,15 +118,6 @@ std::vector<std::string> SplitLines(const std::string &text) {
   return lines;
 }
 
-bool ReadWholeFile(const fs::path &file, std::string &out) {
-  std::ifstream in(file, std::ios::binary);
-  if (!in)
-    return false;
-  out.assign(std::istreambuf_iterator<char>(in),
-             std::istreambuf_iterator<char>());
-  return true;
-}
-
 } // namespace
 
 BootLanguages BootLanguages::FromIni(std::string_view text) {
@@ -174,17 +165,20 @@ BootLanguages BootLanguages::FromIni(std::string_view text) {
 }
 
 BootLanguages BootLanguages::FromFile(const fs::path &file) {
-  std::string text;
-  if (!ReadWholeFile(file, text))
+  const auto bytes = rex::platform::ReadHostFile(file);
+  if (!bytes)
     return BootLanguages();
-  return FromIni(text);
+  return FromIni(std::string_view(reinterpret_cast<const char *>(bytes->data()),
+                                  bytes->size()));
 }
 
-BootLanguages BootLanguages::FromDisc(rex::filesystem::Entry &root) {
-  auto *entry = root.ResolvePath("bd_boot.ini");
+BootLanguages
+BootLanguages::FromDisc(const rex::filesystem::Container &container,
+                        const rex::filesystem::ContainerNode &root) {
+  const auto *entry = bd::FindEntry(container, root, "bd_boot.ini");
   if (entry == nullptr)
     return BootLanguages();
-  return FromIni(bd::ReadEntry(*entry));
+  return FromIni(bd::ReadEntry(container, *entry));
 }
 
 std::set<std::string> BootLanguages::All() const {
@@ -263,9 +257,10 @@ bool BootLanguages::Keep(const std::set<std::string> &text,
 }
 
 bool BootLanguages::Flush(const fs::path &file) const {
-  std::string text;
-  if (!ReadWholeFile(file, text))
+  const auto bytes = rex::platform::ReadHostFile(file);
+  if (!bytes)
     return false;
+  const std::string text(bytes->begin(), bytes->end());
 
   std::vector<std::string> lines = SplitLines(text);
   bool has_text = false;

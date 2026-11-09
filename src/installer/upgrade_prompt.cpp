@@ -12,10 +12,11 @@
 
 #include <imgui.h>
 
-#include <rex/ui/windowed_app_context.h>
+#include <rex/ui/title_app.h>
 
 #include "core/build_info.h"
 #include "core/i18n.h"
+#include "platform/platform.h"
 
 namespace bd::installer {
 
@@ -25,12 +26,9 @@ const char *T(const char *key) { return i18n::Text(key).c_str(); }
 
 } // namespace
 
-UpgradePrompt::UpgradePrompt(rex::ui::ImGuiDrawer *drawer,
-                             rex::ui::WindowedAppContext &app_context,
-                             std::filesystem::path install_root,
+UpgradePrompt::UpgradePrompt(std::filesystem::path install_root,
                              std::string installed, DoneCallback on_done)
-    : rex::ui::ImGuiDialog(drawer), app_context_(app_context),
-      install_root_(std::move(install_root)), installed_(std::move(installed)),
+    : install_root_(std::move(install_root)), installed_(std::move(installed)),
       on_done_(std::move(on_done)) {
   // Nothing else has read the locale this early: the wizard, which does, is
   // not the path that got here.
@@ -43,7 +41,7 @@ void UpgradePrompt::Answer(bool accepted) {
   answered_ = true;
   // Deferred so OnDraw returns before the owner deletes this in the callback.
   auto cb = on_done_;
-  app_context_.CallInUIThreadDeferred([cb, accepted] { cb(accepted); });
+  rex::ui::InvokeFunction([cb, accepted] { cb(accepted); });
 }
 
 void UpgradePrompt::OnDraw(ImGuiIO &) {
@@ -72,11 +70,13 @@ void UpgradePrompt::OnDraw(ImGuiIO &) {
   ImGui::Separator();
   ImGui::Spacing();
 
+  const float button_width =
+      bd::platform::UI()->GetStyle().metrics.value_width;
   ImGui::BeginDisabled(answered_);
-  if (ImGui::Button(T("upgrade.accept"), ImVec2(160, 0)))
+  if (ImGui::Button(T("upgrade.accept"), ImVec2(button_width, 0)))
     Answer(true);
   ImGui::SameLine();
-  if (ImGui::Button(T("upgrade.decline"), ImVec2(160, 0)))
+  if (ImGui::Button(T("upgrade.decline"), ImVec2(button_width, 0)))
     Answer(false);
   ImGui::EndDisabled();
   ImGui::End();

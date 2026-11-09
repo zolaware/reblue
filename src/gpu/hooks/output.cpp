@@ -12,15 +12,20 @@
 #include "gpu/output.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <cmath>
 
 #include <rex/hook.h>
+#include <rex/ppc/detour.h>
 #include <rex/ppc.h>
 #include <rex/types.h>
+#include <rex/ppc/midasm.h>
 
 #include "core/logging.h"
 #include "core/memory_helpers.h"
+#include "engine/camera_view.h"
 #include "engine/engine.h"
+#include "engine/free_dfs_task.h"
 #include "gpu/d3d.h"
 #include "gpu/device.h"
 #include "gpu/host_resource_heap.h"
@@ -43,12 +48,6 @@ using bd::gpu::Output;
 
 namespace {
 
-// The close-up view's own W/H, both f32 on its 'this'.
-constexpr u32 kCloseUpViewWidthOff = 0x1D0;
-constexpr u32 kViewTextureWOff = 0x38;
-constexpr u32 kViewTextureHOff = 0x3C;
-
-constexpr u32 kViewRateOff = 0x348;
 constexpr f32 kViewFitSlack = 8.0f;
 
 // SAFE/RATE under the Mindows RENDER>DEBUG tree, the f32 scale of the guide box
@@ -70,9 +69,19 @@ constexpr u32 kCompositeScreenEA = 0x82DC98D0;
 constexpr u32 kScreenFormat = 0x28280106;
 constexpr u32 kCompositeFormat = 0x182801B6;
 
-constexpr u32 kRenderTargetNextOff = 0x08;
-constexpr u32 kRenderTargetOwnerOff = 0x0C;
-constexpr u32 kRenderTargetTextureOff = 0x04;
+struct RenderTargetNode_t {
+  /* 0x00 */ u8 _pad000[0x08];
+  /* 0x08 */ be_u32 next;
+  /* 0x0C */ be_u32 owner;
+};
+static_assert(offsetof(RenderTargetNode_t, next) == 0x08);
+static_assert(offsetof(RenderTargetNode_t, owner) == 0x0C);
+
+struct RenderTargetOwner_t {
+  /* 0x00 */ u8 _pad000[0x04];
+  /* 0x04 */ be_u32 texture;
+};
+static_assert(offsetof(RenderTargetOwner_t, texture) == 0x04);
 
 // An authored sequence sizes its screen-covering effect quads to just span the
 // fov the game frames itself at, so a wider frame leaves them short of the
@@ -119,7 +128,7 @@ bool IsFullFrameView(f64 width) {
 
 // Right after the ctor seeds screenW/H, so every buffer derived from them is
 // created after this point.
-void bdOutputResScreenDimsHook(PPCRegister &r31) {
+REX_MIDASM_HOOK(bdOutputResScreenDimsHook, (PPCRegister &r31)) {
   u32 w, h;
   if (!Output::RenderSize(w, h))
     return;
@@ -127,34 +136,38 @@ void bdOutputResScreenDimsHook(PPCRegister &r31) {
   render.SetScreenW(static_cast<f32>(w));
   render.SetScreenH(static_cast<f32>(h));
 }
+REX_MIDASM_AT(bdOutputResScreenDimsHook, 0x82133174, after, r31);
 
 // The bdInitGpuMemory tail, after the device dims and the float pair are
 // written. Overwriting all three sizes the front buffer, the post ping-pong and
 // the resolve source rect together.
-void bdOutputResDeviceDimsHook() {
+REX_MIDASM_HOOK(bdOutputResDeviceDimsHook, ()) {
   u32 w, h;
   if (!Output::RenderSize(w, h))
     return;
   WriteGuestOutputDims(w, h);
-  BD_INFO("[output-res] BD render dims -> {}x{} (swapchain {}x{})", w, h,
+  REXLOG_INFO(bd, "output-res BD render dims -> {}x{} (swapchain {}x{})", w, h,
           bd::gpu::Video::OutputWidth(), bd::gpu::Video::OutputHeight());
 }
+REX_MIDASM_AT(bdOutputResDeviceDimsHook, 0x82272E38, before);
 
-bool bdOutputResRenderStepNeutralizeHook() {
+REX_MIDASM_BRANCH(bdOutputResRenderStepNeutralizeHook, ()) {
   u32 w, h;
   return Output::RenderSize(w, h);
 }
+REX_MIDASM_AT(bdOutputResRenderStepNeutralizeHook, 0x82132D28, before, 0x82132D60);
 
 // r3/r4 are the hardcoded 1280x720 the ctor creates its composite/history
 // texture at. It is the scene composite resolve target, so scaling it to the
 // output dims keeps that resolve 1:1 against the source rect.
-void bdOutputResCompositeTexScaleHook(PPCRegister &r3, PPCRegister &r4) {
+REX_MIDASM_HOOK(bdOutputResCompositeTexScaleHook, (PPCRegister &r3, PPCRegister &r4)) {
   u32 w, h;
   if (!Output::RenderSize(w, h))
     return;
   r3.u32 = w;
   r4.u32 = h;
 }
+REX_MIDASM_AT(bdOutputResCompositeTexScaleHook, 0x82133408, before, r3, r4);
 
 REX_IMPORT(__imp__bdCreateDynamicTexture, CreateDynamicTexture,
            u32(u32, u32, u32, u32, u32));
@@ -162,59 +175,60 @@ REX_IMPORT(__imp__bdCameraViewInit, CameraViewInit, void(u32, u32));
 
 namespace {
 
-void ResizeStaleRenderTargets(rex::CallFrame &frame, u8 *base, u32 node, u32 w,
-                              u32 h) {
+void ResizeStaleRenderTargets(u32 node, u32 w, u32 h) {
   if (!w || !h)
     return;
   for (u32 guard = 0; node && guard < 256; ++guard) {
-    const u32 owner = bd::mem::load<u32>(node + kRenderTargetOwnerOff);
-    if (owner) {
+    const auto *entry = bd::mem::at<RenderTargetNode_t>(node);
+    if (!entry)
+      return;
+    const u32 owner = entry->owner;
+    const auto *ownerEntry =
+        owner ? bd::mem::at<RenderTargetOwner_t>(owner) : nullptr;
+    if (ownerEntry) {
       const auto *texture =
           bd::gpu::HostResourceHeap::FromGuest<bd::gpu::GuestTexture>(
-              bd::mem::load<u32>(owner + kRenderTargetTextureOff));
+              u32(ownerEntry->texture));
       if (texture && (texture->width != w || texture->height != h))
-        CreateDynamicTexture(frame, base, owner, w, h, 1, kScreenFormat);
+        CreateDynamicTexture(owner, w, h, 1, kScreenFormat);
     }
-    node = bd::mem::load<u32>(node + kRenderTargetNextOff);
+    node = entry->next;
   }
 }
 
-void RebuildForOutputSize(rex::CallFrame &frame, u8 *base, u32 w, u32 h) {
+void RebuildForOutputSize(u32 w, u32 h) {
   const u32 render = bd::engine::VisualRender::Get().Address();
   if (!render)
     return;
 
   WriteGuestOutputDims(w, h);
   for (const u32 screen : kVisualRenderScreens)
-    CreateDynamicTexture(frame, base, render + screen, w, h, 1, kScreenFormat);
-  CreateDynamicTexture(frame, base, kCompositeScreenEA, w, h, 1,
-                       kCompositeFormat);
+    CreateDynamicTexture(render + screen, w, h, 1, kScreenFormat);
+  CreateDynamicTexture(kCompositeScreenEA, w, h, 1, kCompositeFormat);
 
-  CameraViewInit(frame, base, render, 0);
-  BD_INFO("[output-res] engine surfaces rebuilt at {}x{}", w, h);
+  CameraViewInit(render, 0);
+  REXLOG_INFO(bd, "output-res engine surfaces rebuilt at {}x{}", w, h);
 }
 
 } // namespace
 
-REX_EXTERN(__imp__bdCreateRenderTargetTextures);
-REX_HOOK_RAW(bdCreateRenderTargetTextures) {
+REX_DETOUR(bdCreateRenderTargetTextures, void,
+           (u32 head, f64 width, f64 height)) {
   u32 w = 0;
   u32 h = 0;
   if (Output::RenderSize(w, h)) {
-    const u32 head = ctx.r3.u32;
-    const u32 want_w = (static_cast<u32>(ctx.f1.f64) + 7) & ~7u;
-    const u32 want_h = (static_cast<u32>(ctx.f2.f64) + 7) & ~7u;
+    const u32 want_w = (static_cast<u32>(width) + 7) & ~7u;
+    const u32 want_h = (static_cast<u32>(height) + 7) & ~7u;
 
-    rex::CallFrame frame(ctx);
     static u32 applied = Output::Generation();
     const u32 generation = Output::Generation();
     if (generation != applied) {
       applied = generation;
-      RebuildForOutputSize(frame, base, w, h);
+      RebuildForOutputSize(w, h);
     }
-    ResizeStaleRenderTargets(frame, base, head, want_w, want_h);
+    ResizeStaleRenderTargets(head, want_w, want_h);
   }
-  __imp__bdCreateRenderTargetTextures(ctx, base);
+  original(head, width, height);
 }
 
 // The projection aspect is a camera field seeded with a literal 16:9, never
@@ -228,7 +242,7 @@ REX_HOOK_RAW(bdCreateRenderTargetTextures) {
 // BD open-codes this matrix in three places, all hooked here. Patching the
 // register rather than the camera leaves the globals BD reads back for its
 // own fov conversions at the ratio those were written for.
-void bdProjectionAspectHook(PPCRegister &fov_half, PPCRegister &aspect) {
+REX_MIDASM_HOOK(bdProjectionAspectHook, (PPCRegister &fov_half, PPCRegister &aspect)) {
   if (std::fabs(aspect.f64 - kDesignCanvasAspect) > kDesignCanvasAspectEpsilon)
     return;
 
@@ -245,29 +259,40 @@ void bdProjectionAspectHook(PPCRegister &fov_half, PPCRegister &aspect) {
   if (tan_scale != 1.0)
     fov_half.f64 = std::atan(std::tan(fov_half.f64) * tan_scale);
 }
+REX_MIDASM_AT(bdProjectionAspectHook, 0x82168E78, after, f1, f29);
+REX_MIDASM_AT(bdProjectionAspectHook, 0x822781E4, after, f1, f29);
+REX_MIDASM_AT(bdProjectionAspectHook, 0x821782F4, after, f1, f29);
 
-void bdOutputResViewScaleHook(PPCRegister &w, PPCRegister &h) {
+REX_MIDASM_HOOK(bdOutputResViewScaleHook, (PPCRegister &w, PPCRegister &h)) {
   ScaleDesignDims(w.f64, h.f64);
 }
+REX_MIDASM_AT(bdOutputResViewScaleHook, 0x82134E34, before, f1, f2);
+REX_MIDASM_AT(bdOutputResViewScaleHook, 0x82134E74, before, f31, f30);
 
-void bdSubViewRenderScaleHook(PPCRegister &r31) {
+REX_MIDASM_HOOK(bdSubViewRenderScaleHook, (PPCRegister &r31)) {
   u32 fit_w, fit_h;
-  if (!Output::RenderSize(fit_w, fit_h) ||
-      IsFullFrameView(bd::mem::load<float>(r31.u32 + kCloseUpViewWidthOff)))
+  auto *view = bd::mem::at<bd::engine::CameraView_t>(r31.u32);
+  if (!view || !Output::RenderSize(fit_w, fit_h) ||
+      IsFullFrameView(static_cast<float>(view->renderSize[0])))
     return;
-  bd::mem::store<float>(r31.u32 + kViewRateOff, 1.0f);
+  view->rate = 1.0f;
 }
+REX_MIDASM_AT(bdSubViewRenderScaleHook, 0x8213BA7C, before, r31);
 
-void bdFreeDfsViewTextureSizeHook(PPCRegister &r11) {
-  f64 w = bd::mem::load<float>(r11.u32 + kViewTextureWOff);
-  f64 h = bd::mem::load<float>(r11.u32 + kViewTextureHOff);
+REX_MIDASM_HOOK(bdFreeDfsViewTextureSizeHook, (PPCRegister &r11)) {
+  auto *view = bd::mem::at<bd::engine::CameraView_t>(r11.u32);
+  if (!view)
+    return;
+  f64 w = static_cast<float>(view->texSize[0]);
+  f64 h = static_cast<float>(view->texSize[1]);
   if (!ScaleDesignDims(w, h))
     return;
-  bd::mem::store<float>(r11.u32 + kViewTextureWOff, static_cast<float>(w));
-  bd::mem::store<float>(r11.u32 + kViewTextureHOff, static_cast<float>(h));
+  view->texSize[0] = static_cast<float>(w);
+  view->texSize[1] = static_cast<float>(h);
 }
+REX_MIDASM_AT(bdFreeDfsViewTextureSizeHook, 0x8228C084, after, r11);
 
-void bdIssEventDimHook(PPCRegister &r10, PPCRegister &r11) {
+REX_MIDASM_HOOK(bdIssEventDimHook, (PPCRegister &r10, PPCRegister &r11)) {
   f64 w = r11.u32;
   f64 h = r10.u32;
   if (!ScaleDesignDims(w, h))
@@ -275,39 +300,39 @@ void bdIssEventDimHook(PPCRegister &r10, PPCRegister &r11) {
   r11.u32 = static_cast<u32>(w);
   r10.u32 = static_cast<u32>(h);
 }
+REX_MIDASM_AT(bdIssEventDimHook, 0x823F76E4, after, r10, r11);
 
 // This site takes its aspect from the view's own width over height, which for
 // the full-frame view is already the render rect's. It still gets the framing
 // every other full-frame camera does, so it is handed in as the design ratio. A
 // sub-view is drawn into a rect of its own ratio and keeps it.
-void bdViewProjectionAspectHook(PPCRegister &r31, PPCRegister &fov_half,
-                                PPCRegister &aspect) {
-  const f32 width = bd::mem::load<float>(r31.u32 + kCloseUpViewWidthOff);
+REX_MIDASM_HOOK(bdViewProjectionAspectHook, (PPCRegister &r31, PPCRegister &fov_half, PPCRegister &aspect)) {
+  const auto *task = bd::mem::at<bd::engine::FreeDfsTask_t>(r31.u32);
+  if (!task)
+    return;
+  const f32 width = static_cast<float>(task->width);
   if (!IsFullFrameView(width / bd::gpu::SceneRenderScale()))
     return;
   aspect.f64 = kDesignCanvasAspect;
   bdProjectionAspectHook(fov_half, aspect);
 }
+REX_MIDASM_AT(bdViewProjectionAspectHook, 0x8228C17C, after, r31, f1, f30);
 
 // The seed hook above let the ctor build its RTs at the output dims, so restore
 // the design canvas on exit. screenW/H stays there from now on, and the
 // renderer takes the output dims from the per-site register patches below.
-//
-// Raw, on the inherited context: a typed REX_IMPORT re-roots the guest stack
-// at ThreadState's r1 and overwrites the frames live underneath it.
-REX_EXTERN(__imp__VisualRender__ctor);
-REX_HOOK_RAW(VisualRender__ctor) {
-  const u32 self = ctx.r3.u32;
-  __imp__VisualRender__ctor(ctx, base);
+REX_DETOUR(VisualRender__ctor, u32, (u32 self)) {
+  const u32 result = original(self);
   if (!self)
-    return;
+    return result;
   bd::engine::VisualRender render(self);
   render.SetSafeRate(kSafeAreaRate);
   u32 w, h;
   if (!Output::RenderSize(w, h))
-    return;
+    return result;
   render.SetScreenW(kDesignCanvasWidth);
   render.SetScreenH(kDesignCanvasHeight);
+  return result;
 }
 
 // The patch sites cover every read that wants the output dims, so the struct
@@ -321,32 +346,50 @@ void OutputResPatchDim(PPCRegister &fr, bool height) {
   fr.f64 = static_cast<double>(height ? h : w);
 }
 } // namespace
-void bdOutputResScreenWf0Hook(PPCRegister &f0) { OutputResPatchDim(f0, false); }
-void bdOutputResScreenHf0Hook(PPCRegister &f0) { OutputResPatchDim(f0, true); }
-void bdOutputResScreenWf1Hook(PPCRegister &f1) { OutputResPatchDim(f1, false); }
-void bdOutputResScreenHf2Hook(PPCRegister &f2) { OutputResPatchDim(f2, true); }
-void bdOutputResScreenHf8Hook(PPCRegister &f8) { OutputResPatchDim(f8, true); }
-void bdOutputResScreenWf9Hook(PPCRegister &f9) { OutputResPatchDim(f9, false); }
-void bdOutputResScreenWf11Hook(PPCRegister &f11) {
+REX_MIDASM_HOOK(bdOutputResScreenWf0Hook, (PPCRegister &f0)) { OutputResPatchDim(f0, false); }
+REX_MIDASM_AT(bdOutputResScreenWf0Hook, 0x821359E0, after, f0);
+REX_MIDASM_AT(bdOutputResScreenWf0Hook, 0x82135E14, after, f0);
+REX_MIDASM_AT(bdOutputResScreenWf0Hook, 0x82136120, after, f0);
+REX_MIDASM_HOOK(bdOutputResScreenHf0Hook, (PPCRegister &f0)) { OutputResPatchDim(f0, true); }
+REX_MIDASM_AT(bdOutputResScreenHf0Hook, 0x821359CC, after, f0);
+REX_MIDASM_AT(bdOutputResScreenHf0Hook, 0x82135E90, after, f0);
+REX_MIDASM_HOOK(bdOutputResScreenWf1Hook, (PPCRegister &f1)) { OutputResPatchDim(f1, false); }
+REX_MIDASM_AT(bdOutputResScreenWf1Hook, 0x821341F0, after, f1);
+REX_MIDASM_HOOK(bdOutputResScreenHf2Hook, (PPCRegister &f2)) { OutputResPatchDim(f2, true); }
+REX_MIDASM_AT(bdOutputResScreenHf2Hook, 0x821341E4, after, f2);
+REX_MIDASM_HOOK(bdOutputResScreenHf8Hook, (PPCRegister &f8)) { OutputResPatchDim(f8, true); }
+REX_MIDASM_AT(bdOutputResScreenHf8Hook, 0x82136178, after, f8);
+REX_MIDASM_HOOK(bdOutputResScreenWf9Hook, (PPCRegister &f9)) { OutputResPatchDim(f9, false); }
+REX_MIDASM_AT(bdOutputResScreenWf9Hook, 0x82134F74, after, f9);
+REX_MIDASM_HOOK(bdOutputResScreenWf11Hook, (PPCRegister &f11)) {
   OutputResPatchDim(f11, false);
 }
-void bdOutputResScreenHf12Hook(PPCRegister &f12) {
+REX_MIDASM_AT(bdOutputResScreenWf11Hook, 0x82134F94, after, f11);
+REX_MIDASM_HOOK(bdOutputResScreenHf12Hook, (PPCRegister &f12)) {
   OutputResPatchDim(f12, true);
 }
+REX_MIDASM_AT(bdOutputResScreenHf12Hook, 0x82134F70, after, f12);
+REX_MIDASM_AT(bdOutputResScreenHf12Hook, 0x82134F90, after, f12);
 
 // These map NDC to pixels using the view's screen dims, which the patches above
 // filled with the output dims, but every caller reads the result as
 // design canvas coordinates. Pin the dim loads back and leave the struct alone.
-void bdWorldToScreenDesignWf3Hook(PPCRegister &f3) {
+REX_MIDASM_HOOK(bdWorldToScreenDesignWf3Hook, (PPCRegister &f3)) {
   u32 w, h;
   if (Output::RenderSize(w, h))
     f3.f64 = kDesignCanvasWidth;
 }
-void bdWorldToScreenDesignHf4Hook(PPCRegister &f4) {
+REX_MIDASM_AT(bdWorldToScreenDesignWf3Hook, 0x821354D0, after, f3);
+REX_MIDASM_AT(bdWorldToScreenDesignWf3Hook, 0x821356EC, after, f3);
+REX_MIDASM_AT(bdWorldToScreenDesignWf3Hook, 0x8213578C, after, f3);
+REX_MIDASM_HOOK(bdWorldToScreenDesignHf4Hook, (PPCRegister &f4)) {
   u32 w, h;
   if (Output::RenderSize(w, h))
     f4.f64 = kDesignCanvasHeight;
 }
+REX_MIDASM_AT(bdWorldToScreenDesignHf4Hook, 0x821354C8, after, f4);
+REX_MIDASM_AT(bdWorldToScreenDesignHf4Hook, 0x821356E4, after, f4);
+REX_MIDASM_AT(bdWorldToScreenDesignHf4Hook, 0x82135784, after, f4);
 
 // The pinned design canvas basis suits every quad authored against it, but the
 // camera composite background quad is authored at the camera target texture
@@ -383,7 +426,7 @@ void RenormalizeSizedQuads(u32 node, u32 out_w, u32 out_h) {
   for (int guard = 0; node && guard < 4096; ++guard) {
     const auto *n = bd::mem::at<const Bd2DCommandNode>(node);
     if (!n) {
-      BD_WARN("RenormalizeSizedQuads: unmapped 2D node VA 0x{:08X}, "
+      REXLOG_WARN(bd, "RenormalizeSizedQuads: unmapped 2D node VA 0x{:08X}, "
               "stopping "
               "walk",
               node);
@@ -426,11 +469,7 @@ void RenormalizeSizedQuads(u32 node, u32 out_w, u32 out_h) {
 // quad fill the surface as one unit, and restore after. Marking the drain rides
 // along: under the pinned basis every draw inside it is in canvas coordinates,
 // so the upload path can fit each one.
-//
-// Raw, on the inherited context: a typed REX_IMPORT re-roots the guest stack
-// at ThreadState's r1 and overwrites the frames live underneath it.
-REX_EXTERN(__imp__bdRenderSubmitList);
-REX_HOOK_RAW(bdRenderSubmitList) {
+REX_DETOUR(bdRenderSubmitList, void, (u32 list)) {
   u32 w, h;
   auto *vw = bd::mem::at<be_f32>(kViewportWidthEA);
   auto *vh = bd::mem::at<be_f32>(kViewportHeightEA);
@@ -440,13 +479,13 @@ REX_HOOK_RAW(bdRenderSubmitList) {
   if (pin) {
     saved_w = *vw;
     saved_h = *vh;
-    RenormalizeSizedQuads(ctx.r3.u32, w, h);
+    RenormalizeSizedQuads(list, w, h);
     *vw = kDesignCanvasWidth;
     *vh = kDesignCanvasHeight;
   }
   if (pin)
     bd::gpu::Video::SetDesignCanvasDrain(true);
-  __imp__bdRenderSubmitList(ctx, base);
+  original(list);
   if (pin)
     bd::gpu::Video::SetDesignCanvasDrain(false);
   if (pin) {

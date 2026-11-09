@@ -12,6 +12,7 @@
  *            See LICENSE file in the project root for full license text.
  */
 #include "gpu/pipeline/pso_recorder.h"
+#include "core/memory_helpers.h"
 
 #include <mutex>
 #include <rex/types.h>
@@ -29,7 +30,7 @@
 #include <thread>
 #include <unordered_map>
 
-#include <rex/filesystem.h>
+#include <rex/platform/file.h>
 #include <rex/runtime.h>
 
 #include "gpu/pipeline/pso_predictor.h"
@@ -274,10 +275,10 @@ std::string CsvRow(const Entry &e) {
 std::filesystem::path CsvFilePath() {
   static const std::filesystem::path path = [] {
     std::filesystem::path root;
-    if (auto *rt = rex::Runtime::instance())
+    if (auto *rt = bd::mem::runtime())
       root = rt->cache_root();
     if (root.empty())
-      root = rex::filesystem::GetUserFolder();
+      root = rex::platform::GetUserFolder();
     const auto now = std::chrono::floor<std::chrono::seconds>(
         std::chrono::system_clock::now());
     return root / std::format("pso_misses_{:%Y%m%d-%H%M%S}.csv", now);
@@ -318,19 +319,19 @@ void WriteCSVIfDirty() {
   {
     std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
     if (!f) {
-      BD_WARN("pso_recorder: cannot open {}", tmp.string());
+      REXLOG_WARN(bd, "pso_recorder: cannot open {}", tmp.string());
       return;
     }
     f.write(out.data(), static_cast<std::streamsize>(out.size()));
     if (!f) {
-      BD_WARN("pso_recorder: csv write failed: {}", tmp.string());
+      REXLOG_WARN(bd, "pso_recorder: csv write failed: {}", tmp.string());
       return;
     }
   }
   std::error_code ec;
   std::filesystem::rename(tmp, path, ec); // atomic replace
   if (ec) {
-    BD_WARN("pso_recorder: csv rename failed: {}", ec.message());
+    REXLOG_WARN(bd, "pso_recorder: csv rename failed: {}", ec.message());
     std::filesystem::remove(tmp, ec);
   }
 }
@@ -347,7 +348,7 @@ void WriterLoop() {
 void StartWriterThread() {
   std::call_once(g_writerOnce, [] {
     std::thread(WriterLoop).detach(); // process exit is a hard kill, never join
-    BD_DEBUG("pso_recorder: capturing predictor misses to {}",
+    REXLOG_DEBUG(bd, "pso_recorder: capturing predictor misses to {}",
              CsvFilePath().string());
   });
 }
@@ -395,7 +396,7 @@ void RecordPipelineState(const PipelineState &state, u32 renderPassId,
       std::string table = DescribePair(vsHash, psHash);
       if (table.empty())
         table = "none";
-      BD_DEBUG("pso_predict: draw pair vs=0x{:016X} ps=0x{:016X} pass={} "
+      REXLOG_DEBUG(bd, "pso_predict: draw pair vs=0x{:016X} ps=0x{:016X} pass={} "
                "predicted={} table={}",
                vsHash, psHash, renderPassId,
                IsPairPredicted(vsHash, psHash) ? "yes" : "no", table);
@@ -424,15 +425,15 @@ void RecordPipelineState(const PipelineState &state, u32 renderPassId,
     //     background compile just lost the race to this draw (one-time compile,
     //     then cached).
     if (vsHash == 0) {
-      BD_TRACE("pso: render-thread compile (hcg-HLSL, uncapturable) pass={} "
+      REXLOG_TRACE(bd, "pso: render-thread compile (hcg-HLSL, uncapturable) pass={} "
                "ps=0x{:016X} decl=0x{:016X}",
                renderPassId, psHash, declHash);
     } else if (inResidual) {
-      BD_DEBUG("pso: render-thread compile (residual race, covered) pass={} "
+      REXLOG_DEBUG(bd, "pso: render-thread compile (residual race, covered) pass={} "
                "vs=0x{:016X} ps=0x{:016X} decl=0x{:016X}",
                renderPassId, vsHash, psHash, declHash);
     } else {
-      BD_WARN("pso: render-thread compile (miss, not in residual) pass={} "
+      REXLOG_WARN(bd, "pso: render-thread compile (miss, not in residual) pass={} "
               "vs=0x{:016X} ps=0x{:016X} decl=0x{:016X}",
               renderPassId, vsHash, psHash, declHash);
     }
@@ -449,7 +450,7 @@ void RecordPipelineState(const PipelineState &state, u32 renderPassId,
 
 void ReplayBootCache() {
   if (!PrecacheEnabled()) {
-    BD_DEBUG(
+    REXLOG_DEBUG(bd, 
         "pso_recorder: precache disabled (bd_pso_precache=0), skipping replay");
     return;
   }

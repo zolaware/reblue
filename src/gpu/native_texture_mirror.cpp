@@ -8,7 +8,6 @@
 #include "gpu/native_texture_mirror.h"
 
 #include <algorithm>
-#include <cctype>
 #include <cstring>
 #include <memory>
 #include <mutex>
@@ -16,10 +15,13 @@
 #include <unordered_map>
 #include <vector>
 
-#include <rex/graphics/pipeline/texture/conversion.h>
-#include <rex/graphics/pipeline/texture/util.h>
-#include <rex/graphics/xenos.h>
+#include <rex/math.h>
+#include <rex/xenos/texture_conversion.h>
+#include <rex/xenos/texture_layout.h>
+#include <rex/xenos/xenos.h>
 #include <rex/ppc.h>
+#include <rex/string/utf8.h>
+#include <rex/ppc/midasm.h>
 
 #include "core/logging.h"
 #include "core/memory_helpers.h"
@@ -32,10 +34,9 @@ namespace bd::gpu {
 
 namespace {
 
-namespace tu = rex::graphics::texture_util;
-namespace tc = rex::graphics::texture_conversion;
-namespace rg = rex::graphics;
-namespace xe = rex::graphics::xenos;
+namespace tu = rex::xenos;
+namespace tc = rex::xenos;
+namespace xe = rex::xenos;
 
 std::mutex g_mirror_mutex;
 std::unordered_map<u32, std::unique_ptr<GuestTexture>> g_native_mirrors;
@@ -57,10 +58,7 @@ std::string NormalizeTextureName(std::string_view raw) {
   const size_t dot = raw.rfind('.');
   if (dot != std::string_view::npos)
     raw = raw.substr(0, dot);
-  std::string out(raw);
-  for (char &c : out)
-    c = char(std::tolower(static_cast<unsigned char>(c)));
-  return out;
+  return rex::utf8_lower_ascii(raw);
 }
 
 // Evicted (guest thread) but not yet freed. Held per slot until the post-fence
@@ -97,23 +95,23 @@ struct MirrorLayout {
   int pack_off_y = 0;
 };
 
-u32 FetchWidth(const xe::xe_gpu_texture_fetch_t &f) {
+u32 FetchWidth(const xe::TextureFetch &f) {
   return (f.dimension == xe::DataDimension::k3D ? f.size_3d.width
                                                 : f.size_2d.width) +
          1u;
 }
 
-u32 FetchHeight(const xe::xe_gpu_texture_fetch_t &f) {
+u32 FetchHeight(const xe::TextureFetch &f) {
   return (f.dimension == xe::DataDimension::k3D ? f.size_3d.height
                                                 : f.size_2d.height) +
          1u;
 }
 
-u32 FetchDepth(const xe::xe_gpu_texture_fetch_t &f) {
+u32 FetchDepth(const xe::TextureFetch &f) {
   return f.dimension == xe::DataDimension::k3D ? f.size_3d.depth + 1u : 1u;
 }
 
-bool ReadFetch(u32 guest_va, xe::xe_gpu_texture_fetch_t &fetch) {
+bool ReadFetch(u32 guest_va, xe::TextureFetch &fetch) {
   const auto *d3dtex = bd::mem::try_at<const D3DTexture>(guest_va);
   if (!d3dtex)
     return false;
@@ -125,7 +123,7 @@ bool ReadFetch(u32 guest_va, xe::xe_gpu_texture_fetch_t &fetch) {
   return true;
 }
 
-MirrorLayout MakeLayout(const xe::xe_gpu_texture_fetch_t &fetch) {
+MirrorLayout MakeLayout(const xe::TextureFetch &fetch) {
   MirrorLayout L;
   L.format = fetch.format;
   L.endian = fetch.endianness;
@@ -133,15 +131,15 @@ MirrorLayout MakeLayout(const xe::xe_gpu_texture_fetch_t &fetch) {
   L.height = FetchHeight(fetch);
   L.depth = FetchDepth(fetch);
 
-  const rg::FormatInfo *info = rg::FormatInfo::Get(L.format);
+  const xe::FormatInfo *info = xe::FormatInfo::Get(L.format);
   L.texels_per_edge = info->block_width;
-  L.bytes_per_block = info->bytes_per_block();
+  L.bytes_per_block = info->GetBytesPerBlock();
   L.bpb_log2 = rex::log2_floor(L.bytes_per_block);
-  L.block_w = rex::align(L.width, L.texels_per_edge) / L.texels_per_edge;
-  L.block_h = rex::align(L.height, L.texels_per_edge) / L.texels_per_edge;
-  L.aligned_w = rex::align(L.block_w, 32u);
-  L.aligned_h = rex::align(L.block_h, 32u);
-  L.staging_row_bytes = rex::align(L.block_w * L.bytes_per_block, 256u);
+  L.block_w = rex::RoundUp(L.width, L.texels_per_edge) / L.texels_per_edge;
+  L.block_h = rex::RoundUp(L.height, L.texels_per_edge) / L.texels_per_edge;
+  L.aligned_w = rex::RoundUp(L.block_w, 32u);
+  L.aligned_h = rex::RoundUp(L.block_h, 32u);
+  L.staging_row_bytes = rex::RoundUp(L.block_w * L.bytes_per_block, 256u);
   L.row_width_texels =
       (L.staging_row_bytes / L.bytes_per_block) * L.texels_per_edge;
 
@@ -182,7 +180,7 @@ GuestTexture *BuildVolumeMirror(const MirrorLayout &L, const u8 *src,
                                 u32 guest_va) {
   const size_t slice_size = FaceStagingSize(L);
   const size_t src_size = size_t(L.aligned_w) * size_t(L.aligned_h) *
-                          size_t(rex::align(L.depth, 4u)) *
+                          size_t(rex::RoundUp(L.depth, 4u)) *
                           size_t(L.bytes_per_block);
 
   std::vector<u8> staging(slice_size * L.depth, 0u);
@@ -205,7 +203,7 @@ GuestTexture *BuildVolumeMirror(const MirrorLayout &L, const u8 *src,
       L.width, L.height, L.depth, u32(L.format), staging.data(), staging.size(),
       L.staging_row_bytes, L.row_width_texels);
   if (!tex) {
-    BD_WARN("native texture va=0x{:08X}: volume mirror build failed "
+    REXLOG_WARN(bd, "native texture va=0x{:08X}: volume mirror build failed "
             "({}x{}x{} fmt=0x{:X})",
             guest_va, L.width, L.height, L.depth, u32(L.format));
     return nullptr;
@@ -219,7 +217,7 @@ GuestTexture *BuildVolumeMirror(const MirrorLayout &L, const u8 *src,
   if (slice0) {
     tex->companion2D.reset(slice0);
   } else {
-    BD_WARN("native texture va=0x{:08X}: slice-0 2D companion build failed "
+    REXLOG_WARN(bd, "native texture va=0x{:08X}: slice-0 2D companion build failed "
             "({}x{} fmt=0x{:X}), 3D-as-2D fetch will read null",
             guest_va, L.width, L.height, u32(L.format));
   }
@@ -247,7 +245,7 @@ GuestTexture *BuildCubeMirror(const MirrorLayout &L, const u8 *src,
       L.width, L.height, u32(L.format), face_ptrs, face_size,
       L.staging_row_bytes, L.row_width_texels);
   if (!tex) {
-    BD_WARN("native texture va=0x{:08X}: cube mirror build failed "
+    REXLOG_WARN(bd, "native texture va=0x{:08X}: cube mirror build failed "
             "({}x{} fmt=0x{:X})",
             guest_va, L.width, L.height, u32(L.format));
   }
@@ -257,7 +255,7 @@ GuestTexture *BuildCubeMirror(const MirrorLayout &L, const u8 *src,
 // Levels 1..mip_max live at mip_address, with a packed tail for the <=16-texel
 // levels. nullptr leaves the caller on the single-level path.
 GuestTexture *BuildMippedMirror(const MirrorLayout &L,
-                                const xe::xe_gpu_texture_fetch_t &fetch,
+                                const xe::TextureFetch &fetch,
                                 std::vector<u8> &base_staging) {
   const auto *mip_src = bd::mem::at<const u8>(fetch.mip_address << 12);
   const u32 mip_max_level = std::min<u32>(
@@ -265,7 +263,7 @@ GuestTexture *BuildMippedMirror(const MirrorLayout &L,
   if (mip_max_level < 1u || !mip_src)
     return nullptr;
 
-  const tu::TextureGuestLayout layout = tu::GetGuestTextureLayout(
+  const tu::GuestTextureLayout layout = tu::GetGuestTextureLayout(
       xe::DataDimension::k2DOrStacked, fetch.pitch, L.width, L.height, 1u,
       /*is_tiled=*/true, L.format,
       /*has_packed_levels=*/fetch.packed_mips != 0u, /*has_base=*/true,
@@ -284,16 +282,16 @@ GuestTexture *BuildMippedMirror(const MirrorLayout &L,
   for (u32 lvl = 1u; lvl <= mip_max_level; ++lvl) {
     const u32 lw = std::max(L.width >> lvl, 1u);
     const u32 lh = std::max(L.height >> lvl, 1u);
-    const int lwb = int(rex::align(lw, L.texels_per_edge) / L.texels_per_edge);
-    const int lhb = int(rex::align(lh, L.texels_per_edge) / L.texels_per_edge);
-    const u32 dst_row = rex::align(u32(lwb) * L.bytes_per_block, 256u);
+    const int lwb = int(rex::RoundUp(lw, L.texels_per_edge) / L.texels_per_edge);
+    const int lhb = int(rex::RoundUp(lh, L.texels_per_edge) / L.texels_per_edge);
+    const u32 dst_row = rex::RoundUp(u32(lwb) * L.bytes_per_block, 256u);
     const u32 dst_row_width_texels =
         (dst_row / L.bytes_per_block) * L.texels_per_edge;
 
     const bool packed =
         layout.packed_level != UINT32_MAX && lvl >= layout.packed_level;
     const u32 storage_level = packed ? layout.packed_level : lvl;
-    const tu::TextureGuestLayout::Level &sl = layout.mips[storage_level];
+    const tu::GuestTextureLayout::Level &sl = layout.mips[storage_level];
     const u32 pitch_blocks = sl.row_pitch_bytes / L.bytes_per_block;
     const u8 *level_src = mip_src + layout.mip_offsets_bytes[storage_level];
 
@@ -331,9 +329,9 @@ GuestTexture *BuildMippedMirror(const MirrorLayout &L,
 void AttachCubeAtlasCompanion(const MirrorLayout &L, GuestTexture *tex,
                               const std::vector<u8> &staging, u32 guest_va) {
   const u32 face_blocks_w =
-      rex::align(L.height, L.texels_per_edge) / L.texels_per_edge;
+      rex::RoundUp(L.height, L.texels_per_edge) / L.texels_per_edge;
   const u32 face_visible_row = face_blocks_w * L.bytes_per_block;
-  const u32 face_row_bytes = rex::align(face_visible_row, 256u);
+  const u32 face_row_bytes = rex::RoundUp(face_visible_row, 256u);
   const u32 face_size = face_row_bytes * L.block_h;
   const u32 face_row_width_texels =
       (face_row_bytes / L.bytes_per_block) * L.texels_per_edge;
@@ -357,14 +355,14 @@ void AttachCubeAtlasCompanion(const MirrorLayout &L, GuestTexture *tex,
   if (cube) {
     tex->companionCube.reset(cube);
   } else {
-    BD_WARN("native texture va=0x{:08X}: cube_* atlas companion build failed "
+    REXLOG_WARN(bd, "native texture va=0x{:08X}: cube_* atlas companion build failed "
             "({}x{} fmt=0x{:X}), water/glass cube fetch reads null",
             guest_va, L.height, L.height, u32(L.format));
   }
 }
 
 GuestTexture *Build2DMirror(const MirrorLayout &L, const u8 *src,
-                            const xe::xe_gpu_texture_fetch_t &fetch,
+                            const xe::TextureFetch &fetch,
                             u32 guest_va, u32 name_va, bool dxt) {
   std::vector<u8> staging(FaceStagingSize(L), 0u);
   UntileFace(L, src, staging.data(), L.pack_off_x, L.pack_off_y);
@@ -376,7 +374,7 @@ GuestTexture *Build2DMirror(const MirrorLayout &L, const u8 *src,
                                       L.staging_row_bytes, L.row_width_texels);
   }
   if (!tex) {
-    BD_WARN("native texture va=0x{:08X}: 2D mirror build failed "
+    REXLOG_WARN(bd, "native texture va=0x{:08X}: 2D mirror build failed "
             "({}x{} fmt=0x{:X})",
             guest_va, L.width, L.height, u32(L.format));
     return nullptr;
@@ -410,9 +408,9 @@ GuestTexture *GetOrCreateNativeMirror(u32 guest_va, u32 name_va) {
     g_native_mirrors.erase(it);
   }
 
-  xe::xe_gpu_texture_fetch_t fetch;
+  xe::TextureFetch fetch;
   if (!ReadFetch(guest_va, fetch)) {
-    BD_WARN("native texture: guest VA 0x{:08X} does not translate", guest_va);
+    REXLOG_WARN(bd, "native texture: guest VA 0x{:08X} does not translate", guest_va);
     return nullptr;
   }
 
@@ -431,7 +429,7 @@ GuestTexture *GetOrCreateNativeMirror(u32 guest_va, u32 name_va) {
   // Non-tiled is rejected: the deswizzlers only handle tiled data.
   if (fetch.type != xe::FetchConstantType::kTexture || !supported_dim ||
       !(dxt || rgba8) || !endian_ok || !fetch.tiled) {
-    BD_WARN("native texture rejected name='{}' va=0x{:08X} type={} dim={} "
+    REXLOG_WARN(bd, "native texture rejected name='{}' va=0x{:08X} type={} dim={} "
             "fmt=0x{:X} endian={} tiled={} {}x{}x{}",
             TextureName(name_va), guest_va, u32(fetch.type),
             u32(fetch.dimension), u32(fetch.format), u32(fetch.endianness),
@@ -444,7 +442,7 @@ GuestTexture *GetOrCreateNativeMirror(u32 guest_va, u32 name_va) {
   // accessor matches how the data was written.
   const auto *src = bd::mem::at<const u8>(fetch.base_address << 12);
   if (!src) {
-    BD_WARN("native texture va=0x{:08X}: base address 0x{:08X} does not "
+    REXLOG_WARN(bd, "native texture va=0x{:08X}: base address 0x{:08X} does not "
             "translate",
             guest_va, fetch.base_address << 12);
     return nullptr;
@@ -482,11 +480,11 @@ GuestTexture *GetOrCreateNativeMirror(u32 guest_va, u32 name_va) {
 
 TextureContent TextureContent::Scan(u32 guest_va) {
   const TextureContent whole;
-  xe::xe_gpu_texture_fetch_t fetch;
+  xe::TextureFetch fetch;
   if (!ReadFetch(guest_va, fetch) ||
       fetch.type != xe::FetchConstantType::kTexture ||
       fetch.dimension != xe::DataDimension::k2DOrStacked ||
-      !rg::FormatInfo::Get(fetch.format))
+      !xe::FormatInfo::Get(fetch.format))
     return whole;
 
   const MirrorLayout L = MakeLayout(fetch);
@@ -597,7 +595,7 @@ bool NativeTextureReplace(u32 guest_va, const u8 *blob, size_t size) {
   u32 fc[6];
   for (int i = 0; i < 6; ++i)
     fc[i] = u32(d3dtex->Format.dword[i]);
-  xe::xe_gpu_texture_fetch_t fetch;
+  xe::TextureFetch fetch;
   std::memcpy(&fetch, fc, sizeof(fetch));
 
   u32 blobFc[6];
@@ -606,7 +604,7 @@ bool NativeTextureReplace(u32 guest_va, const u8 *blob, size_t size) {
     blobFc[i] = (u32(w[0]) << 24) | (u32(w[1]) << 16) | (u32(w[2]) << 8) |
                 u32(w[3]);
   }
-  xe::xe_gpu_texture_fetch_t blobFetch;
+  xe::TextureFetch blobFetch;
   std::memcpy(&blobFetch, blobFc, sizeof(blobFetch));
 
   // Same geometry or nothing: the physical allocation was sized for the live
@@ -614,7 +612,7 @@ bool NativeTextureReplace(u32 guest_va, const u8 *blob, size_t size) {
   if (blobFetch.format != fetch.format || blobFc[2] != fc[2] ||
       blobFetch.pitch != fetch.pitch || !fetch.tiled ||
       fetch.dimension != xe::DataDimension::k2DOrStacked || fetch.mip_address) {
-    BD_WARN("native texture replace refused va=0x{:08X}: geometry mismatch",
+    REXLOG_WARN(bd, "native texture replace refused va=0x{:08X}: geometry mismatch",
             guest_va);
     return false;
   }
@@ -625,7 +623,7 @@ bool NativeTextureReplace(u32 guest_va, const u8 *blob, size_t size) {
   const u32 blobPayload = (u32(blob[0]) << 24) | (u32(blob[1]) << 16) |
                           (u32(blob[2]) << 8) | u32(blob[3]);
   if (blobPayload != payload || size < 2048u + payload) {
-    BD_WARN("native texture replace refused va=0x{:08X}: payload {} vs {}",
+    REXLOG_WARN(bd, "native texture replace refused va=0x{:08X}: payload {} vs {}",
             guest_va, blobPayload, payload);
     return false;
   }
@@ -664,7 +662,8 @@ void DrainEvictedNativeTextures(u32 slot) {
 // host mirror must be evicted here.
 //   r25 = flt_82DBB148[k] = mirror key   r26 = unk_82DBB170[k] = XPhysical
 //   marker
-void bdPreloadTableFreeTextureHook(PPCRegister &r25, PPCRegister &r26) {
+REX_MIDASM_HOOK(bdPreloadTableFreeTextureHook, (PPCRegister &r25, PPCRegister &r26)) {
   if (r26.u32)
     bd::gpu::EvictNativeTexture(r25.u32);
 }
+REX_MIDASM_AT(bdPreloadTableFreeTextureHook, 0x8228522C, before, r25, r26);

@@ -11,6 +11,7 @@
 #include <cstddef>
 
 #include <rex/hook.h>
+#include <rex/ppc/detour.h>
 #include <rex/types.h>
 
 #include "engine/d2anime/anime_hittest.h"
@@ -21,7 +22,6 @@
 #include "engine/settings.h"
 #include "reblue_init.h"
 
-REX_EXTERN(__imp__Camp__Rank__MainTask__Update);
 REX_IMPORT(__imp__CampRank_UpdateCursorPosName, RankUpdateCursorPosName, u32(u32));
 REX_IMPORT(__imp__CampRank_ApplySlotUVs, RankApplySlotUVs, u32(u32));
 REX_IMPORT(__imp__bdInputCheckDpadRight, RankPadRight, u32());
@@ -168,8 +168,7 @@ void HoverFormationCells(u32 taskVA) {
 
 } // namespace bd::engine
 
-REX_HOOK_RAW(Camp__Rank__MainTask__Update) {
-  const u32 taskVA = ctx.r3.u32;
+REX_DETOUR(Camp__Rank__MainTask__Update, void, (u32 taskVA)) {
   bd::engine::HoverFormationCells(taskVA);
-  __imp__Camp__Rank__MainTask__Update(ctx, base);
+  original(taskVA);
 }

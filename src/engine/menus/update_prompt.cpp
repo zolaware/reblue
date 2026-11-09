@@ -99,7 +99,7 @@ bool UpdatePrompt::EnterOffers() {
         if (const auto *artifact = manifest->ArtifactForThisPlatform())
           app_bytes_ = artifact->size;
 
-      BD_INFO("[update] offering v{} at the title", app_version_);
+      REXLOG_INFO(bd, "update offering v{} at the title", app_version_);
       notice_.Kill();
       if (confirm_.Create(host_,
                           i18n::Fmt("update.prompt.app", app_version_,
@@ -109,7 +109,7 @@ bool UpdatePrompt::EnterOffers() {
         phase_.store(Phase::kAppOffer);
         return true;
       }
-      BD_WARN("[update] the offer window would not open, skipping the offer");
+      REXLOG_WARN(bd, "update the offer window would not open, skipping the offer");
     }
   }
   return EnterContentOffer();
@@ -118,18 +118,18 @@ bool UpdatePrompt::EnterOffers() {
 bool UpdatePrompt::EnterContentOffer() {
   auto &sync = Sync::Get();
   if (sync.State() != Sync::Stage::kPending) {
-    BD_INFO("[update] nothing left to offer, letting the engine through");
+    REXLOG_INFO(bd, "update nothing left to offer, letting the engine through");
     return Release();
   }
 
-  BD_INFO("[update] offering {} content pack(s)", sync.PendingCount());
+  REXLOG_INFO(bd, "update offering {} content pack(s)", sync.PendingCount());
   notice_.Kill();
   if (!confirm_.Create(host_,
                        i18n::Fmt("update.prompt.content", sync.PendingCount(),
                                  i18n::Bytes(sync.PendingBytes()))
                            .c_str(),
                        i18n::Text("update.prompt.content_ask").c_str())) {
-    BD_WARN("[update] the offer window would not open, skipping the offer");
+    REXLOG_WARN(bd, "update the offer window would not open, skipping the offer");
     sync.Decline();
     return Release();
   }
@@ -148,7 +148,7 @@ bool UpdatePrompt::Hold(const Task &parent) {
     bd::i18n::SyncLocale();
     updates.BeginCheck();
     if (updates.State() == Updates::Stage::kIdle) {
-      BD_INFO("[update] no check to run at the title, letting the engine "
+      REXLOG_INFO(bd, "update no check to run at the title, letting the engine "
               "through (bd_update_check={}, endpoint '{}')",
               bd::Settings::Get().UpdateCheck(),
               bd::Settings::Get().UpdateUrl());
@@ -162,10 +162,10 @@ bool UpdatePrompt::Hold(const Task &parent) {
     const std::string csv = std::string(kCsvDir) + kCsvName;
     host_ = D2AnimeTask::Load(parent, csv.c_str(), D2AnimeTask::Reveal::Held);
     if (!host_) {
-      BD_WARN("[update] the prompt's own screen would not load, skipping it");
+      REXLOG_WARN(bd, "update the prompt's own screen would not load, skipping it");
       return Release();
     }
-    BD_INFO("[update] holding the title for the check");
+    REXLOG_INFO(bd, "update holding the title for the check");
     deadline_ = now + kLoadTimeout;
     phase_.store(Phase::kLoading);
     return true;
@@ -177,7 +177,7 @@ bool UpdatePrompt::Hold(const Task &parent) {
     if (!host_.IsReady()) {
       if (now < deadline_)
         return true;
-      BD_WARN("[update] the prompt's own screen did not parse, skipping it");
+      REXLOG_WARN(bd, "update the prompt's own screen did not parse, skipping it");
       return Release();
     }
     // Draws nothing itself, but a hidden parent takes its windows with it.
@@ -195,7 +195,7 @@ bool UpdatePrompt::Hold(const Task &parent) {
     ShowCheckLine();
     if (now < deadline_)
       return true;
-    BD_WARN("[update] the startup check did not answer in time, carrying on");
+    REXLOG_WARN(bd, "update the startup check did not answer in time, carrying on");
     return Release();
   }
 

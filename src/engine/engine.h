@@ -28,7 +28,7 @@
 #include "engine/hud_fade.h"
 #include "engine/input/action_state.h"
 #include "engine/input/actions.h"
-#include "engine/input/binding_store.h"
+#include "engine/input/binding_registry.h"
 #include "engine/input/button_map.h"
 #include "engine/input/dispatch.h"
 #include "engine/input/input_sources.h"

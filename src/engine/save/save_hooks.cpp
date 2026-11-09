@@ -12,22 +12,27 @@
 #include <rex/hook.h>
 #include <rex/memory.h>
 #include <rex/runtime.h>
-#include <rex/system/xcontent.h>
-#include <rex/system/xtypes.h>
+#include <rex/runtime/content_manager.h>
+#include <rex/runtime/xcontent_data.h>
+#include <rex/runtime/xtypes.h>
 #include <rex/types.h>
+#include <rex/ppc/midasm.h>
 
-#include <algorithm>
 #include <cstring>
 #include <string>
 #include <vector>
 
 #include "core/logging.h"
 #include "core/memory_helpers.h"
-#include "engine/save/save_store.h"
+#include "engine/save/save_manager.h"
 #include "engine/save/save_types.h"
 #include "engine/settings.h"
 
 using rex::X_RESULT;
+using rex::X_ERROR_ALREADY_EXISTS;
+using rex::X_ERROR_INVALID_PARAMETER;
+using rex::X_ERROR_PATH_NOT_FOUND;
+using rex::X_ERROR_SUCCESS;
 
 namespace {
 
@@ -55,23 +60,23 @@ constexpr u32 kContentTaskMaxSlots = 30;
 // the last one passed on the caller's stack at r1+0x54. Handle root "save"
 // locally, defer any other root to the original (no other roots reach this in
 // BD).
-//
-// Raw, on the inherited context: a typed REX_IMPORT re-roots the engine stack
-// at ThreadState's r1 and overwrites the frames live underneath it.
-REX_EXTERN(__imp__rex_XContentCreateWrapper);
-REX_HOOK_RAW(rex_XContentCreateWrapper) {
-  const auto *root = bd::mem::at<const char>(ctx.r4.u32);
-  const auto *content = bd::mem::at<const bd::engine::XContentData>(ctx.r5.u32);
-  const u32 flags = ctx.r6.u32;
-  auto *disposition = bd::mem::at<be_u32>(ctx.r7.u32);
+REX_IMPORT(__imp__rex_XContentCreateWrapper, XContentCreateWrapper,
+           u32(u32, u32, u32, u32, u32, u32, u32, u64, u32));
+u32 rex_XContentCreateWrapper_hook(u32 userIndex, u32 rootName, u32 contentData,
+                                   u32 flags, u32 dispositionOut,
+                                   u32 licenseMaskOut, u32 cacheSize,
+                                   u64 contentSize, u32 overlapped) {
+  const auto *root = bd::mem::at<const char>(rootName);
+  const auto *content = bd::mem::at<const rex::runtime::XCONTENT_DATA>(contentData);
+  auto *disposition = bd::mem::at<be_u32>(dispositionOut);
 
   if (!root || std::strncmp(root, "save", 5) != 0 || !content) {
-    __imp__rex_XContentCreateWrapper(ctx, base);
-    return;
+    return XContentCreateWrapper(userIndex, rootName, contentData, flags,
+                                 dispositionOut, licenseMaskOut, cacheSize,
+                                 contentSize, overlapped);
   }
 
-  std::string slot(content->szFileName,
-                   ::strnlen(content->szFileName, sizeof(content->szFileName)));
+  std::string slot = content->GetFileName();
 
   const bool exists = bd::engine::SaveSlotExists(slot);
   const u32 requested = flags & kContentDispositionMask;
@@ -110,7 +115,7 @@ REX_HOOK_RAW(rex_XContentCreateWrapper) {
     }
     break;
   default:
-    BD_WARN("[savehook] unexpected disposition {} for slot '{}'", requested,
+    REXLOG_WARN(bd, "savehook unexpected disposition {} for slot '{}'", requested,
             slot);
     break;
   }
@@ -119,8 +124,9 @@ REX_HOOK_RAW(rex_XContentCreateWrapper) {
     bd::engine::SetCurrentSaveSlot(slot);
   if (disposition)
     *disposition = out_disposition;
-  ctx.r3.u64 = result;
+  return result;
 }
+REX_HOOK(rex_XContentCreateWrapper, rex_XContentCreateWrapper_hook);
 
 // ContentTask::OnDeviceSelected: BD's save slot enumeration.
 // Replace the XAM enumerator with the host save store: synthesize one
@@ -141,13 +147,11 @@ u32 ContentTask__OnDeviceSelected_hook(u32 task) {
   for (const std::string &slot : slots) {
     if (count >= kContentTaskMaxSlots)
       break;
-    bd::engine::XContentData &entry = ct->entries[count];
+    rex::runtime::XCONTENT_DATA &entry = ct->entries[count];
     std::memset(&entry, 0, sizeof(entry));
-    entry.DeviceID = device_id;
-    entry.dwContentType = u32(rex::system::XContentType::kSavedGame);
-    const size_t n =
-        std::min<size_t>(slot.size(), sizeof(entry.szFileName) - 1);
-    std::memcpy(entry.szFileName, slot.data(), n);
+    entry.device_id = device_id;
+    entry.content_type = rex::runtime::XContentType::kSavedGame;
+    entry.SetFileName(slot);
     ++count;
   }
   ct->Count = count;
@@ -186,6 +190,7 @@ REX_HOOK(bdSaveGameWriteThumbnail, bdSaveGameWriteThumbnail_hook);
 // Camp_IsSaveAvailable answers "is an in-range save point present?". Camp's top
 // menu gates entry 12's enabled flag on it (what makes A deny) and paints btn11
 // DisableColor, and nothing past that re-checks.
-bool bdCampSaveAnywhereHook() {
+REX_MIDASM_BRANCH(bdCampSaveAnywhereHook, ()) {
   return bd::engine::Settings::Get().SaveAnywhere();
 }
+REX_MIDASM_AT(bdCampSaveAnywhereHook, 0x822D7640, before, 0x822D7694);

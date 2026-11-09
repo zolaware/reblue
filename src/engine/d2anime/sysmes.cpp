@@ -15,8 +15,9 @@
 
 #include <rex/hook.h>
 #include <rex/ppc/stack.h>
-#include <rex/system/thread_state.h>
+#include <rex/runtime/thread_state.h>
 #include <rex/types.h>
+#include "core/memory_helpers.h"
 
 REX_IMPORT(__imp__SelMesWinTask_Create, CreateSelMes, u32(u32, u32));
 REX_IMPORT(__imp__SelMesWinConfig_Init, InitSelMesConfig, void(u32));
@@ -53,16 +54,15 @@ bool SysMesConfirm::Create(const Task &parent, const char *q1, const char *q2,
                            const char *q3, const char *a1, const char *a2,
                            int defaultSel) {
   if (task_) {
-    BD_WARN("[sysmes] already active, killing previous");
+    REXLOG_WARN(bd, "sysmes already active, killing previous");
     Kill();
   }
 
-  // Raw base: stack_push and the call bridges address the PPC stack, not the
-  // heap.
-  auto *memory = REX_KERNEL_MEMORY();
+  // Raw base: the call bridges address the PPC stack, not the heap.
+  const auto memory = bd::mem::view();
   if (!memory)
     return false;
-  auto *base = memory->virtual_membase();
+  auto *base = memory->GetVirtualMembase();
 
   // Engine stores these as wchar_t, and LoadStrings reads them back by RBDEL_
   // name.
@@ -76,31 +76,29 @@ bool SysMesConfirm::Create(const Task &parent, const char *q1, const char *q2,
   vb.SetText("RBDEL_SA2", a2 ? std::string_view(a2)
                              : std::string_view(i18n::Text("common.no")));
 
-  rex::CallFrame frame(*rex::runtime::ThreadState::Get()->context());
-  rex::ppc::stack_guard guard(frame.ctx);
+  PPCContext &ctx = *rex::runtime::ThreadState::Get()->GetContext();
+  rex::ppc::StackFrame frame(ctx, base);
 
-  alignas(8) u8 zeroBuf[sizeof(SelMesWinConfig_t)]{};
-  u32 configAddr =
-      rex::ppc::stack_push(frame.ctx, base, zeroBuf, sizeof(SelMesWinConfig_t));
+  const auto config = frame.Push<SelMesWinConfig_t>();
+  const u32 configAddr = config.GetGuestAddress();
 
-  InitSelMesConfig(frame, base, configAddr);
+  InitSelMesConfig(ctx, base, configAddr);
 
-  u32 prefixAddr = rex::ppc::stack_push_string(frame.ctx, base, "RBDEL");
-  LoadSelMesStrings(frame, base, configAddr, parentTask, prefixAddr);
+  u32 prefixAddr = frame.PushString("RBDEL").GetGuestAddress();
+  LoadSelMesStrings(ctx, base, configAddr, parentTask, prefixAddr);
 
-  reinterpret_cast<SelMesWinConfig_t *>(base + configAddr)->defaultSel =
-      static_cast<u32>(defaultSel);
+  config->defaultSel = static_cast<u32>(defaultSel);
 
-  task_ = SelMesWinTask(CreateSelMes(frame, base, parentTask, configAddr));
+  task_ = SelMesWinTask(CreateSelMes(ctx, base, parentTask, configAddr));
 
   if (!task_ || !parent) {
-    BD_ERROR("[sysmes] SelMesWinTask_Create gave no usable task");
+    REXLOG_ERROR(bd, "sysmes SelMesWinTask_Create gave no usable task");
     task_.Reset();
     return false;
   }
   task_.SetNotifyParent(parent);
 
-  BD_INFO("[sysmes] created SelMesWinTask at 0x{:08X} (parent=0x{:08X})",
+  REXLOG_INFO(bd, "sysmes created SelMesWinTask at 0x{:08X} (parent=0x{:08X})",
           task_.Address(), parentTask);
   return true;
 }
@@ -132,38 +130,36 @@ bool SysMesNotice::Show(const Task &parent, std::string_view line1,
 
   const u32 parentTask = parent.Address();
 
-  auto *memory = REX_KERNEL_MEMORY();
+  const auto memory = bd::mem::view();
   if (!memory)
     return false;
-  auto *base = memory->virtual_membase();
+  auto *base = memory->GetVirtualMembase();
 
   AnimeData vb = D2AnimeTask(parentTask).AnimeData();
   vb.SetText("RBNOT_S1", line1);
   vb.SetText("RBNOT_S2", line2);
   vb.SetText("RBNOT_S3", line3);
 
-  rex::CallFrame frame(*rex::runtime::ThreadState::Get()->context());
-  rex::ppc::stack_guard guard(frame.ctx);
+  PPCContext &ctx = *rex::runtime::ThreadState::Get()->GetContext();
+  rex::ppc::StackFrame frame(ctx, base);
 
-  alignas(8) u8 zeroBuf[sizeof(NormMesWinConfig_t)]{};
-  u32 configAddr = rex::ppc::stack_push(frame.ctx, base, zeroBuf,
-                                        sizeof(NormMesWinConfig_t));
+  const u32 configAddr = frame.Push<NormMesWinConfig_t>().GetGuestAddress();
 
-  InitNormMesConfig(frame, base, configAddr);
+  InitNormMesConfig(ctx, base, configAddr);
 
-  u32 prefixAddr = rex::ppc::stack_push_string(frame.ctx, base, "RBNOT");
-  LoadNormMesStrings(frame, base, configAddr, parentTask, prefixAddr);
+  u32 prefixAddr = frame.PushString("RBNOT").GetGuestAddress();
+  LoadNormMesStrings(ctx, base, configAddr, parentTask, prefixAddr);
 
-  task_ = Task(CreateNormMes(frame, base, parentTask, configAddr));
+  task_ = Task(CreateNormMes(ctx, base, parentTask, configAddr));
   if (!task_) {
-    BD_ERROR("[sysmes] NormMesWinTask_Create gave no usable task");
+    REXLOG_ERROR(bd, "sysmes NormMesWinTask_Create gave no usable task");
     return false;
   }
 
   shown1_ = line1;
   shown2_ = line2;
   shown3_ = line3;
-  BD_DEBUG("[sysmes] created NormMesWinTask at 0x{:08X} (parent=0x{:08X})",
+  REXLOG_DEBUG(bd, "sysmes created NormMesWinTask at 0x{:08X} (parent=0x{:08X})",
            task_.Address(), parentTask);
   return true;
 }
@@ -205,7 +201,7 @@ void SysMesConfirm::Kill() {
   if (!addr)
     return;
   task_.Kill();
-  BD_INFO("[sysmes] killed SelMesWinTask at 0x{:08X}", addr);
+  REXLOG_INFO(bd, "sysmes killed SelMesWinTask at 0x{:08X}", addr);
   task_.Reset();
 }
 

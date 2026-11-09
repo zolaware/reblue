@@ -13,6 +13,7 @@
 #include <rex/types.h>
 
 #include <rex/hook.h>
+#include <rex/ppc/detour.h>
 
 #include "core/memory_helpers.h"
 
@@ -83,18 +84,16 @@ bool OutputResActive() {
 // called straight from bdRenderFrame, NOT through the bdRenderSubmitList drain.
 // Its mode flag is 0 on this path, so the glyph builder divides by the display
 // float dims, which bdOutputResDeviceDimsHook set to the output size.
-REX_EXTERN(__imp__bdRenderDebugText);
-REX_HOOK_RAW(bdRenderDebugText) {
+REX_DETOUR(bdRenderDebugText, void, (u32 state)) {
   DesignCanvasBasis pin(OutputResActive());
-  __imp__bdRenderDebugText(ctx, base);
+  original(state);
 }
 
 // bdMindowsDraw: the Mindows debug overlay window chrome (panel,
 // title bar, scrollbar filled rects, via bdDrawRectPrimitive). bdRenderFrame
 // sets mode=1 with the viewport dims at the output surface size just before
 // this call, while the overlay's text goes through the pinned hook above.
-REX_EXTERN(__imp__bdMindowsDraw);
-REX_HOOK_RAW(bdMindowsDraw) {
+REX_DETOUR(bdMindowsDraw, void, (u32 window)) {
   DesignCanvasBasis pin(OutputResActive());
-  __imp__bdMindowsDraw(ctx, base);
+  original(window);
 }

@@ -19,7 +19,7 @@ class GameOptions {
 public:
   static GameOptions &Get();
 
-  // Once at startup, after rex::cvar::LoadConfig has run.
+  // Once at startup, after rex::Init has applied the config file.
   void Init();
 
   // Lays the global set over the engine globals, the mixer buses and the

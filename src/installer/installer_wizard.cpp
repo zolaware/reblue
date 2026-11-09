@@ -8,12 +8,17 @@
 #include "installer/installer_wizard.h"
 
 #include <imgui.h>
-#include <rex/filesystem.h>
+#include <rex/color.h>
+#include <rex/platform/file.h>
+#include <rex/ui/color.h>
+#include <rex/ui/style.h>
+#include <rex/ui/title_app.h>
 #include <stb_image.h>
 
 #include <algorithm>
 #include <cctype>
 #include <cstring>
+#include <span>
 #include <functional>
 
 #include "core/app_root.h"
@@ -30,9 +35,10 @@
 
 namespace bd::installer {
 namespace {
-constexpr ImVec4 kLit(0.30f, 0.90f, 0.30f, 1.0f);
-constexpr ImVec4 kDim(0.32f, 0.34f, 0.40f, 1.0f);
-constexpr ImVec4 kStatus(0.90f, 0.70f, 0.30f, 1.0f);
+constexpr rex::Color kDim = rex::Color::FromRGBA(0.32f, 0.34f, 0.40f);
+constexpr rex::Color kPanelFill = rex::Color::FromRGBA(0.049f, 0.039f, 0.122f, 0.86f);
+
+const rex::ui::Style &UIStyle() { return bd::platform::UI()->GetStyle(); }
 
 void Join(std::string &list, const char *item) {
   if (!list.empty())
@@ -91,18 +97,16 @@ void InitInstallerFonts(ImFontAtlas *atlas) {
   g_title_font = load(40.0f);
   g_path_font = load(13.0f);
   if (!g_body_font) {
-    BD_WARN(
+    REXLOG_WARN(bd, 
         "Failed to load installer body font, wizard will use drawer default");
   }
 }
 
 InstallerWizard::InstallerWizard(
-    rex::ui::ImGuiDrawer *drawer, rex::ui::ImmediateDrawer *immediate_drawer,
-    rex::ui::WindowedAppContext &app_context,
+    rex::gpu::IOverlayDrawer *immediate_drawer,
     const std::filesystem::path &default_install_dir, bool repair,
     const InstallConfig *existing, CompletionCallback on_done)
-    : ImGuiDialog(drawer), app_context_(app_context),
-      immediate_drawer_(immediate_drawer), on_done_(std::move(on_done)),
+    : immediate_drawer_(immediate_drawer), on_done_(std::move(on_done)),
       repair_(repair), install_dir_(default_install_dir) {
   // No engine yet, so this resolves to the bd_language cvar or the OS language.
   i18n::SyncLocale();
@@ -117,7 +121,7 @@ InstallerWizard::InstallerWizard(
   picked_dir_ = install_dir_;
   portable_allowed_ = !repair_ && !bd::IsPackagedApplication() &&
                       bd::DirectoryWritable(
-                          rex::filesystem::GetExecutableFolder());
+                          rex::platform::GetExecutableFolder());
 
   InitDLCCatalog();
 }
@@ -142,11 +146,11 @@ void InstallerWizard::Finish(bool completed) {
   for (int i = 0; i < kDiscCount; ++i)
     cfg.iso_fingerprints[i] = discs_[i].fingerprint;
 
-  BD_INFO("InstallerWizard: finished, completed={}", completed);
+  REXLOG_INFO(bd, "InstallerWizard: finished, completed={}", completed);
 
   auto cb = on_done_;
   const WizardChoices choices = choices_;
-  app_context_.CallInUIThreadDeferred(
+  rex::ui::InvokeFunction(
       [cb, completed, cfg, choices]() { cb(completed, cfg, choices); });
 }
 
@@ -167,8 +171,9 @@ void InstallerWizard::AddSource(const std::filesystem::path &file) {
     if (discs_[i].Filled())
       continue;
     discs_[i].source = file;
-    discs_[i].fingerprint = DiscFingerprint(image->ContentSize(), *root, i + 1);
-    discs_[i].languages = BootLanguages::FromDisc(*root);
+    discs_[i].fingerprint = DiscFingerprint(
+        image->ContentSize(), image->container(), *root, i + 1);
+    discs_[i].languages = BootLanguages::FromDisc(image->container(), *root);
     Join(added, kDiscLabels[i]);
   }
   RefreshLanguageChoices();
@@ -252,26 +257,22 @@ bool InstallerWizard::InputsReady() const {
 }
 
 void InstallerWizard::PickSource() {
-  const std::wstring anyLabel = Utf8ToWide(i18n::Text("installer.filter.any"));
-  const std::wstring isoLabel = Utf8ToWide(i18n::Text("installer.filter.iso"));
-  const bd::platform::FileFilter kSourceFilters[] = {
-      {anyLabel.c_str(), L"*.*"},
-      {isoLabel.c_str(), L"*.iso"},
-  };
-  auto picked = bd::platform::ShowOpenFileDialog(
-      Utf8ToWide(i18n::Text("installer.dialog.select_source")).c_str(),
-      kSourceFilters);
-  if (!picked)
+  auto picked = bd::platform::UI()->ShowFileDialog(
+      {.title = i18n::Text("installer.dialog.select_source"),
+       .filters = {{i18n::Text("installer.filter.any"), "*"},
+                   {i18n::Text("installer.filter.iso"), "iso"}}});
+  if (!picked || picked->empty())
     return;
-  AddSource(*picked);
+  AddSource(picked->front());
 }
 
 void InstallerWizard::PickInstallDir() {
-  auto picked = bd::platform::ShowOpenFolderDialog(
-      Utf8ToWide(i18n::Text("installer.dialog.select_folder")).c_str());
-  if (!picked)
+  auto picked = bd::platform::UI()->ShowFileDialog(
+      {.mode = rex::ui::FileDialogDesc::Mode::kOpenFolder,
+       .title = i18n::Text("installer.dialog.select_folder")});
+  if (!picked || picked->empty())
     return;
-  install_dir_ = *picked;
+  install_dir_ = picked->front();
   picked_dir_ = install_dir_;
   install_status_.clear();
   // The store lives under the install root, so the picker has to follow it.
@@ -284,7 +285,7 @@ void InstallerWizard::SetPortable(bool portable) {
     return;
   if (portable) {
     picked_dir_ = install_dir_;
-    install_dir_ = rex::filesystem::GetExecutableFolder();
+    install_dir_ = rex::platform::GetExecutableFolder();
     connector_ = InstallConnector::kPortableFile;
   } else {
     install_dir_ = picked_dir_;
@@ -312,14 +313,14 @@ void InstallerWizard::StartInstall() {
   const auto abs_install = std::filesystem::absolute(install_dir_);
   const auto abs_game = abs_install / "game";
   const auto abs_user = abs_install / "user";
-  BD_INFO("InstallerWizard: install root -> '{}'", abs_install.string());
-  BD_INFO("InstallerWizard:   game data  -> '{}'", abs_game.string());
-  BD_INFO("InstallerWizard:   user data  -> '{}'", abs_user.string());
+  REXLOG_INFO(bd, "InstallerWizard: install root -> '{}'", abs_install.string());
+  REXLOG_INFO(bd, "InstallerWizard:   game data  -> '{}'", abs_game.string());
+  REXLOG_INFO(bd, "InstallerWizard:   user data  -> '{}'", abs_user.string());
 
   std::error_code ec;
   std::filesystem::create_directories(abs_user / "dlc", ec);
   if (ec) {
-    BD_WARN("InstallerWizard: could not create user/dlc dir '{}': {}",
+    REXLOG_WARN(bd, "InstallerWizard: could not create user/dlc dir '{}': {}",
             (abs_user / "dlc").string(), ec.message());
   }
 
@@ -330,7 +331,7 @@ void InstallerWizard::StartInstall() {
     install_thread_ = Installer::RunAsync(sources, abs_game, repair_,
                                           BuildSelection(), progress_);
   } catch (const std::system_error &e) {
-    BD_ERROR("Installer::RunAsync failed to spawn worker: {}", e.what());
+    REXLOG_ERROR(bd, "Installer::RunAsync failed to spawn worker: {}", e.what());
     progress_.SetError(i18n::Fmt("installer.error.spawn", e.what()));
     progress_.failed.store(true);
     progress_.complete.store(true);
@@ -352,23 +353,24 @@ void InstallerWizard::StartIndexRebuild() {
 
 void InstallerWizard::OnDraw(ImGuiIO &) {
   if (!background_texture_ && !background_tried_ && immediate_drawer_) {
-    background_tried_ = true;
     int w = 0, h = 0, channels = 0;
     constexpr auto kLogo = bd::Embedded("installer/installer.png");
     u8 *rgba = stbi_load_from_memory(kLogo.data,
                                      static_cast<int>(kLogo.size), &w,
                                      &h, &channels, /*req_comp=*/4);
     if (!rgba) {
-      BD_ERROR("InstallerWizard: stbi_load_from_memory failed: {}",
+      REXLOG_ERROR(bd, "InstallerWizard: stbi_load_from_memory failed: {}",
                stbi_failure_reason());
+      background_tried_ = true;
     } else {
-      background_texture_ = immediate_drawer_->CreateTexture(
+      auto texture = immediate_drawer_->CreateTexture(
           static_cast<u32>(w), static_cast<u32>(h),
-          rex::ui::ImmediateTextureFilter::kLinear, /*is_repeated=*/false,
-          rgba);
+          rex::gpu::OverlayTextureFilter::kLinear, /*repeat=*/false,
+          std::span<const u8>(rgba, static_cast<size_t>(w) * h * 4));
       stbi_image_free(rgba);
-      if (!background_texture_) {
-        BD_ERROR("InstallerWizard: failed to create background texture");
+      if (texture) {
+        background_texture_ = std::move(*texture);
+        background_tried_ = true;
       }
     }
   }
@@ -399,7 +401,7 @@ void InstallerWizard::OnDraw(ImGuiIO &) {
         std::clamp(vp->WorkSize.x - kPanelMargin * 2.0f, kPanelMinWidth,
                    kPanelMaxWidth);
     ImGui::SetCursorPos(ImVec2(kPanelMargin, kPanelMargin));
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, bd::ui::Theme::kPanel);
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, rex::ui::ToImVec4(kPanelFill));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(20, 20));
     ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 6.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(14, 7));
@@ -463,7 +465,7 @@ void DrawSpinner() {
   const float t = static_cast<float>(ImGui::GetTime());
   auto *draw_list = ImGui::GetWindowDrawList();
   draw_list->PathArcTo(center, kRadius, t * 6.0f, t * 6.0f + 4.0f, 20);
-  draw_list->PathStroke(ImGui::GetColorU32(bd::ui::Theme::kAccentSelected), 0,
+  draw_list->PathStroke(rex::ui::ToImU32(UIStyle().palette.highlight), 0,
                         3.0f);
   ImGui::Dummy(ImVec2(kRadius * 2.0f, kRadius * 2.0f));
 }
@@ -473,7 +475,7 @@ void Light(bool on) {
   const ImVec2 p = ImGui::GetCursorScreenPos();
   ImGui::GetWindowDrawList()->AddCircleFilled(
       ImVec2(p.x + h * 0.5f, p.y + h * 0.5f), h * 0.22f,
-      ImGui::GetColorU32(on ? kLit : kDim));
+      rex::ui::ToImU32(on ? bd::ui::Theme::kSuccess : kDim));
   ImGui::Dummy(ImVec2(h, h));
 }
 
@@ -496,7 +498,7 @@ void DirectoryRow(const char *heading, const char *sublabel,
   ImGui::AlignTextToFramePadding();
   ImGui::TextUnformatted(heading);
   ImGui::SameLine();
-  ImGui::PushStyleColor(ImGuiCol_Text, bd::ui::Theme::White(0.55f));
+  ImGui::PushStyleColor(ImGuiCol_Text, rex::ui::ToImVec4(rex::colors::kWhite.WithAlpha(0.55f)));
   ImGui::TextUnformatted(sublabel);
   ImGui::PopStyleColor();
   ImGui::SameLine();
@@ -595,7 +597,7 @@ void InstallerWizard::DrawContent() {
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted(T("installer.install_location"));
     ImGui::SameLine();
-    ImGui::PushStyleColor(ImGuiCol_Text, bd::ui::Theme::White(0.55f));
+    ImGui::PushStyleColor(ImGuiCol_Text, rex::ui::ToImVec4(rex::colors::kWhite.WithAlpha(0.55f)));
     ImGui::TextUnformatted(
         T(repair_ ? "installer.hint.existing" : "installer.hint.portable"));
     ImGui::PopStyleColor();
@@ -668,7 +670,7 @@ void InstallerWizard::DrawDiscs() {
   if (!sources_status_.empty()) {
     ImGui::SameLine(0, 12);
     ImGui::AlignTextToFramePadding();
-    ImGui::TextColored(kStatus, "%s", sources_status_.c_str());
+    ImGui::TextColored(rex::ui::ToImVec4(bd::ui::Theme::kWarning), "%s", sources_status_.c_str());
   }
 }
 
@@ -744,7 +746,7 @@ void InstallerWizard::DrawInstallMode() {
   ImGui::EndDisabled();
   if (!portable_allowed_) {
     ImGui::SameLine();
-    ImGui::PushStyleColor(ImGuiCol_Text, bd::ui::Theme::White(0.55f));
+    ImGui::PushStyleColor(ImGuiCol_Text, rex::ui::ToImVec4(rex::colors::kWhite.WithAlpha(0.55f)));
     ImGui::TextUnformatted(T(bd::IsPackagedApplication()
                                  ? "installer.hint.portable_packaged"
                                  : "installer.hint.portable_readonly"));
@@ -817,7 +819,7 @@ void InstallerWizard::DrawFooter() {
   ImGui::Spacing();
 
   if (!install_status_.empty()) {
-    ImGui::TextColored(kStatus, "%s", install_status_.c_str());
+    ImGui::TextColored(rex::ui::ToImVec4(bd::ui::Theme::kWarning), "%s", install_status_.c_str());
     ImGui::Spacing();
   }
 
@@ -918,14 +920,14 @@ void InstallerWizard::DrawDLCSection() {
   }
 
   ImGui::Spacing();
-  if (ImGui::Button(T("installer.dlc.add_file"), ImVec2(160, 0)))
+  if (ImGui::Button(T("installer.dlc.add_file"), ImVec2(UIStyle().metrics.value_width, 0)))
     PickAndInstallDLC();
 
   if (!dlc_results_.empty()) {
     ImGui::Spacing();
     for (const auto &r : dlc_results_) {
-      const ImVec4 col = r.ok ? ImVec4(0.30f, 0.90f, 0.30f, 1.0f)
-                              : ImVec4(0.90f, 0.40f, 0.30f, 1.0f);
+      const ImVec4 col = rex::ui::ToImVec4(r.ok ? bd::ui::Theme::kSuccess
+                                                : bd::ui::Theme::kError);
       ImGui::TextColored(col, "%s", r.message.c_str());
     }
   }
@@ -995,7 +997,7 @@ void InstallerWizard::DrawInstalling() {
     ImGui::Text("%s", i18n::Fmt("installer.progress.current", current).c_str());
 
   ImGui::Spacing();
-  if (ImGui::Button(T("installer.button.cancel"), ImVec2(120, 0))) {
+  if (ImGui::Button(T("installer.button.cancel"), ImVec2(UIStyle().metrics.button_width, 0))) {
     progress_.canceled.store(true);
   }
 
@@ -1038,10 +1040,10 @@ void InstallerWizard::DrawDone() {
   ImGui::TextWrapped("%s", done_message_.c_str());
   ImGui::Spacing();
   if (done_success_) {
-    if (ImGui::Button(T("installer.button.continue"), ImVec2(120, 0)))
+    if (ImGui::Button(T("installer.button.continue"), ImVec2(UIStyle().metrics.button_width, 0)))
       Finish(true);
   } else {
-    if (ImGui::Button(T("installer.button.quit"), ImVec2(120, 0)))
+    if (ImGui::Button(T("installer.button.quit"), ImVec2(UIStyle().metrics.button_width, 0)))
       Finish(false);
   }
 }
@@ -1059,23 +1061,20 @@ void InstallerWizard::InitDLCCatalog() {
 }
 
 void InstallerWizard::PickAndInstallDLC() {
-  const std::wstring dlcLabel = Utf8ToWide(i18n::Text("installer.filter.dlc"));
-  const bd::platform::FileFilter kDLCFilters[] = {
-      {dlcLabel.c_str(), L"*.*"},
-  };
-  auto picked = bd::platform::ShowOpenFileDialog(
-      Utf8ToWide(i18n::Text("installer.dialog.select_dlc")).c_str(),
-      kDLCFilters);
-  if (!picked)
+  auto picked = bd::platform::UI()->ShowFileDialog(
+      {.title = i18n::Text("installer.dialog.select_dlc"),
+       .filters = {{i18n::Text("installer.filter.dlc"), "*"}}});
+  if (!picked || picked->empty())
     return;
+  const std::filesystem::path file = picked->front();
 
-  auto validation = bd::vfs::DLCCatalog::Validate(*picked);
+  auto validation = bd::vfs::DLCCatalog::Validate(file);
   if (!validation.ok) {
     dlc_results_.push_back(
-        {false, picked->filename().string() + ": " + validation.error});
+        {false, file.filename().string() + ": " + validation.error});
     return;
   }
-  if (!bd::vfs::VFS::Get().DLC().Install(*picked)) {
+  if (!bd::vfs::VFS::Get().DLC().Install(file)) {
     dlc_results_.push_back({false, i18n::Fmt("installer.dlc.install_failed",
                                              validation.display_name)});
     return;

@@ -9,25 +9,35 @@
  */
 #pragma once
 
+#include <optional>
 #include <type_traits>
 
-#include <rex/system/kernel_state.h>
+#include <rex/runtime/memory_view.h>
 #include <rex/types.h>
+
+namespace rex {
+class Runtime;
+} // namespace rex
 
 namespace bd {
 
 // rex/types.h exports be_u32 etc globally but not the be<> template itself.
-template <typename T> using be = rex::be<T>;
+template <typename T> using be = rex::BE<T>;
 
 namespace mem {
+
+void Bind(rex::Runtime *runtime);
+rex::Runtime *runtime();
+rex::runtime::Memory *memory();
+std::optional<rex::runtime::MemoryView> view();
 
 // T is the type as stored in memory, a be<> scalar for byte-swapped fields.
 // at() swaps nothing itself. Null when the kernel is down or va is 0.
 template <typename T> inline T *at(u32 va) {
-  auto *memory = REX_KERNEL_MEMORY();
-  if (!memory || !va)
+  const std::optional<rex::runtime::MemoryView> v = view();
+  if (!v || !va)
     return nullptr;
-  return memory->template TranslateVirtual<T *>(va);
+  return v->template TranslateVirtual<T *>(va);
 }
 
 // Scalar read through be<T>, so multi-byte types come back host-order.

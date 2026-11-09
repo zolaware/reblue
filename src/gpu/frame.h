@@ -38,6 +38,10 @@ bool MaterializeOutboundLocked(VideoState &s, GuestTexture *source,
                                bool aliasable_only = false);
 void MaterializeInboundLocked(VideoState &s, GuestTexture *dst);
 void DetachSourceSurfaceLocked(VideoState &s, GuestTexture *texture);
+// Render and depth targets live in not-zeroed placed heaps, and D3D12 rejects
+// any read of one before a discard, clear or copy. Initializes a target still
+// in UNKNOWN layout so a sample, resolve source or partial upload is legal.
+void InitializeTargetLocked(VideoState &s, GuestTexture *t);
 bool FullscreenChainClassLocked(const VideoState &s, const GuestTexture *t);
 
 extern Video::OverlayDrawHook g_overlay_draw_hook;

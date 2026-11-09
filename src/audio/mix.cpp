@@ -11,18 +11,29 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 
 #include <rex/hook.h>
 #include <rex/ppc.h>
+#include <rex/ppc/detour.h>
 #include <rex/types.h>
 
 namespace bd::audio {
 namespace {
 
-constexpr u32 kX3DVolReverbMatrix = 392;
-constexpr u32 kX3DVolReverbFlag = 420;
 constexpr u32 kX3DVolReverbManaged = 1;
-constexpr u32 kX3DVolChannels = 6;
+
+// The game's X3DVOL wrapper around the X3DAudio emitter and listener. The
+// matrix is the per-channel reverb send row X3DVOL::SetX3DVol fills when the
+// flag says the send is managed.
+struct X3DVol_t {
+  /* 0x000 */ u8 _pad000[0x188];
+  /* 0x188 */ be_f32 reverbMatrix[6];
+  /* 0x1A0 */ u8 _pad1A0[0x1A4 - 0x1A0];
+  /* 0x1A4 */ be_u32 reverbFlag;
+};
+static_assert(offsetof(X3DVol_t, reverbMatrix) == 0x188);
+static_assert(offsetof(X3DVol_t, reverbFlag) == 0x1A4);
 
 constexpr u32 kFrameFormat = 0x0C;
 constexpr u32 kFrameSamplePtr = 0x14;
@@ -36,11 +47,11 @@ f32 g_limitGain = 1.0f;
 u32 g_badFrames = 0;
 
 void ClearUnmanagedReverbSend(u32 x3dVol) {
-  if (!x3dVol ||
-      mem::try_load<u32>(x3dVol + kX3DVolReverbFlag) == kX3DVolReverbManaged)
+  auto *vol = mem::try_at<X3DVol_t>(x3dVol);
+  if (!vol || u32(vol->reverbFlag) == kX3DVolReverbManaged)
     return;
-  for (u32 c = 0; c < kX3DVolChannels; ++c)
-    mem::try_store<f32>(x3dVol + kX3DVolReverbMatrix + c * sizeof(f32), 0.0f);
+  for (be_f32 &send : vol->reverbMatrix)
+    send = 0.0f;
 }
 
 f32 FramePeak(u32 samplesVA, u32 channels) {
@@ -76,7 +87,7 @@ void ApplyGainRamp(u32 samplesVA, u32 channels, f32 from, f32 to) {
   }
 }
 
-bool MuteWanted() { return !bd::platform::Keyboard().WindowFocused(); }
+bool MuteWanted() { return !bd::platform::HID().IsFocused(); }
 
 void GuardOutputFrame(u32 frameVA) {
   if (!frameVA)
@@ -119,15 +130,13 @@ void GuardOutputFrame(u32 frameVA) {
 } // namespace
 } // namespace bd::audio
 
-REX_EXTERN(__imp__X3DVOL_SetX3DVol);
-REX_HOOK_RAW(X3DVOL_SetX3DVol) {
-  const u32 x3dVol = ctx.r3.u32;
-  __imp__X3DVOL_SetX3DVol(ctx, base);
+REX_DETOUR(X3DVOL_SetX3DVol, u32, (u32 x3dVol)) {
+  const u32 result = original(x3dVol);
   bd::audio::ClearUnmanagedReverbSend(x3dVol);
+  return result;
 }
 
-REX_EXTERN(__imp__CXenonRenderer_Process);
-REX_HOOK_RAW(CXenonRenderer_Process) {
-  bd::audio::GuardOutputFrame(ctx.r4.u32);
-  __imp__CXenonRenderer_Process(ctx, base);
+REX_DETOUR(CXenonRenderer_Process, void, (u32 self, u32 frame)) {
+  bd::audio::GuardOutputFrame(frame);
+  original(self, frame);
 }

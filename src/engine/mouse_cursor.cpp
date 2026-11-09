@@ -10,6 +10,7 @@
 
 #include <rex/hook.h>
 #include <rex/types.h>
+#include <rex/ppc/midasm.h>
 
 #include "engine/d2anime/anime_hittest.h"
 #include "engine/d2anime/anime_mouse.h"
@@ -167,9 +168,10 @@ void MouseCursorTick() {
 
   // The arrow only goes away once there is something to replace it with, so a
   // texlist that never resolves leaves the pointer usable rather than invisible.
-  platform::Mouse().SetGameCursorActive(wanted && ready);
+  platform::SetGameCursorActive(wanted && ready);
 }
 
 } // namespace bd::engine
 
-void bdMouseCursorDrawHook() { bd::engine::DrawMouseCursor(); }
+REX_MIDASM_HOOK(bdMouseCursorDrawHook, ()) { bd::engine::DrawMouseCursor(); }
+REX_MIDASM_AT(bdMouseCursorDrawHook, 0x82134140, after);

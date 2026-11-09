@@ -7,9 +7,7 @@
  */
 #include "core/xcontent.h"
 
-#include <rex/filesystem.h>
-#include <rex/filesystem/entry.h>
-#include <rex/filesystem/file.h>
+#include <rex/filesystem/container.h>
 
 #include <algorithm>
 #include <fstream>
@@ -25,45 +23,40 @@ namespace {
 constexpr size_t kChunkSize = 1 << 20;
 
 template <typename Sink>
-bool ReadChunks(rex::filesystem::Entry &entry, Sink &&sink) {
-  rex::filesystem::File *file = nullptr;
-  if (entry.Open(rex::filesystem::FileAccess::kFileReadData, &file) != 0 ||
-      !file) {
-    BD_ERROR("[xcontent] cannot open entry: {}", entry.path());
-    return false;
-  }
+bool ReadChunks(const rex::filesystem::Container &container,
+                const rex::filesystem::ContainerNode &node, Sink &&sink) {
   std::vector<u8> buffer(
-      std::min(kChunkSize, std::max<size_t>(entry.size(), 1)));
-  size_t remaining = entry.size();
-  size_t offset = 0;
-  bool ok = true;
-  while (remaining > 0) {
-    size_t bytes_read = 0;
-    const size_t to_read = std::min(remaining, buffer.size());
-    file->ReadSync(std::span<u8>(buffer.data(), to_read), offset, &bytes_read);
-    if (bytes_read != to_read || !sink(buffer.data(), bytes_read)) {
-      ok = false;
-      break;
+      std::min(kChunkSize, std::max<size_t>(node.info.size, 1)));
+  u64 offset = 0;
+  while (offset < node.info.size) {
+    const size_t to_read =
+        static_cast<size_t>(std::min<u64>(node.info.size - offset, buffer.size()));
+    auto read = container.Read(node, offset,
+                               std::span<u8>(buffer.data(), to_read));
+    if (!read || *read != to_read) {
+      REXLOG_ERROR(bd, "xcontent cannot read entry: {}", container.PathOf(node));
+      return false;
     }
-    offset += bytes_read;
-    remaining -= bytes_read;
+    if (!sink(buffer.data(), *read))
+      return false;
+    offset += *read;
   }
-  file->Destroy();
-  return ok;
+  return true;
 }
 
 } // namespace
 
-bool CopyEntry(rex::filesystem::Entry &entry,
+bool CopyEntry(const rex::filesystem::Container &container,
+               const rex::filesystem::ContainerNode &node,
                const std::filesystem::path &dest) {
   std::error_code ec;
   std::filesystem::create_directories(dest.parent_path(), ec);
   std::ofstream out(dest, std::ios::binary | std::ios::trunc);
   if (!out) {
-    BD_ERROR("[xcontent] cannot write: {}", dest.string());
+    REXLOG_ERROR(bd, "xcontent cannot write: {}", dest.string());
     return false;
   }
-  const bool ok = ReadChunks(entry, [&](const u8 *data, size_t size) {
+  const bool ok = ReadChunks(container, node, [&](const u8 *data, size_t size) {
     out.write(reinterpret_cast<const char *>(data),
               static_cast<std::streamsize>(size));
     return static_cast<bool>(out);
@@ -72,14 +65,29 @@ bool CopyEntry(rex::filesystem::Entry &entry,
   return ok && out.good();
 }
 
-std::string ReadEntry(rex::filesystem::Entry &entry) {
+std::string ReadEntry(const rex::filesystem::Container &container,
+                      const rex::filesystem::ContainerNode &node) {
   std::string text;
-  text.reserve(entry.size());
-  const bool ok = ReadChunks(entry, [&](const u8 *data, size_t size) {
+  text.reserve(node.info.size);
+  const bool ok = ReadChunks(container, node, [&](const u8 *data, size_t size) {
     text.append(reinterpret_cast<const char *>(data), size);
     return true;
   });
   return ok ? text : std::string();
+}
+
+const rex::filesystem::ContainerNode *
+FindEntry(const rex::filesystem::Container &container,
+          const rex::filesystem::ContainerNode &root, std::string_view path) {
+  const std::string prefix = container.PathOf(root);
+  if (prefix.empty())
+    return container.Find(path);
+  return container.Find(prefix + "\\" + std::string(path));
+}
+
+bool IsDirectory(const rex::filesystem::ContainerNode &node) {
+  return rex::HasFlags(node.info.attributes,
+                       rex::filesystem::FileAttributes::kDirectory);
 }
 
 } // namespace bd

@@ -74,7 +74,7 @@ void MergeTOML(std::string_view text, std::string_view origin, Catalog &out) {
   try {
     Flatten(toml::parse(text), "", out);
   } catch (const toml::parse_error &e) {
-    BD_WARN("[i18n] {} parse error: {}", origin, e.description());
+    REXLOG_WARN(bd, "i18n {} parse error: {}", origin, e.description());
   }
 }
 
@@ -86,7 +86,7 @@ bool MergeFile(const std::filesystem::path &path, Catalog &out) {
     Flatten(toml::parse_file(path.string()), "", out);
     return true;
   } catch (const toml::parse_error &e) {
-    BD_WARN("[i18n] {} parse error: {}", path.string(), e.description());
+    REXLOG_WARN(bd, "i18n {} parse error: {}", path.string(), e.description());
     return false;
   }
 }
@@ -111,7 +111,7 @@ void Reload() {
 
   const auto delivered = vfs::VFS::Get().Content().Find("localization.toml");
   if (MergeFile(delivered, g_catalog)) {
-    BD_INFO("[i18n] catalog from {}", delivered.string());
+    REXLOG_INFO(bd, "i18n catalog from {}", delivered.string());
   } else {
     constexpr auto kCatalog = bd::Embedded("localization.toml");
     MergeTOML(kCatalog.text(), "localization.toml", g_catalog);
@@ -173,7 +173,7 @@ void SetLocale(u32 locale) {
     Reload();
     callbacks = g_callbacks;
   }
-  BD_INFO("[i18n] locale {} ({})", engine::Locale(locale).Code(),
+  REXLOG_INFO(bd, "i18n locale {} ({})", engine::Locale(locale).Code(),
           engine::Locale(locale).Name());
   for (auto &cb : callbacks)
     cb();
@@ -219,8 +219,8 @@ std::string Bytes(u64 bytes) {
   constexpr double kMiB = 1024.0 * 1024.0;
   const double b = static_cast<double>(bytes);
   if (b >= kGiB)
-    return fmt::format("{:.2f} GiB", b / kGiB);
-  return fmt::format("{:.1f} MiB", b / kMiB);
+    return std::format("{:.2f} GiB", b / kGiB);
+  return std::format("{:.1f} MiB", b / kMiB);
 }
 
 const std::string &Text(std::string_view key) {
@@ -240,7 +240,7 @@ const std::string &Text(std::string_view key) {
 
   const bool first = !g_markers.contains(key);
   if (first)
-    BD_WARN("[i18n] missing key: {}", key);
+    REXLOG_WARN(bd, "i18n missing key: {}", key);
   return KeyMarker(key);
 }
 

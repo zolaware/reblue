@@ -38,4 +38,4 @@ target_include_directories(reblue_thirdparty PUBLIC
     zstd
     XenosRecomp/thirdparty/smol-v/source)
 target_compile_options(reblue_thirdparty PRIVATE -w)
-target_link_libraries(reblue_thirdparty PRIVATE rex::runtime)
+target_link_libraries(reblue_thirdparty PRIVATE rex::sdk)

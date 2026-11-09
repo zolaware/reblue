@@ -10,6 +10,7 @@
  */
 #include "core/memory_helpers.h"
 #include "engine/d2anime/d2anime_task.h"
+#include "engine/free_dfs_task.h"
 #include "engine/loader.h"
 #include "gpu/gpu.h"
 
@@ -17,6 +18,7 @@
 
 #include <rex/ppc.h>
 #include <rex/types.h>
+#include <rex/ppc/midasm.h>
 
 // The 2D layer is scaled about the canvas center to fit a render rect of
 // another ratio, which floats a corner element inward by the width of the
@@ -30,25 +32,6 @@ void AnchorBottomRight(PPCRegister &x, PPCRegister &y) {
   x.f64 += bd::gpu::Output::DesignOverscanX();
   y.f64 += bd::gpu::Output::DesignOverscanY();
 }
-
-struct BdPrim2DVertex {
-  be_f32 x;
-  be_f32 y;
-  be_f32 u;
-  be_f32 v;
-  be_u32 color;
-};
-static_assert(sizeof(BdPrim2DVertex) == 0x14);
-static_assert(offsetof(BdPrim2DVertex, u) == 0x08);
-static_assert(offsetof(BdPrim2DVertex, color) == 0x10);
-
-// FreeDfsTask's close-up view holds the window as four points, read by the loop
-// that copies them into the camera view and by the one that miters the frame.
-constexpr u32 kCloseUpView_Outline = 0x1E8;
-
-struct CloseUpOutline {
-  BdPrim2DVertex points[4];
-};
 
 // Extreme points per axis, uv included: a bounding box would not do, since uv
 // can run either way against position and the pairing is what says which.
@@ -71,9 +54,10 @@ void Widen(OutlineAxis &a, float pos, float uv) {
 }
 
 bool ReadOutline(u32 view, Outline &out) {
-  const auto *o = bd::mem::at<const CloseUpOutline>(view + kCloseUpView_Outline);
-  if (!o)
+  const auto *task = bd::mem::at<const bd::engine::FreeDfsTask_t>(view);
+  if (!task)
     return false;
+  const bd::engine::CloseUpOutline *o = &task->outline;
   const auto &first = o->points[0];
   out.x.near_pos = out.x.far_pos = first.x;
   out.x.near_uv = out.x.far_uv = first.u;
@@ -133,36 +117,36 @@ constexpr double kNowLoadingY = 580.0;
 // about their shared center, dial from its top-left corner. All three move by
 // the same amount, so they stay one piece. f1/f2 are the copy already staged
 // for the first draw, f28/f29 the pair the second reads.
-void bdCompassNeedleAnchorHook(PPCRegister &f1, PPCRegister &f2,
-                               PPCRegister &f28, PPCRegister &f29) {
+REX_MIDASM_HOOK(bdCompassNeedleAnchorHook, (PPCRegister &f1, PPCRegister &f2, PPCRegister &f28, PPCRegister &f29)) {
   AnchorBottomRight(f1, f2);
   AnchorBottomRight(f28, f29);
 }
+REX_MIDASM_AT(bdCompassNeedleAnchorHook, 0x8239CCD0, after, f1, f2, f28, f29);
 
-void bdCompassDialAnchorHook(PPCRegister &f1, PPCRegister &f2) {
+REX_MIDASM_HOOK(bdCompassDialAnchorHook, (PPCRegister &f1, PPCRegister &f2)) {
   AnchorBottomRight(f1, f2);
 }
+REX_MIDASM_AT(bdCompassDialAnchorHook, 0x8239CD34, after, f1, f2);
 
 // The dungeon minimap, a second widget in the same corner: disc, frame and
 // markers all placed off one center. f25/f26 hold it for the whole draw, f1/f2
 // are the copy already staged for the first call.
-void bdMiniMapAnchorHook(PPCRegister &f1, PPCRegister &f2, PPCRegister &f25,
-                         PPCRegister &f26) {
+REX_MIDASM_HOOK(bdMiniMapAnchorHook, (PPCRegister &f1, PPCRegister &f2, PPCRegister &f25, PPCRegister &f26)) {
   AnchorBottomRight(f1, f2);
   AnchorBottomRight(f25, f26);
 }
+REX_MIDASM_AT(bdMiniMapAnchorHook, 0x8239B098, after, f1, f2, f25, f26);
 
 // The map layer under that frame is pushed by a helper that ignores the center
 // it is handed and rebuilds it from constants of its own, in f29 and f30.
-void bdMiniMapLayerAnchorHook(PPCRegister &f29, PPCRegister &f30) {
+REX_MIDASM_HOOK(bdMiniMapLayerAnchorHook, (PPCRegister &f29, PPCRegister &f30)) {
   AnchorBottomRight(f29, f30);
 }
+REX_MIDASM_AT(bdMiniMapLayerAnchorHook, 0x82149668, after, f29, f30);
 
 // The composite quad the camera view draws the close-up through. Both loops
 // rebuild from the outline rather than editing in place, so nothing compounds.
-void bdCloseUpQuadAnchorHook(PPCRegister &r3, PPCRegister &f11,
-                             PPCRegister &f12, PPCRegister &f13,
-                             PPCRegister &f0) {
+REX_MIDASM_HOOK(bdCloseUpQuadAnchorHook, (PPCRegister &r3, PPCRegister &f11, PPCRegister &f12, PPCRegister &f13, PPCRegister &f0)) {
   Outline outline;
   if (!ReadOutline(r3.u32, outline))
     return;
@@ -173,33 +157,36 @@ void bdCloseUpQuadAnchorHook(PPCRegister &r3, PPCRegister &f11,
   CropAxis(outline.x, bd::gpu::kDesignCanvasWidth, f11.f64, f13.f64);
   CropAxis(outline.y, bd::gpu::kDesignCanvasHeight, f12.f64, f0.f64);
 }
+REX_MIDASM_AT(bdCloseUpQuadAnchorHook, 0x8228BE64, after, r3, f11, f12, f13, f0);
 
 // The window's border, which the cinematic does not draw.
-void bdCloseUpFrameAnchorHook(PPCRegister &r31, PPCRegister &f0,
-                              PPCRegister &f13) {
+REX_MIDASM_HOOK(bdCloseUpFrameAnchorHook, (PPCRegister &r31, PPCRegister &f0, PPCRegister &f13)) {
   Outline outline;
   if (!ReadOutline(r31.u32, outline) || !IsWindowed(outline))
     return;
   AnchorOutwards(outline, f0, f13);
 }
+REX_MIDASM_AT(bdCloseUpFrameAnchorHook, 0x8228B908, after, r31, f0, f13);
 
 // The party cards along the canvas' bottom edge. The row of panels is a d2anime
 // whose pos.y is driven from the placement its mode setter pulls out of the bag,
 // so moving the two ends of the slide and the base they are laid out from
 // carries the whole row down together.
-void bdPartyPanelSlideAnchorHook(PPCRegister &f30, PPCRegister &f31) {
+REX_MIDASM_HOOK(bdPartyPanelSlideAnchorHook, (PPCRegister &f30, PPCRegister &f31)) {
   const double over_y = bd::gpu::Output::DesignOverscanY();
   f30.f64 += over_y;
   f31.f64 += over_y;
 }
+REX_MIDASM_AT(bdPartyPanelSlideAnchorHook, 0x8237180C, after, f30, f31);
 
-void bdPartyPanelBaseAnchorHook(PPCRegister &f13) {
+REX_MIDASM_HOOK(bdPartyPanelBaseAnchorHook, (PPCRegister &f13)) {
   f13.f64 += bd::gpu::Output::DesignOverscanY();
 }
+REX_MIDASM_AT(bdPartyPanelBaseAnchorHook, 0x82371824, after, f13);
 
 // The now-loading wheel belongs in the screen's bottom-left corner, not the
 // canvas'.
-void bdNowLoadingAnchorHook(PPCRegister &r31) {
+REX_MIDASM_HOOK(bdNowLoadingAnchorHook, (PPCRegister &r31)) {
   const float over_x = bd::gpu::Output::DesignOverscanX();
   const float over_y = bd::gpu::Output::DesignOverscanY();
   if (over_x == 0.0f && over_y == 0.0f)
@@ -211,12 +198,15 @@ void bdNowLoadingAnchorHook(PPCRegister &r31) {
   bag.SetFloat("pos.x", kNowLoadingX - over_x);
   bag.SetFloat("pos.y", kNowLoadingY + over_y);
 }
+REX_MIDASM_AT(bdNowLoadingAnchorHook, 0x821296A8, before, r31);
 
-void bdFieldEncounterMenuAnchorHook(PPCRegister &f30) {
+REX_MIDASM_HOOK(bdFieldEncounterMenuAnchorHook, (PPCRegister &f30)) {
   f30.f64 += bd::gpu::Output::DesignOverscanX();
 }
+REX_MIDASM_AT(bdFieldEncounterMenuAnchorHook, 0x821F9FA4, after, f30);
 
-void bdFieldEncounterPanelAnchorHook(PPCRegister &f1) {
+REX_MIDASM_HOOK(bdFieldEncounterPanelAnchorHook, (PPCRegister &f1)) {
   constexpr double mid = bd::gpu::kDesignCanvasWidth * 0.5;
   f1.f64 = mid + (f1.f64 - mid) * bd::gpu::Output::DesignScaleX();
 }
+REX_MIDASM_AT(bdFieldEncounterPanelAnchorHook, 0x821F9FD8, after, f1);

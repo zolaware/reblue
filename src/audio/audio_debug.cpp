@@ -14,8 +14,8 @@
 #include <unordered_map>
 
 #include <rex/hook.h>
-#include <rex/logging/api.h>
 #include <rex/ppc.h>
+#include <rex/ppc/detour.h>
 #include <rex/types.h>
 
 namespace bd::audio {
@@ -51,30 +51,23 @@ void ApplyAudioDebugPokes() {
 // bdSoundBankPlayCue(bank, cueIndex, mode, param, cb) -> cue handle (0 = fail,
 // otherwise the cue slot's serial). Cue names appear in the on-screen cue
 // monitor, and this log provides the timeline.
-//
-// Raw, on the inherited context: a typed REX_IMPORT re-roots the guest stack
-// at ThreadState's r1 and overwrites the frames live underneath it.
-REX_EXTERN(__imp__bdSoundBankPlayCue);
-REX_HOOK_RAW(bdSoundBankPlayCue) {
-  const u32 bank = ctx.r3.u32;
-  const u32 cue_index = ctx.r4.u32 & 0xFFFF;
-  const u32 mode = ctx.r5.u32;
-  __imp__bdSoundBankPlayCue(ctx, base);
+REX_DETOUR(bdSoundBankPlayCue, u32,
+           (u32 bank, u32 cueIndex, u32 mode, u32 param, u32 callback)) {
+  const u32 cue_index = cueIndex & 0xFFFF;
+  const u32 handle = original(bank, cueIndex, mode, param, callback);
   if (bd::audio::Settings::Get().Log())
-    BD_INFO("PlayCue bank={:08X} idx={} mode={} handle={:08X}", bank, cue_index,
-            mode, ctx.r3.u32);
+    REXLOG_INFO(bd, "PlayCue bank={:08X} idx={} mode={} handle={:08X}", bank, cue_index,
+            mode, handle);
+  return handle;
 }
 
 // XAUDIO::CSourceStream::SetFrequencyScale(this, float). Pitch ratio actually
 // applied to a voice. Classifies whine as authored/RPC pitch vs decode
 // artifact.
-REX_EXTERN(__imp__CSourceStream_SetFrequencyScale);
-REX_HOOK_RAW(CSourceStream_SetFrequencyScale) {
-  const u32 self = ctx.r3.u32;
-  const float scale = static_cast<float>(ctx.f1.f64);
-  __imp__CSourceStream_SetFrequencyScale(ctx, base);
+REX_DETOUR(CSourceStream_SetFrequencyScale, u32, (u32 self, f32 scale)) {
+  const u32 result = original(self, scale);
   if (!bd::audio::Settings::Get().Log())
-    return;
+    return result;
 
   // Voices hold a steady ratio for long stretches, so log only the transitions.
   static std::mutex m;
@@ -82,8 +75,9 @@ REX_HOOK_RAW(CSourceStream_SetFrequencyScale) {
   std::lock_guard lk(m);
   auto [it, inserted] = last.try_emplace(self, scale);
   if (!inserted && it->second == scale)
-    return;
+    return result;
   it->second = scale;
   if (scale != 1.0f)
-    BD_INFO("FreqScale voice={:08X} scale={:.5f}", self, scale);
+    REXLOG_INFO(bd, "FreqScale voice={:08X} scale={:.5f}", self, scale);
+  return result;
 }

@@ -17,7 +17,7 @@
 struct ImGuiIO;
 
 namespace rex::ui {
-class ImGuiDrawer;
+struct OverlayContext;
 } // namespace rex::ui
 
 namespace bd::ui {
@@ -51,7 +51,7 @@ private:
 
 class FadeOverlay final : public rex::ui::ImGuiDialog {
 public:
-  explicit FadeOverlay(rex::ui::ImGuiDrawer *drawer);
+  explicit FadeOverlay(const rex::ui::OverlayContext &context);
   ~FadeOverlay();
 
 protected:

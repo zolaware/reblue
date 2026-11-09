@@ -17,6 +17,7 @@
 #include <rex/ppc.h>
 #include <rex/types.h>
 #include <rex/ui/ui_event.h>
+#include <rex/ppc/midasm.h>
 
 namespace bd::engine {
 
@@ -41,7 +42,7 @@ constexpr ArrowBands kMechatRow = {393.0f, 420.0f, 720.0f, 747.0f};
 bool CountArrowClicked(const ShopMainTask &shop) {
   if (!MenuMouse::Get().PointerActive())
     return false;
-  if (!platform::Mouse().IsButtonDown(rex::ui::MouseEvent::Button::kLeft))
+  if (!platform::HID().IsButtonDown(rex::hid::MouseButton::kLeft))
     return false;
 
   AnimeMenu menu = shop.StateMenu();
@@ -70,8 +71,10 @@ bool CountArrowClicked(const ShopMainTask &shop) {
 
 // The list states poll confirm before the menu's own left and right, so a click
 // on an arrow is a purchase unless the confirm it also is gets dropped here.
-void bdShopListConfirmHook(PPCRegister &r3, PPCRegister &shop) {
+REX_MIDASM_HOOK(bdShopListConfirmHook, (PPCRegister &r3, PPCRegister &shop)) {
   if (r3.u32 &&
       bd::engine::CountArrowClicked(bd::engine::ShopMainTask(shop.u32)))
     r3.u64 = 0;
 }
+REX_MIDASM_AT(bdShopListConfirmHook, 0x821CA264, before, r3, r31);
+REX_MIDASM_AT(bdShopListConfirmHook, 0x821CA81C, before, r3, r30);

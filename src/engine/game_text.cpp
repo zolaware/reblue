@@ -6,7 +6,6 @@
  */
 #include "engine/game_text.h"
 
-#include "core/encoding.h"
 #include "core/i18n.h"
 #include "core/logging.h"
 #include "engine/language.h"
@@ -17,6 +16,9 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+
+#include <rex/memory/byte_swap.h>
+#include <rex/string/utf8.h>
 
 namespace bd::engine {
 namespace {
@@ -88,15 +90,14 @@ std::vector<std::string> SplitRow(std::string_view line) {
 }
 
 Table Parse(const std::vector<u8> &bytes, bool flat) {
-  std::u16string wide;
-  wide.reserve(bytes.size() / 2);
-  for (size_t i = 0; i + 1 < bytes.size(); i += 2)
-    wide.push_back(static_cast<char16_t>((bytes[i] << 8) | bytes[i + 1]));
+  std::u16string wide(bytes.size() / 2, u'\0');
+  rex::memory::copy_and_swap(wide.data(), reinterpret_cast<const char16_t *>(bytes.data()),
+                             wide.size());
   if (!wide.empty() && wide.front() == 0xFEFF)
     wide.erase(0, 1);
 
   Table table;
-  const std::string text = bd::U16ToUtf8(wide);
+  const std::string text = rex::ToUTF8(wide);
   size_t pos = 0;
   while (pos <= text.size()) {
     size_t end = text.find('\n', pos);
@@ -142,10 +143,10 @@ const Table *GetOrLoadTable(const Source &src, const char *code) {
 
   Table &slot = g_tables.emplace(id, std::move(loaded)).first->second;
   if (slot.empty()) {
-    BD_WARN("[i18n] no borrowable terms in {}", id);
+    REXLOG_WARN(bd, "i18n no borrowable terms in {}", id);
     return nullptr;
   }
-  BD_INFO("[i18n] borrowed {} terms from {}", slot.size(), id);
+  REXLOG_INFO(bd, "i18n borrowed {} terms from {}", slot.size(), id);
   return &slot;
 }
 

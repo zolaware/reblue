@@ -16,14 +16,15 @@
 #include <string>
 
 #include <rex/hook.h>
-#include <rex/memory/utils.h>
 #include <rex/ppc.h>
+#include <rex/ppc/detour.h>
 #include <rex/runtime.h>
 #include <rex/types.h>
 
 #include "core/logging.h"
 #include "core/memory_helpers.h"
-#include "core/shutdown.h"
+#include <rex/app.h>
+#include <rex/ppc/midasm.h>
 #include "platform/platform.h"
 #include "vfs/access_log.h"
 #include "vfs/file_system.h"
@@ -32,7 +33,8 @@
 // bdGetDiscForStage(a1): a1=0 used as a bool (non-zero requests disc change),
 // a1=1 compared against current disc / stored as save metadata. Return 0 for
 // a1=0 (no GameDiscChange) and 1 for a1=1 (saves show "Disc 1").
-bool bdSkipDiscNumberStore() { return true; }
+REX_MIDASM_BRANCH(bdSkipDiscNumberStore, ()) { return true; }
+REX_MIDASM_AT(bdSkipDiscNumberStore, 0x820CEAA8, before, 0x820CEAAC);
 
 u32 bdGetDiscForStage_hook(u32 a1) { return (a1 == 0) ? 0 : 1; }
 
@@ -137,7 +139,7 @@ void AllocateChannelScratch(u32 channel) {
   const u32 buf = guest_bdFilePhysicalMallocRead(1, kIoScratchSize);
   const u32 idx = ch->index;
   if (!buf) {
-    BD_ERROR("[disc] IO channel {} scratch alloc failed, compressed reads "
+    REXLOG_ERROR(bd, "disc IO channel {} scratch alloc failed, compressed reads "
              "on this channel would hang",
              idx);
     return;
@@ -150,25 +152,21 @@ void AllocateChannelScratch(u32 channel) {
 
 // bdIOThreadReadFile (worker channel, IO op). Returns 0 on
 // file-not-found or read error, 1 on success.
-//
-// Raw, on the inherited context: a typed REX_IMPORT re-roots the guest stack
-// at ThreadState's r1 and overwrites the frames live underneath it.
-REX_EXTERN(__imp__bdIOThreadReadFile);
-REX_HOOK_RAW(bdIOThreadReadFile) {
-  const u32 op = ctx.r4.u32;
-  AllocateChannelScratch(ctx.r3.u32);
+REX_DETOUR(bdIOThreadReadFile, u32, (u32 channel, u32 op)) {
+  AllocateChannelScratch(channel);
 
-  __imp__bdIOThreadReadFile(ctx, base);
-  if (ctx.r3.u32 || !op)
-    return;
+  const u32 result = original(channel, op);
+  if (result || !op)
+    return result;
 
   std::string path = OpPath(op);
   {
     std::lock_guard lock(g_failedFileMutex);
     g_lastFailedFile = path;
   }
-  BD_ERROR("[disc] file read failed: '{}' ({})", path,
+  REXLOG_ERROR(bd, "disc file read failed: '{}' ({})", path,
            bd::platform::ResourceUse());
+  return result;
 }
 
 // A request of total size 0 reaches ReadFile with r5 = 0 (0-byte files ship on
@@ -179,44 +177,41 @@ REX_HOOK_RAW(bdIOThreadReadFile) {
 // Only safe when the request TOTAL is 0. A chunk clamped to a zero scratch size
 // also arrives with r5 = 0 and would spin on that jump, but
 // AllocateChannelScratch above kills it at the source.
-bool bdZeroLengthReadGuard(PPCRegister &r5, PPCRegister &r31) {
+REX_MIDASM_BRANCH(bdZeroLengthReadGuard, (PPCRegister &r5, PPCRegister &r31)) {
   if (r5.u32 != 0)
     return false;
   static std::atomic<bool> logged{false};
   if (!logged.exchange(true))
-    BD_WARN("[disc] zero-length read guarded (recovering): '{}'",
+    REXLOG_WARN(bd, "disc zero-length read guarded (recovering): '{}'",
             OpPath(r31.u32));
   return true;
 }
+REX_MIDASM_AT(bdZeroLengthReadGuard, 0x82271AE0, before, 0x82271AEC, r5, r31);
 
 // bdFileOpenReadSync returns 0 only when the path is in no registered pack and
 // opens as no file, the last point before bdIOThreadReadFile turns that into
 // the fatal handler above, so the Fallback tier belongs here.
-//
-// Raw, on the inherited context: a typed REX_IMPORT re-roots the guest stack
-// at ThreadState's r1 and overwrites the frames live underneath it.
-REX_EXTERN(__imp__bdFileOpenReadSync);
-REX_HOOK_RAW(bdFileOpenReadSync) {
-  auto *op = bd::mem::at<BdIoOp_t>(ctx.r3.u32);
+REX_DETOUR(bdFileOpenReadSync, u32, (u32 opAddr)) {
+  auto *op = bd::mem::at<BdIoOp_t>(opAddr);
 
-  __imp__bdFileOpenReadSync(ctx, base);
-  if (ctx.r3.u32)
-    return;
+  const u32 result = original(opAddr);
+  if (result)
+    return result;
 
   if (!op || !op->request)
-    return; // cancelled, nothing left to complete
+    return result; // cancelled, nothing left to complete
 
   const auto key = bd::vfs::Key::FromGuestPath(op->path).Localized();
   auto hit = bd::vfs::VFS::Get().Files().Read(key, bd::vfs::Tier::Fallback);
   if (!hit)
-    return;
+    return result;
 
   const u32 size = static_cast<u32>(hit->bytes.size());
   const u32 buffer = guest_bdFilePhysicalMallocRead(op->allocType, size);
   if (!buffer) {
-    BD_ERROR("[disc] no buffer for '{}' ({} bytes) from mount '{}'", key.str(),
+    REXLOG_ERROR(bd, "disc no buffer for '{}' ({} bytes) from mount '{}'", key.str(),
              size, hit->mount);
-    return;
+    return result;
   }
   std::memcpy(bd::mem::at<u8>(buffer), hit->bytes.data(), size);
 
@@ -231,7 +226,7 @@ REX_HOOK_RAW(bdFileOpenReadSync) {
   op->compressed = kIoNotCompressed;
 
   bd::vfs::VFS::Get().Log().Record(key.string(), bd::vfs::FileSource::Pack);
-  ctx.r3.u64 = 1;
+  return 1;
 }
 
 // bdFileErrorHandler, natively a black screen thread then
@@ -243,7 +238,7 @@ void bdFileErrorHandler_hook() {
     file = g_lastFailedFile;
   }
 
-  BD_ERROR("[disc] file-load fatal, failed file: '{}'",
+  REXLOG_ERROR(bd, "disc file-load fatal, failed file: '{}'",
            file.empty() ? "<unknown>" : file);
 
   std::string body =
@@ -254,7 +249,7 @@ void bdFileErrorHandler_hook() {
                 "\n\nYour installation may be incomplete or the data may be "
                 "corrupt.";
 
-  bd::platform::ShowFatalError("File Load Error", body);
-  bd::RequestShutdown(bd::ShutdownReason::Fatal, 1);
+  bd::platform::ShowFatal("File Load Error", body);
+  rex::RequestShutdown(1);
 }
 REX_HOOK(bdFileErrorHandler, bdFileErrorHandler_hook);

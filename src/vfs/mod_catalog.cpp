@@ -65,11 +65,11 @@ void MergeDbRows(const toml::table &tbl, const std::filesystem::path &toml_path,
         if (const auto row = element.value<std::string>())
           table.push_back(*row);
         else
-          BD_WARN("[mods] {} [db] '{}' holds a row that is not a string",
+          REXLOG_WARN(bd, "mods {} [db] '{}' holds a row that is not a string",
                   toml_path.string(), name.str());
       }
     } else {
-      BD_WARN("[mods] {} [db] '{}' is neither a row nor an array of rows",
+      REXLOG_WARN(bd, "mods {} [db] '{}' is neither a row nor an array of rows",
               toml_path.string(), name.str());
     }
   }
@@ -90,7 +90,7 @@ ModPackage MergeEntityDbRows(const std::filesystem::path &mod_dir,
     try {
       MergeDbRows(toml::parse_file(toml_path.string()), toml_path, pkg.db);
     } catch (const toml::parse_error &e) {
-      BD_WARN("[mods] failed to parse {}: {}", toml_path.string(), e.what());
+      REXLOG_WARN(bd, "mods failed to parse {}: {}", toml_path.string(), e.what());
     }
   }
   return pkg;
@@ -142,7 +142,7 @@ ModPackage ModCatalog::ParseTOML(const std::filesystem::path &mod_dir,
         pkg.image = img;
     }
   } catch (const toml::parse_error &e) {
-    BD_WARN("[mods] failed to parse {}: {}", toml_path.string(), e.what());
+    REXLOG_WARN(bd, "mods failed to parse {}: {}", toml_path.string(), e.what());
   }
 
   return MergeEntityDbRows(mod_dir, std::move(pkg));
@@ -206,14 +206,14 @@ void ModCatalog::Reload() {
   namespace fs = std::filesystem;
 
   if (!fs::is_directory(mods_root_)) {
-    BD_INFO("[mods] no mods/ directory at {}", mods_root_.string());
+    REXLOG_INFO(bd, "mods no mods/ directory at {}", mods_root_.string());
     UnmountMods();
     packages_.clear();
     return;
   }
 
   Discover();
-  BD_INFO("[mods] reloaded {} mod(s), {} override(s)", CountEnabled(packages_),
+  REXLOG_INFO(bd, "mods reloaded {} mod(s), {} override(s)", CountEnabled(packages_),
           MountMods());
 }
 
@@ -223,7 +223,7 @@ void ModCatalog::Flush() {
   std::filesystem::create_directories(order_path.parent_path(), ec);
   std::ofstream ofs(order_path, std::ios::trunc);
   if (!ofs) {
-    BD_ERROR("[mods] failed to write {}", order_path.string());
+    REXLOG_ERROR(bd, "mods failed to write {}", order_path.string());
     return;
   }
   size_t count = 0;
@@ -233,7 +233,7 @@ void ModCatalog::Flush() {
     ofs << pkg.folder << "\n";
     ++count;
   }
-  BD_INFO("[mods] saved mod_order.txt ({} entries)", count);
+  REXLOG_INFO(bd, "mods saved mod_order.txt ({} entries)", count);
 }
 
 const ModPackage &ModCatalog::At(size_t i) const {
@@ -260,7 +260,7 @@ void ModCatalog::SetEnabled(size_t i, bool on) {
   if (i >= packages_.size())
     return;
   packages_[i].enabled = on;
-  BD_INFO("[mods] {} mod '{}'", on ? "enabled" : "disabled",
+  REXLOG_INFO(bd, "mods {} mod '{}'", on ? "enabled" : "disabled",
           packages_[i].folder);
 }
 
@@ -288,7 +288,7 @@ void ModCatalog::Swap(size_t a, size_t b) {
 
 bool ModCatalog::Remove(size_t i) {
   if (i >= packages_.size()) {
-    BD_ERROR("[mods] Remove: index {} out of range", i);
+    REXLOG_ERROR(bd, "mods Remove: index {} out of range", i);
     return false;
   }
 
@@ -297,10 +297,10 @@ bool ModCatalog::Remove(size_t i) {
   std::error_code ec;
   std::filesystem::remove_all(mod_dir, ec);
   if (ec) {
-    BD_ERROR("[mods] failed to delete mod folder '{}': {}", mod_dir.string(),
+    REXLOG_ERROR(bd, "mods failed to delete mod folder '{}': {}", mod_dir.string(),
              ec.message());
   } else {
-    BD_INFO("[mods] deleted mod folder '{}'", mod_dir.string());
+    REXLOG_INFO(bd, "mods deleted mod folder '{}'", mod_dir.string());
   }
 
   packages_.erase(packages_.begin() + static_cast<ptrdiff_t>(i));
@@ -324,7 +324,7 @@ size_t ModCatalog::MountMods() {
 
     auto mod_dir = mods_root_ / pkg.folder;
     if (!std::filesystem::is_directory(mod_dir)) {
-      BD_WARN("[mods] mod folder not found: {}", pkg.folder);
+      REXLOG_WARN(bd, "mods mod folder not found: {}", pkg.folder);
       continue;
     }
 

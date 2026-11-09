@@ -85,7 +85,7 @@ void RebuildSwapChain(VideoState &s) {
   if (!s.swap_chain->resize() || !BuildFramebuffers(s) ||
       !BuildPresentSemaphores(s)) {
     if (s.swap_chain->getWidth() && s.swap_chain->getHeight())
-      BD_ERROR("Swap chain resize failed");
+      REXLOG_ERROR(bd, "Swap chain resize failed");
     return;
   }
   if (static_cast<AspectMode>(Settings::Get().AspectRatio()) ==
@@ -275,7 +275,7 @@ void Video::Present(GuestTexture *frontBuffer) {
     static std::atomic<u32> s_log{0};
     const u32 n = s_log.fetch_add(1, std::memory_order_relaxed);
     if (n < 5) {
-      BD_ERROR("Present #{} skipped: no drawable RT", n);
+      REXLOG_ERROR(bd, "Present #{} skipped: no drawable RT", n);
     }
     AbandonFrame(s, lock);
     return;
@@ -358,7 +358,7 @@ void Video::PresentOverlayFrame() {
     if (!s.swap_chain->resize() || !BuildFramebuffers(s) ||
         !BuildPresentSemaphores(s)) {
       if (s.swap_chain->getWidth() && s.swap_chain->getHeight())
-        BD_ERROR("Swap chain resize failed");
+        REXLOG_ERROR(bd, "Swap chain resize failed");
     }
   }
   if (s.framebuffers.empty())

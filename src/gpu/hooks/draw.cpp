@@ -16,7 +16,8 @@
 #include <mutex>
 #include <optional>
 
-#include <rex/graphics/xenos.h>
+#include <rex/memory.h>
+#include <rex/xenos/xenos.h>
 #include <rex/hook.h>
 #include <rex/runtime.h>
 #include <rex/types.h>
@@ -36,7 +37,7 @@
 
 namespace {
 
-namespace xe = rex::graphics::xenos;
+namespace xe = rex::xenos;
 
 struct DrawArgs {
   bool indexed = false;
@@ -69,7 +70,7 @@ plume::RenderPrimitiveTopology MapPrimitiveType(u32 prim) {
     // silently.
     static std::atomic<u32> s_warn{0};
     if (s_warn.fetch_add(1, std::memory_order_relaxed) < 4) {
-      BD_WARN("MapPrimitiveType: unmapped X360 primitive type {} drawn as "
+      REXLOG_WARN(bd, "MapPrimitiveType: unmapped X360 primitive type {} drawn as "
               "TRIANGLE_LIST - rect/unknown topology not implemented",
               prim);
     }
@@ -142,7 +143,7 @@ void DispatchDraw(u32 device_guest, u32 primitive_type, const char *name,
       static std::atomic<u32> s_no_ib{0};
       const u32 k = s_no_ib.fetch_add(1, std::memory_order_relaxed);
       if (k < 16) {
-        BD_WARN("[draw] indexed draw with no IB bound: #{} {} count={} "
+        REXLOG_WARN(bd, "draw indexed draw with no IB bound: #{} {} count={} "
                 "startI={} baseV={}",
                 k, name, args.vertexOrIndexCount, args.startIndex,
                 args.baseVertexIndex);
@@ -475,7 +476,7 @@ u32 D3DDevice_BeginVertices_hook(u32 device_guest, u32 primitiveType,
   if (size == 0 || size > 0xFFFFFFFFull)
     return 0;
 
-  auto *memory = REX_KERNEL_MEMORY();
+  auto *memory = bd::mem::memory();
   if (g_begin_vertices_scratch.capacity < size) {
     // Safe to free the old block here: EndVertices copies the bytes out
     // synchronously, so nothing references the previous scratch by now.
@@ -538,7 +539,7 @@ u32 D3DDevice_Resolve_hook(u32 /*device_guest*/, u32 Flags, u32 /*pSourceRect*/,
     static std::atomic<u32> s_miss{0};
     const u32 n = s_miss.fetch_add(1, std::memory_order_relaxed);
     if (n < 8) {
-      BD_WARN("D3DDevice_Resolve: destination guest VA 0x{:08X} not a "
+      REXLOG_WARN(bd, "D3DDevice_Resolve: destination guest VA 0x{:08X} not a "
               "host texture",
               pDestTexture);
     }
@@ -551,7 +552,7 @@ u32 D3DDevice_Resolve_hook(u32 /*device_guest*/, u32 Flags, u32 /*pSourceRect*/,
 
 u32 D3DDevice_BeginTiling_hook(u32 /*device_guest*/, u32 /*Flags*/,
                                u32 /*Count*/, u32 /*pTileRects*/,
-                               mapped_f32 pClearColor, f64 ClearZ,
+                               MappedF32 pClearColor, f64 ClearZ,
                                u32 /*z_gpr_slot*/, u32 ClearStencil) {
   u32 color_argb = 0;
   if (const be_f32 *color_vec = pClearColor) {
@@ -579,7 +580,7 @@ u32 D3DDevice_EndTiling_hook(u32 /*device_guest*/, u32 ResolveFlags,
     static std::atomic<u32> s_miss{0};
     const u32 n = s_miss.fetch_add(1, std::memory_order_relaxed);
     if (n < 8) {
-      BD_WARN("D3DDevice_EndTiling: destination guest VA 0x{:08X} not a "
+      REXLOG_WARN(bd, "D3DDevice_EndTiling: destination guest VA 0x{:08X} not a "
               "host texture",
               pDestTexture);
     }

@@ -1,10 +1,12 @@
 #pragma once
 
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
 
+#include <rex/cvar.h>
 #include <rex/types.h>
 
 #include "engine/input/actions.h"
@@ -54,6 +56,11 @@ public:
 
   void Init();
 
+  // Adds the bind.* cvars to the registry and watches them. The registry keeps
+  // the values a config file or the command line carried for them until then.
+  void Register(rex::cvar::ICvarRegistry &registry);
+  void Unregister(rex::cvar::ICvarRegistry &registry);
+
   void Migrate();
 
   const std::vector<Source> &Sources(Action action) const;
@@ -74,6 +81,11 @@ private:
   Bindings() = default;
 
   std::vector<Source> sources_[kActionCount];
+  std::string names_[kActionCount];
+  std::string descriptions_[kActionCount];
+  std::unique_ptr<rex::cvar::Var<std::string>> vars_[kActionCount];
+  std::vector<const rex::cvar::VarBase *> table_;
+  std::vector<rex::cvar::CallbackHandle> callbacks_;
   u32 generation_ = 0;
   bool migrated_ = false;
   std::vector<std::string> parseErrors_;

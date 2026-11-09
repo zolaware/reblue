@@ -20,9 +20,8 @@
 #include <thread>
 #include <vector>
 
+#include <rex/gpu/overlay.h>
 #include <rex/ui/imgui_dialog.h>
-#include <rex/ui/immediate_drawer.h>
-#include <rex/ui/windowed_app_context.h>
 
 #include "core/settings_model.h"
 #include "installer/boot_languages.h"
@@ -57,9 +56,6 @@ struct WizardChoices {
   bool reset_config = false;
 };
 
-// ImGuiDialog::Close() does 'delete this' and its destructor is not virtual.
-// Never call Close(), and own via unique_ptr<InstallerWizard> (the derived
-// type) so the members destruct.
 class InstallerWizard : public rex::ui::ImGuiDialog {
 public:
   // completed=true: install finished, cfg valid. completed=false: cancel/error.
@@ -70,9 +66,7 @@ public:
   // the files missing from it (see Installer::RunAsync). existing != nullptr in
   // repair mode: its disc fingerprints are reused so the user can finish
   // without re-selecting the DVDs.
-  InstallerWizard(rex::ui::ImGuiDrawer *drawer,
-                  rex::ui::ImmediateDrawer *immediate_drawer,
-                  rex::ui::WindowedAppContext &app_context,
+  InstallerWizard(rex::gpu::IOverlayDrawer *immediate_drawer,
                   const std::filesystem::path &default_install_dir, bool repair,
                   const InstallConfig *existing, CompletionCallback on_done);
   ~InstallerWizard();
@@ -116,8 +110,7 @@ private:
   void InitDLCCatalog();
   void PickAndInstallDLC();
 
-  rex::ui::WindowedAppContext &app_context_;
-  rex::ui::ImmediateDrawer *immediate_drawer_;
+  rex::gpu::IOverlayDrawer *immediate_drawer_;
   CompletionCallback on_done_;
   bool finished_ = false;
   bool repair_ = false; // existing install detected: verify + copy missing only
@@ -125,7 +118,7 @@ private:
   bool portable_allowed_ = false;
   std::filesystem::path picked_dir_;
 
-  std::unique_ptr<rex::ui::ImmediateTexture> background_texture_;
+  std::unique_ptr<rex::gpu::OverlayTexture> background_texture_;
   bool background_tried_ = false;
 
   Page page_ = Page::Content;

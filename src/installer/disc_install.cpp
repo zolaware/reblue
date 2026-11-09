@@ -7,11 +7,9 @@
  */
 #include "installer/disc_install.h"
 
-#include <rex/filesystem/device.h>
-#include <rex/filesystem/devices/disc_image_device.h>
-#include <rex/filesystem/devices/stfs_container_device.h>
-#include <rex/filesystem/entry.h>
-#include <rex/system/xcontent.h>
+#include <rex/filesystem/container.h>
+#include <rex/filesystem/xcontent_layout.h>
+#include <rex/runtime/xcontent_data.h>
 
 #include <array>
 #include <fstream>
@@ -41,31 +39,32 @@ std::string DiscMarker(int disc_number) {
 
 } // namespace
 
-bool ValidateDisc(rex::filesystem::Entry &root, int disc_number) {
-  return root.ResolvePath(DiscMarker(disc_number)) != nullptr;
+bool ValidateDisc(const rex::filesystem::Container &container,
+                  const rex::filesystem::ContainerNode &root, int disc_number) {
+  return FindEntry(container, root, DiscMarker(disc_number)) != nullptr;
 }
 
-std::string DiscFingerprint(size_t content_size, rex::filesystem::Entry &root,
+std::string DiscFingerprint(size_t content_size,
+                            const rex::filesystem::Container &container,
+                            const rex::filesystem::ContainerNode &root,
                             int disc_number) {
   size_t marker_size = 0;
-  if (auto *entry = root.ResolvePath(DiscMarker(disc_number)); entry != nullptr)
-    marker_size = entry->size();
+  if (const auto *entry = FindEntry(container, root, DiscMarker(disc_number));
+      entry != nullptr)
+    marker_size = entry->info.size;
   return std::to_string(content_size) + ":" + std::to_string(marker_size);
 }
 
-DiscImage::DiscImage(std::unique_ptr<rex::filesystem::Device> device,
-                     size_t content_size)
-    : device_(std::move(device)), content_size_(content_size) {
-  auto *root = device_->ResolvePath("");
-  if (!root)
-    return;
+DiscImage::DiscImage(rex::filesystem::Container container, size_t content_size)
+    : container_(std::move(container)), content_size_(content_size) {
+  const auto &root = container_.GetRoot();
   for (int n = 1; n <= kDiscCount; ++n) {
-    if (ValidateDisc(*root, n)) {
-      roots_[n - 1] = root;
+    if (ValidateDisc(container_, root, n)) {
+      roots_[n - 1] = &root;
       continue;
     }
-    auto *sub = root->ResolvePath("Disc" + std::to_string(n));
-    if (sub && ValidateDisc(*sub, n))
+    const auto *sub = container_.Find("Disc" + std::to_string(n));
+    if (sub && ValidateDisc(container_, *sub, n))
       roots_[n - 1] = sub;
   }
 }
@@ -77,24 +76,22 @@ std::unique_ptr<DiscImage> DiscImage::Open(const fs::path &file) {
   if (!fs::is_regular_file(file, ec))
     return nullptr;
 
-  auto disc = std::make_unique<rex::filesystem::DiscImageDevice>("", file);
-  if (disc->Initialize())
-    return std::make_unique<DiscImage>(std::move(disc),
+  auto container = rex::filesystem::Container::Open(file);
+  if (!container)
+    return nullptr;
+  if (container->GetKind() == rex::filesystem::ContainerKind::kGDFX)
+    return std::make_unique<DiscImage>(std::move(*container),
                                        fs::file_size(file, ec));
 
-  auto header = rex::filesystem::StfsContainerDevice::ReadPackageHeader(file);
-  if (!header || !header->header.is_magic_valid())
+  const auto *header = container->GetHeader();
+  if (!header)
     return nullptr;
-  if (static_cast<rex::system::XContentType>(header->metadata.content_type) !=
-          rex::system::XContentType::kGamesOnDemand ||
+  if (static_cast<rex::runtime::XContentType>(header->metadata.content_type) !=
+          rex::runtime::XContentType::kGamesOnDemand ||
       header->metadata.execution_info.title_id != kBlueDragonTitleId)
     return nullptr;
-  auto container =
-      std::make_unique<rex::filesystem::StfsContainerDevice>("", file);
-  if (!container->Initialize())
-    return nullptr;
   return std::make_unique<DiscImage>(
-      std::move(container),
+      std::move(*container),
       static_cast<size_t>(header->metadata.data_file_size));
 }
 
@@ -137,24 +134,35 @@ bool IsUnsafePath(const std::string &path) {
   return false;
 }
 
-void CollectDiscFiles(
-    rex::filesystem::Entry *dir, const std::string &prefix,
-    std::vector<std::pair<std::string, rex::filesystem::Entry *>> &out) {
-  for (const auto &child : dir->children()) {
-    std::string child_path = prefix + "/" + child->name();
-    if (child->attributes() & rex::filesystem::kFileAttributeDirectory) {
-      CollectDiscFiles(child.get(), child_path, out);
+struct DiscEntry {
+  const rex::filesystem::Container *container = nullptr;
+  const rex::filesystem::ContainerNode *node = nullptr;
+
+  explicit operator bool() const { return node != nullptr; }
+  DiscEntry Find(std::string_view path) const {
+    return {container, FindEntry(*container, *node, path)};
+  }
+};
+
+void CollectDiscFiles(const DiscEntry &dir, const std::string &prefix,
+                      std::vector<std::pair<std::string, DiscEntry>> &out) {
+  for (const u32 index : dir.node->children) {
+    const DiscEntry child{dir.container, &dir.container->GetNodes()[index]};
+    std::string child_path = prefix + "/" + child.node->info.name;
+    if (IsDirectory(*child.node)) {
+      CollectDiscFiles(child, child_path, out);
     } else {
-      out.emplace_back(std::move(child_path), child.get());
+      out.emplace_back(std::move(child_path), child);
     }
   }
 }
 
-bool ExtractOne(rex::filesystem::Entry *entry, const fs::path &dest_path,
+bool ExtractOne(const DiscEntry &entry, const fs::path &dest_path,
                 InstallProgress &progress) {
-  if (CopyEntry(*entry, dest_path))
+  if (CopyEntry(*entry.container, *entry.node, dest_path))
     return true;
-  progress.SetError(i18n::Fmt("installer.error.copy_failed", entry->path()));
+  progress.SetError(i18n::Fmt("installer.error.copy_failed",
+                              entry.container->PathOf(*entry.node)));
   progress.failed.store(true);
   return false;
 }
@@ -172,7 +180,7 @@ bool IsDamagedIPK(const std::string &relative_path, const fs::path &file) {
          std::string_view(magic, sizeof(magic)) != kIPKMagic;
 }
 
-using DiscRoots = std::array<rex::filesystem::Entry *, kDiscCount>;
+using DiscRoots = std::array<DiscEntry, kDiscCount>;
 
 bool OpenRoots(const std::array<fs::path, kDiscCount> &sources,
                std::map<fs::path, std::unique_ptr<DiscImage>> &images,
@@ -182,7 +190,7 @@ bool OpenRoots(const std::array<fs::path, kDiscCount> &sources,
     if (!image)
       image = DiscImage::Open(sources[i]);
     if (image)
-      roots[i] = image->Root(i + 1);
+      roots[i] = {&image->container(), image->Root(i + 1)};
     if (!roots[i]) {
       progress.SetError(i18n::Fmt("installer.error.open_source",
                                   sources[i].filename().string(), i + 1));
@@ -264,7 +272,7 @@ bool Wanted(const std::string &path, const Selected &selection) {
 
 struct PlanItem {
   std::string path;
-  rex::filesystem::Entry *entry;
+  DiscEntry entry;
   size_t size;
   bool needs_copy;
 };
@@ -278,22 +286,24 @@ struct InstallPlan {
   size_t hits_per_disc[kDiscCount] = {};
   std::set<std::string> seen_lang;
 
-  bool WillCopy(const std::string &path, rex::filesystem::Entry *entry) const {
+  bool WillCopy(const std::string &path, const DiscEntry &entry) const {
     if (!entry)
       return false;
     if (!skip_present)
       return true;
     std::error_code ec;
     const auto present = dest / fs::path(path);
-    if (!fs::exists(present, ec) || fs::file_size(present, ec) != entry->size())
+    if (!fs::exists(present, ec) ||
+        fs::file_size(present, ec) != entry.node->info.size)
       return true;
     return IsDamagedIPK(path, present);
   }
 
-  void Add(const std::string &path, rex::filesystem::Entry *entry, int disc,
+  void Add(const std::string &path, const DiscEntry &entry, int disc,
            bool force = false) {
-    const size_t size = entry ? entry->size() : 0;
-    const bool needs_copy = force ? entry != nullptr : WillCopy(path, entry);
+    const size_t size = entry ? static_cast<size_t>(entry.node->info.size) : 0;
+    const bool needs_copy = force ? static_cast<bool>(entry)
+                                  : WillCopy(path, entry);
     if (needs_copy)
       total_bytes += size;
     if (disc >= 0)
@@ -307,8 +317,8 @@ struct InstallPlan {
       if (IsUnsafePath(path) || !IsMovieRow(path))
         continue;
       for (int di = 0; di < kDiscCount; ++di) {
-        auto *e = roots[di]->ResolvePath(path);
-        if (e == nullptr)
+        const auto e = roots[di].Find(path);
+        if (!e)
           continue;
         Add(path, e, di, true);
         break;
@@ -322,11 +332,11 @@ struct InstallPlan {
     const std::string lang_dirs[] = {"snd_memory_" + lang,
                                      "snd_stream_" + lang};
     for (int di = 0; di < kDiscCount; ++di) {
-      auto *root = roots[di];
+      const auto &root = roots[di];
 
       if (text) {
-        if (auto *e = root->ResolvePath(packmem);
-            e != nullptr && seen_lang.insert(packmem).second) {
+        if (const auto e = root.Find(packmem);
+            e && seen_lang.insert(packmem).second) {
           Add(packmem, e, di);
         }
       }
@@ -335,12 +345,10 @@ struct InstallPlan {
         continue;
 
       for (const auto &dir_name : lang_dirs) {
-        auto *d = root->ResolvePath(dir_name);
-        if (d == nullptr ||
-            !(d->attributes() & rex::filesystem::kFileAttributeDirectory)) {
+        const auto d = root.Find(dir_name);
+        if (!d || !IsDirectory(*d.node))
           continue;
-        }
-        std::vector<std::pair<std::string, rex::filesystem::Entry *>> files;
+        std::vector<std::pair<std::string, DiscEntry>> files;
         CollectDiscFiles(d, dir_name, files);
         for (auto &[rel, entry] : files) {
           if (!seen_lang.insert(rel).second)
@@ -361,7 +369,7 @@ bool RunCopyLoop(const InstallPlan &plan, const fs::path &game_data_dest,
       break;
 
     if (!item.needs_copy) {
-      if (item.entry != nullptr)
+      if (item.entry)
         ++skipped;
       progress.files_done.fetch_add(1);
       continue;
@@ -374,7 +382,7 @@ bool RunCopyLoop(const InstallPlan &plan, const fs::path &game_data_dest,
       return false;
 
     if (IsDamagedIPK(item.path, dest_path)) {
-      BD_ERROR("Damaged archive on the install source: {}", item.path);
+      REXLOG_ERROR(bd, "Damaged archive on the install source: {}", item.path);
       progress.SetError(i18n::Fmt("installer.error.damaged_source", item.path));
       progress.failed.store(true);
       return false;
@@ -388,9 +396,11 @@ bool RunCopyLoop(const InstallPlan &plan, const fs::path &game_data_dest,
 }
 
 BootLanguages DiscUnion(const DiscRoots &roots) {
-  BootLanguages out = BootLanguages::FromDisc(*roots[0]);
+  BootLanguages out =
+      BootLanguages::FromDisc(*roots[0].container, *roots[0].node);
   for (int i = 1; i < kDiscCount; ++i) {
-    const BootLanguages other = BootLanguages::FromDisc(*roots[i]);
+    const BootLanguages other =
+        BootLanguages::FromDisc(*roots[i].container, *roots[i].node);
     out.Add(other, other.All());
   }
   return out;
@@ -401,7 +411,7 @@ bool FlushBootIni(const BootLanguages &langs, const fs::path &game_data_dest,
   const auto ini_path = game_data_dest / "bd_boot.ini";
   if (langs.Flush(ini_path))
     return true;
-  BD_ERROR("Failed to update '{}'", ini_path.string());
+  REXLOG_ERROR(bd, "Failed to update '{}'", ini_path.string());
   progress.SetError(i18n::Fmt("installer.error.boot_ini", ini_path.string()));
   progress.failed.store(true);
   return false;
@@ -430,8 +440,9 @@ Installer::RunAsync(const std::array<fs::path, kDiscCount> &sources,
     }
 
     std::set<std::string> available;
-    for (auto *root : roots) {
-      const std::set<std::string> langs = BootLanguages::FromDisc(*root).All();
+    for (const auto &root : roots) {
+      const std::set<std::string> langs =
+          BootLanguages::FromDisc(*root.container, *root.node).All();
       available.insert(langs.begin(), langs.end());
     }
     if (available.empty())
@@ -440,7 +451,7 @@ Installer::RunAsync(const std::array<fs::path, kDiscCount> &sources,
       std::string joined;
       for (const auto &l : available)
         joined += l + " ";
-      BD_INFO("Installer: languages available on discs: {}", joined);
+      REXLOG_INFO(bd, "Installer: languages available on discs: {}", joined);
     }
 
     Selected chosen = Resolve(selection);
@@ -455,7 +466,7 @@ Installer::RunAsync(const std::array<fs::path, kDiscCount> &sources,
       std::string voice_list;
       for (const auto &l : chosen.voice)
         voice_list += l + " ";
-      BD_INFO("Installer: text [{}], voice [{}], movies {}", text_list,
+      REXLOG_INFO(bd, "Installer: text [{}], voice [{}], movies {}", text_list,
               voice_list, chosen.movies ? "yes" : "no");
     }
 
@@ -475,7 +486,7 @@ Installer::RunAsync(const std::array<fs::path, kDiscCount> &sources,
 
     for (const auto &path : manifest) {
       if (IsUnsafePath(path)) {
-        BD_ERROR("Manifest contains unsafe path: {}", path);
+        REXLOG_ERROR(bd, "Manifest contains unsafe path: {}", path);
         progress.SetError(i18n::Fmt("installer.error.manifest_bad", path));
         progress.failed.store(true);
         progress.complete.store(true);
@@ -483,17 +494,17 @@ Installer::RunAsync(const std::array<fs::path, kDiscCount> &sources,
       }
       if (!Wanted(path, chosen))
         continue;
-      rex::filesystem::Entry *entry = nullptr;
+      DiscEntry entry;
       int disc = -1;
       for (int i = 0; i < kDiscCount; ++i) {
-        if (auto *e = roots[i]->ResolvePath(path); e != nullptr) {
+        if (const auto e = roots[i].Find(path)) {
           entry = e;
           disc = i;
           break;
         }
       }
       if (!entry) {
-        BD_WARN("MISSING: {} (not on any disc)", path);
+        REXLOG_WARN(bd, "MISSING: {} (not on any disc)", path);
         ++missing;
       }
       plan.Add(path, entry, disc);
@@ -509,9 +520,9 @@ Installer::RunAsync(const std::array<fs::path, kDiscCount> &sources,
     progress.files_total.store(plan.items.size());
     progress.bytes_total.store(plan.total_bytes);
 
-    BD_INFO("Install plan ({}): {} files, {} bytes to copy",
+    REXLOG_INFO(bd, "Install plan ({}): {} files, {} bytes to copy",
             repair ? "repair" : "full", plan.items.size(), plan.total_bytes);
-    BD_INFO("  DVD1: {} files, DVD2: {} files, DVD3: {} files, missing: {}",
+    REXLOG_INFO(bd, "  DVD1: {} files, DVD2: {} files, DVD3: {} files, missing: {}",
             plan.hits_per_disc[0], plan.hits_per_disc[1], plan.hits_per_disc[2],
             missing);
 
@@ -538,7 +549,7 @@ Installer::RunAsync(const std::array<fs::path, kDiscCount> &sources,
     std::ofstream marker(marker_path, std::ios::trunc);
     marker << "installed";
     if (!marker) {
-      BD_ERROR("Failed to write install marker at '{}'", marker_path.string());
+      REXLOG_ERROR(bd, "Failed to write install marker at '{}'", marker_path.string());
       progress.SetError(i18n::Fmt("installer.error.finish_failed",
                                   game_data_dest.string()));
       progress.failed.store(true);
@@ -549,10 +560,10 @@ Installer::RunAsync(const std::array<fs::path, kDiscCount> &sources,
     RebuildPackIndex(game_data_dest, progress);
 
     if (repair) {
-      BD_INFO("Repair complete: {} files already present, {} missing on discs.",
+      REXLOG_INFO(bd, "Repair complete: {} files already present, {} missing on discs.",
               skipped, missing);
     } else {
-      BD_INFO("Installation complete ({} files missing - see log).", missing);
+      REXLOG_INFO(bd, "Installation complete ({} files missing - see log).", missing);
     }
     progress.complete.store(true);
   });
@@ -610,7 +621,7 @@ std::thread Installer::AddLanguagesAsync(
         joined += ' ';
       joined += "movies";
     }
-    BD_INFO("Language install plan: {} ({} files, {} bytes to copy)", joined,
+    REXLOG_INFO(bd, "Language install plan: {} ({} files, {} bytes to copy)", joined,
             plan.items.size(), plan.total_bytes);
 
     size_t skipped = 0;
@@ -634,7 +645,7 @@ std::thread Installer::AddLanguagesAsync(
 
     RebuildPackIndex(game_data_dest, progress);
 
-    BD_INFO("Language install complete: {}", joined);
+    REXLOG_INFO(bd, "Language install complete: {}", joined);
     progress.complete.store(true);
   });
 }
@@ -661,7 +672,7 @@ std::thread Installer::RemoveLanguageAsync(const fs::path &game_data_dest,
         fs::remove(target, ec);
 
       if (ec) {
-        BD_ERROR("Failed to delete '{}': {}", target.string(), ec.message());
+        REXLOG_ERROR(bd, "Failed to delete '{}': {}", target.string(), ec.message());
         progress.SetError(ec.message());
         progress.failed.store(true);
         progress.complete.store(true);
@@ -680,7 +691,7 @@ std::thread Installer::RemoveLanguageAsync(const fs::path &game_data_dest,
 
     RebuildPackIndex(game_data_dest, progress);
 
-    BD_INFO("Language removal complete: {}", lang);
+    REXLOG_INFO(bd, "Language removal complete: {}", lang);
     progress.complete.store(true);
   });
 }

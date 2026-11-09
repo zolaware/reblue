@@ -12,6 +12,7 @@
 #include <vector>
 
 #include <rex/hook.h>
+#include <rex/ppc/detour.h>
 
 #include "engine/chara.h"
 #include "engine/events.h"
@@ -135,12 +136,10 @@ size_t FieldPlayerEntity::ActiveCount() const {
 // other passes the slot's unlock bit, so an unlocked slot there does raise both
 // events for the one member. The gap is on the first block rather than on every
 // call, and each event still means what it says where the two coincide.
-REX_EXTERN(__imp__bdPartyAddMember);
-REX_HOOK_RAW(bdPartyAddMember) {
-  const u32 entity = ctx.r3.u32;
+REX_DETOUR(bdPartyAddMember, u32, (u32 entity, u32 id, u32 marching)) {
   const std::vector<u32> before = bd::engine::MarchingAddresses(entity);
-  __imp__bdPartyAddMember(ctx, base);
-  const bd::engine::PlyTask spawned(ctx.r3.u32);
+  const u32 result = original(entity, id, marching);
+  const bd::engine::PlyTask spawned(result);
   // The marching diff is taken before either publish, because a subscriber
   // running engine code can relink the list it reads.
   const bd::engine::PlyTask joined = bd::engine::JoinedSince(entity, before);
@@ -148,28 +147,28 @@ REX_HOOK_RAW(bdPartyAddMember) {
     bd::engine::Events::Publish(bd::engine::PlayerSpawned{spawned.Address()});
   if (joined)
     bd::engine::Events::Publish(bd::engine::PartyMemberAdded{joined.Address()});
+  return result;
 }
 
-REX_EXTERN(__imp__bdScriptOpPartyChange);
-REX_HOOK_RAW(bdScriptOpPartyChange) {
+REX_DETOUR(bdScriptOpPartyChange, u32, (u32 script, u32 operands)) {
   const u32 entity = bd::engine::Game::Get().FieldPlayerEntity().Address();
   const std::vector<u32> before = bd::engine::MarchingAddresses(entity);
-  __imp__bdScriptOpPartyChange(ctx, base);
+  const u32 result = original(script, operands);
   const bd::engine::PlyTask joined = bd::engine::JoinedSince(entity, before);
   if (joined)
     bd::engine::Events::Publish(bd::engine::PartyMemberAdded{joined.Address()});
+  return result;
 }
 
 // The leader is the head of the marching list, and the original rotates the
 // list until the member it was asked for reaches it. Callers ask for a leader
 // that already leads, which the head comparison absorbs, and the rotation can
 // also fail to find one, which leaves the head where it was.
-REX_EXTERN(__imp__bdPartySetLeader);
-REX_HOOK_RAW(bdPartySetLeader) {
-  const u32 entity = ctx.r3.u32;
+REX_DETOUR(bdPartySetLeader, u32, (u32 entity, i32 member)) {
   const u32 before = bd::engine::LeaderAddress(entity);
-  __imp__bdPartySetLeader(ctx, base);
+  const u32 result = original(entity, member);
   const u32 after = bd::engine::LeaderAddress(entity);
   if (after && after != before)
     bd::engine::Events::Publish(bd::engine::PartyLeaderChanged{after});
+  return result;
 }

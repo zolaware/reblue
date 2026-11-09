@@ -9,27 +9,19 @@
 #pragma once
 
 #include <imgui.h>
+#include <rex/color.h>
 #include <rex/ui/style.h>
 
 namespace bd::ui {
 
-// The launcher accent fills every surface and control face, white carries every
-// foreground mark, dimmed by alpha where a row reads as secondary.
 struct Theme {
-  // #151033 and the shades derived from it.
-  static constexpr ImVec4 kAccent{0.082f, 0.063f, 0.200f, 1.00f};
-  static constexpr ImVec4 kAccentDeep{0.049f, 0.039f, 0.122f, 1.00f};
-  static constexpr ImVec4 kAccentHovered{0.141f, 0.114f, 0.341f, 1.00f};
-  static constexpr ImVec4 kAccentActive{0.208f, 0.169f, 0.494f, 1.00f};
-  static constexpr ImVec4 kAccentSelected{0.267f, 0.212f, 0.651f, 1.00f};
-  // Panel fill over the installer background image.
-  static constexpr ImVec4 kPanel{0.049f, 0.039f, 0.122f, 0.86f};
+  static constexpr rex::Color kSuccess = rex::Color::FromRGBA(0.30f, 0.90f, 0.30f);
+  static constexpr rex::Color kWarning = rex::Color::FromRGBA(0.90f, 0.70f, 0.30f);
+  static constexpr rex::Color kError = rex::Color::FromRGBA(0.90f, 0.40f, 0.30f);
 
-  static constexpr ImVec4 White(float alpha) {
-    return {1.00f, 1.00f, 1.00f, alpha};
-  }
+  static void Apply(rex::ui::Style &style);
 
-  static void Apply(ImGuiStyle &style, rex::ui::Style &overlays);
+  static void ApplyImGui(ImGuiStyle &style);
 };
 
 } // namespace bd::ui

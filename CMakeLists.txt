@@ -127,7 +127,7 @@ if(NOT WIN32)
 endif()
 
 rexglue_apply_target_settings(reblue_common)
-target_link_libraries(reblue_common PRIVATE rex::runtime)
+target_link_libraries(reblue_common PRIVATE rex::sdk)
 # gpu/backend.h and gpu/gpu_profiling.h #error on this.
 target_compile_definitions(reblue_common PRIVATE REBLUE_COMMON_TU)
 # The hooks include the codegen-emitted reblue_funcs.h.
@@ -150,6 +150,7 @@ foreach(target IN LISTS REBLUE_COMMON_TARGETS REBLUE_TARGETS)
         plume
         reblue_thirdparty
         rex::o1heap
+        SDL3::SDL3
         xxHash::xxhash
         # The SDK only links TracyClient into non-Release configs, so a Release
         # build that forces zones on has to pull it in itself.
@@ -253,13 +254,14 @@ foreach(target IN LISTS REBLUE_VULKAN_TARGETS)
 endforeach()
 
 # The SDK stages its shared runtime libs next to the exe on Windows only, and
-# nothing populates the $ORIGIN rpath it sets on UNIX, so librexruntime and
-# libTracyClient link but fail to load. These two are the only SHARED IMPORTED
-# targets reblue links.
+# nothing populates the $ORIGIN rpath it sets on UNIX, so the SDK module
+# libraries and libTracyClient link or load but fail to resolve.
 if(UNIX)
     foreach(target IN LISTS REBLUE_TARGETS)
         add_custom_command(TARGET ${target} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:rex::core>
+                $<TARGET_FILE:rex::filesystem>
                 $<TARGET_FILE:rex::runtime>
                 "$<${REBLUE_PROFILING_ON}:$<TARGET_FILE:rex::TracyClient>>"
                 $<TARGET_FILE_DIR:${target}>
@@ -274,6 +276,8 @@ endif()
 # ships.
 set(reblue_program_files
     "$<TARGET_FILE_NAME:reblue>"
+    "$<TARGET_FILE_NAME:rex::core>"
+    "$<TARGET_FILE_NAME:rex::filesystem>"
     "$<TARGET_FILE_NAME:rex::runtime>"
     "gamecontrollerdb.txt")
 if(REBLUE_VULKAN_EXE)

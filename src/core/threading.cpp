@@ -7,19 +7,17 @@
 #include "core/threading.h"
 
 #include <chrono>
-#include <cstdlib>
-#include <mutex>
 #include <thread>
 
 #include "core/logging.h"
 
 #include <rex/ppc.h>
-#include <rex/system/xthread.h>
+#include <rex/runtime.h>
+#include <rex/runtime/thread_registry.h>
 #include <rex/types.h>
 
 #if defined(_WIN32)
 #include "core/windows_lean.h"
-#include <timeapi.h>
 #else
 #include <sys/resource.h>
 #endif
@@ -29,8 +27,6 @@
 #endif
 
 namespace {
-std::once_flag g_timer_init;
-
 #if defined(__x86_64__) || defined(_M_X64)
 inline void CpuPause() { _mm_pause(); }
 #else
@@ -39,20 +35,6 @@ inline void CpuPause() { std::this_thread::yield(); }
 } // namespace
 
 namespace bd {
-
-void EnableHighResTimer() {
-  std::call_once(g_timer_init, [] {
-#if defined(_WIN32)
-    timeBeginPeriod(1);
-#endif
-  });
-}
-
-void DisableHighResTimer() {
-#if defined(_WIN32)
-  timeEndPeriod(1);
-#endif
-}
 
 void DemoteThreadToBackground() {
 #if defined(_WIN32)
@@ -63,26 +45,10 @@ void DemoteThreadToBackground() {
 #endif
 }
 
-void TerminateProcessNow(int exit_code) {
-#if defined(_WIN32)
-  ::TerminateProcess(::GetCurrentProcess(),
-                     static_cast<unsigned int>(exit_code));
-  // TerminateProcess can return before the caller halts, so spin and nothing
-  // runs past here.
-  for (;;) {
-    CpuPause();
-  }
-#else
-  std::_Exit(exit_code);
-#endif
-}
-
 } // namespace bd
 
 // PPC kernel bypass for Sleep.
 u32 Sleep_hook(u32 ms) {
-  bd::EnableHighResTimer();
-
   if (ms == 0) {
     std::this_thread::yield();
     return 0;
@@ -107,8 +73,7 @@ REX_HOOK(rex_Sleep, Sleep_hook);
 
 // PPC kernel bypass for NtSuspendThread.
 u32 NtSuspendThread_hook(u32 handle) {
-  auto thread =
-      REX_KERNEL_OBJECTS()->LookupObject<rex::system::XThread>(handle);
+  auto thread = rex::runtime::GetCurrent().GetThreadRegistry().FindByHandle(handle);
   if (thread)
     thread->Suspend();
   return 0;
@@ -117,8 +82,7 @@ REX_HOOK(rex_NtSuspendThread, NtSuspendThread_hook);
 
 // PPC kernel bypass for ResumeThread.
 u32 ResumeThread_hook(u32 handle) {
-  auto thread =
-      REX_KERNEL_OBJECTS()->LookupObject<rex::system::XThread>(handle);
+  auto thread = rex::runtime::GetCurrent().GetThreadRegistry().FindByHandle(handle);
   if (thread)
     thread->Resume();
   return 0;

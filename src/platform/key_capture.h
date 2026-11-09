@@ -8,33 +8,27 @@
 #include <string>
 
 #include <rex/types.h>
+#include <rex/hid/virtual_key.h>
 
 namespace bd::platform {
 
-// Names must match the rex keybind names (rex::ui::ParseVirtualKey) so a
-// captured name is directly storable as a keybind_* cvar value. Bare modifiers
-// are absent on purpose: they are captured as prefixes, and a bind that is only
-// a modifier can never fire under exact-match modifier semantics.
-inline constexpr const char *kBindableKeys[] = {
-    "LMB",         "RMB",       "MMB",        "A",           "B",
-    "C",           "D",         "E",          "F",           "G",
-    "H",           "I",         "J",          "K",           "L",
-    "M",           "N",         "O",          "P",           "Q",
-    "R",           "S",         "T",          "U",           "V",
-    "W",           "X",         "Y",          "Z",           "0",
-    "1",           "2",         "3",          "4",           "5",
-    "6",           "7",         "8",          "9",           "F1",
-    "F2",          "F3",        "F4",         "F5",          "F6",
-    "F7",          "F8",        "F9",         "F10",         "F11",
-    "F12",         "Backtick",  "Minus",      "Plus",        "Comma",
-    "Period",      "Semicolon", "Slash",      "Backslash",   "LBracket",
-    "RBracket",    "Quote",     "Escape",     "Return",      "Space",
-    "Tab",         "Backspace", "Delete",     "Insert",      "Home",
-    "End",         "PageUp",    "PageDown",   "Left",        "Right",
-    "Up",          "Down",      "Numpad0",    "Numpad1",     "Numpad2",
-    "Numpad3",     "Numpad4",   "Numpad5",    "Numpad6",     "Numpad7",
-    "Numpad8",     "Numpad9",   "NumpadPlus", "NumpadMinus", "NumpadStar",
-    "NumpadSlash", "CapsLock",
+using VK = rex::hid::VirtualKey;
+
+inline constexpr VK kBindableKeys[] = {
+    VK::kLButton, VK::kRButton, VK::kMButton, VK::kA, VK::kB, VK::kC, VK::kD,
+    VK::kE, VK::kF, VK::kG, VK::kH, VK::kI, VK::kJ, VK::kK, VK::kL, VK::kM,
+    VK::kN, VK::kO, VK::kP, VK::kQ, VK::kR, VK::kS, VK::kT, VK::kU, VK::kV,
+    VK::kW, VK::kX, VK::kY, VK::kZ, VK::k0, VK::k1, VK::k2, VK::k3, VK::k4,
+    VK::k5, VK::k6, VK::k7, VK::k8, VK::k9, VK::kF1, VK::kF2, VK::kF3,
+    VK::kF4, VK::kF5, VK::kF6, VK::kF7, VK::kF8, VK::kF9, VK::kF10, VK::kF11,
+    VK::kF12, VK::kOem3, VK::kOemMinus, VK::kOemPlus, VK::kOemComma,
+    VK::kOemPeriod, VK::kOem1, VK::kOem2, VK::kOem5, VK::kOem4, VK::kOem6,
+    VK::kOem7, VK::kEscape, VK::kReturn, VK::kSpace, VK::kTab, VK::kBack,
+    VK::kDelete, VK::kInsert, VK::kHome, VK::kEnd, VK::kPrior, VK::kNext,
+    VK::kLeft, VK::kRight, VK::kUp, VK::kDown, VK::kNumpad0, VK::kNumpad1,
+    VK::kNumpad2, VK::kNumpad3, VK::kNumpad4, VK::kNumpad5, VK::kNumpad6,
+    VK::kNumpad7, VK::kNumpad8, VK::kNumpad9, VK::kAdd, VK::kSubtract,
+    VK::kMultiply, VK::kDivide, VK::kCapital,
 };
 
 // Declaration order is also the key atlas's cell order, which

@@ -20,6 +20,7 @@
 
 #include <rex/ppc.h>
 #include <rex/types.h>
+#include <rex/ppc/midasm.h>
 
 // The engine spells this menu 'dia' / Diary throughout, so the engine symbol
 // names below keep that spelling. The English release calls it the
@@ -153,7 +154,7 @@ void UpdateRowForState(const bd::engine::CampDiaryMainTask &diary, u32 state) {
 
 // r3 is the confirmed entry id. Returning true jumps the engine into the same
 // transition its own five entries take, with our state in r4.
-bool bdEncyclopediaAchievementsDispatchHook(PPCRegister &r3, PPCRegister &r4) {
+REX_MIDASM_BRANCH(bdEncyclopediaAchievementsDispatchHook, (PPCRegister &r3, PPCRegister &r4)) {
   if (r3.u32 != kAchievementsEntryId)
     return false;
 
@@ -166,11 +167,12 @@ bool bdEncyclopediaAchievementsDispatchHook(PPCRegister &r3, PPCRegister &r4) {
   r4.u32 = kStateAchievements;
   return true;
 }
+REX_MIDASM_AT(bdEncyclopediaAchievementsDispatchHook, 0x822F76F4, before, 0x822F7720, r3, r4);
 
 // r31 is Camp::Diary::MainTask. Keeps the sixth row present and drives the
 // viewer while our state is current. Returns true only to leave, with the
 // target state in r4.
-bool bdEncyclopediaAchievementsUpdateHook(PPCRegister &r31, PPCRegister &r4) {
+REX_MIDASM_BRANCH(bdEncyclopediaAchievementsUpdateHook, (PPCRegister &r31, PPCRegister &r4)) {
   const u32 encTask = r31.u32;
 
   // The task is rebuilt per visit and the allocator hands back the same
@@ -182,7 +184,7 @@ bool bdEncyclopediaAchievementsUpdateHook(PPCRegister &r31, PPCRegister &r4) {
     // Items task and outlive this one, so they are not abandoned here.
     s_row_task = bd::engine::D2AnimeTask();
     s_row_gate = TabGate::Hidden;
-    BD_DEBUG("[encyclopedia] Diary task 0x{:08X} up", encTask);
+    REXLOG_DEBUG(bd, "encyclopedia Diary task 0x{:08X} up", encTask);
   }
 
   auto menu = s_enc_task.TopMenu();
@@ -208,7 +210,7 @@ bool bdEncyclopediaAchievementsUpdateHook(PPCRegister &r31, PPCRegister &r4) {
         s_enc_task, "d2anime\\camp\\dia\\l_dia_ach_tab.csv",
         bd::engine::D2AnimeTask::Reveal::Held);
     if (!s_row_task)
-      BD_ERROR("[encyclopedia] sixth row Load failed");
+      REXLOG_ERROR(bd, "encyclopedia sixth row Load failed");
 
     s_row_added = true;
   }
@@ -227,7 +229,7 @@ bool bdEncyclopediaAchievementsUpdateHook(PPCRegister &r31, PPCRegister &r4) {
   if (!s_ach_menu.IsActive()) {
     s_ach_menu.Create(s_enc_task);
     if (!s_ach_menu.IsActive()) {
-      BD_ERROR("[encyclopedia] achievement viewer Create failed");
+      REXLOG_ERROR(bd, "encyclopedia achievement viewer Create failed");
       // Enter(1) brings the top screen back before this call returns, so the
       // row has to be on the same frame or the strip comes up five rows deep.
       UpdateRowGate(TabGate::Top, {});
@@ -249,11 +251,12 @@ bool bdEncyclopediaAchievementsUpdateHook(PPCRegister &r31, PPCRegister &r4) {
 
   return false;
 }
+REX_MIDASM_AT(bdEncyclopediaAchievementsUpdateHook, 0x822F7670, before, 0x822F7EE8, r31, r4);
 
 // r31 is Camp::Item::MainTask. The Encyclopedia pane is five window/tex/message
 // triplets inside L_itm_cate.csv rather than a screen of its own, so the sixth
 // is a sibling anime following that CSV's gate variable.
-void bdCampEncyclopediaPreviewHook(PPCRegister &r31) {
+REX_MIDASM_HOOK(bdCampEncyclopediaPreviewHook, (PPCRegister &r31)) {
   const u32 itemTask = r31.u32;
 
   if (s_item_task.Rebind(itemTask)) {
@@ -274,11 +277,11 @@ void bdCampEncyclopediaPreviewHook(PPCRegister &r31) {
         s_item_task, "d2anime\\camp\\dia\\l_dia_ach_prev.csv",
         bd::engine::D2AnimeTask::Reveal::Held);
     if (!s_preview_task) {
-      BD_ERROR("[encyclopedia] preview row Load failed");
+      REXLOG_ERROR(bd, "encyclopedia preview row Load failed");
       return;
     }
-    BD_DEBUG(
-        "[encyclopedia] preview row 0x{:08X} alongside L_itm_cate 0x{:08X}",
+    REXLOG_DEBUG(bd, 
+        "encyclopedia preview row 0x{:08X} alongside L_itm_cate 0x{:08X}",
         s_preview_task.Address(), cate.Address());
   }
 
@@ -305,7 +308,7 @@ void bdCampEncyclopediaPreviewHook(PPCRegister &r31) {
 
   if (paneUp != s_preview_visible) {
     s_preview_visible = paneUp;
-    BD_DEBUG("[encyclopedia] Encyclopedia pane up={} ({}={}), row visible={}",
+    REXLOG_DEBUG(bd, "encyclopedia Encyclopedia pane up={} ({}={}), row visible={}",
              paneUp, kPaneGateVar, gate, s_preview_task.IsVisible());
   }
 
@@ -321,3 +324,4 @@ void bdCampEncyclopediaPreviewHook(PPCRegister &r31) {
     }
   }
 }
+REX_MIDASM_AT(bdCampEncyclopediaPreviewHook, 0x822DFA28, before, r31);

@@ -27,7 +27,7 @@ namespace bd::gpu {
 // Size tripwire next to the raw-byte hash: forces a deliberate review on any
 // PipelineState field add/remove/reorder. Replace the literal if the struct
 // legitimately changes (and update the CSV schema + regenerate the PSO cache).
-static_assert(sizeof(PipelineState) == 156,
+static_assert(sizeof(PipelineState) == 0x9C,
               "PipelineState size changed: update kCSVHeader/CsvRow + "
               "tools/shader_cache/pso_cache_to_header.py and regenerate "
               "cache/pipeline_state_cache.h.");

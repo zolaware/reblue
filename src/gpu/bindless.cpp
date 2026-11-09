@@ -104,7 +104,7 @@ u32 BindTextureSRVLocked(VideoState &s, GuestTexture *tex) {
   }
   const u32 slot = AllocateSlot(s);
   if (slot == kInvalidDescriptorIndex) {
-    BD_ERROR("Bindless texture heap full at {} slots, SRV bind dropped",
+    REXLOG_ERROR(bd, "Bindless texture heap full at {} slots, SRV bind dropped",
              kBindlessTextureCount);
     return kInvalidDescriptorIndex;
   }

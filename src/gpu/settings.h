@@ -131,13 +131,11 @@ public:
 
   // Adopts the current cvar values, then registers a change callback per
   // setting so console, config file and launch argument writes reach here.
-  // Called once from ReblueApp::OnPostInitLogging, the first consumer hook
-  // after rex::cvar::LoadConfig has run.
+  // Called once from ReblueApp::OnInit, the first consumer hook
+  // after rex::Init has applied the config file.
   void Init();
 
-  // Re-reads every setting from cvar storage. rex::cvar::ResetToDefault and
-  // ResetAllToDefaults write the storage without firing a change callback, so
-  // anything that calls them calls this after.
+  // Re-reads every setting from the registry.
   void AdoptCvars();
 
   i32 Anisotropy() const { return anisotropy_; }

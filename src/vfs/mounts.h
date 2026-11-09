@@ -147,7 +147,7 @@ private:
     u32 size = 0;
     u32 flags = 0; // kEntryCompressed, kEntryAlias
   };
-  static_assert(sizeof(Entry) == 28);
+  static_assert(sizeof(Entry) == 0x1C);
 
   // Fills the archive list and returns the stamp for the pack tree. The
   // stamp decides whether a cached index still describes it.

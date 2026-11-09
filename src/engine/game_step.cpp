@@ -9,6 +9,7 @@
  *            See LICENSE file in the project root for full license text.
  */
 #include <rex/hook.h>
+#include <rex/ppc/detour.h>
 
 #include "engine/battle_task.h"
 #include "engine/cutscene_pause.h"
@@ -16,12 +17,11 @@
 #include "engine/hud_fade.h"
 #include "engine/input/dispatch.h"
 
-REX_EXTERN(__imp__bdMainGameStep);
-REX_HOOK_RAW(bdMainGameStep) {
+REX_DETOUR(bdMainGameStep, void, (u32 step)) {
   bd::engine::OnGameStep();
   bd::engine::BattleTask::OnBattleGameStep();
   bd::engine::HudFade::Get().Poll();
   bd::engine::CutscenePause::Get().Poll();
-  __imp__bdMainGameStep(ctx, base);
+  original(step);
   bd::engine::RunDispatch();
 }

@@ -9,7 +9,8 @@
 #include <cstddef>
 #include <cstdio>
 
-#include "core/encoding.h"
+#include <rex/string/utf8.h>
+
 #include "core/memory_helpers.h"
 
 namespace bd::engine {
@@ -64,7 +65,7 @@ struct StageRecordVector_t {
   /* 0x08 */ be_u32 end;
   /* 0x0C */ be_u32 capacity;
 };
-static_assert(sizeof(StageRecordVector_t) == 16);
+static_assert(sizeof(StageRecordVector_t) == 0x10);
 
 struct StageRecord_t {
   /* 0x000 */ be_u16 name[64];
@@ -73,8 +74,8 @@ struct StageRecord_t {
   /* 0x198 */ be_u32 combinedNum;
   /* 0x19C */ u8 _pad19C[0x210 - 0x19C];
 };
-static_assert(sizeof(StageRecord_t) == 528);
-static_assert(offsetof(StageRecord_t, combinedNum) == 408);
+static_assert(sizeof(StageRecord_t) == 0x210);
+static_assert(offsetof(StageRecord_t, combinedNum) == 0x198);
 
 std::string StageDisplayName(u32 cat, u32 num) {
   if (cat > kMaxCategory)
@@ -99,7 +100,7 @@ std::string StageDisplayName(u32 cat, u32 num) {
         break;
       name.push_back(static_cast<char16_t>(static_cast<u16>(unit)));
     }
-    return bd::U16ToUtf8(name);
+    return rex::ToUTF8(name);
   }
   return {};
 }

@@ -11,6 +11,7 @@
 
 #include <rex/ppc.h>
 #include <rex/types.h>
+#include <rex/ppc/midasm.h>
 
 namespace {
 
@@ -28,7 +29,7 @@ bool TutorialsOff() { return bd::engine::Settings::Get().DisableTutorials(); }
 // Opcode 5053, one page of an SCA sequence. Skipping the whole opcode leaves
 // nothing to unwind, since the handler seizes player control and hides the
 // field only once its own first state runs.
-bool bdScriptScaSkipHook(PPCRegister &r3, PPCRegister &r31) {
+REX_MIDASM_BRANCH(bdScriptScaSkipHook, (PPCRegister &r3, PPCRegister &r31)) {
   if (!TutorialsOff())
     return false;
 
@@ -39,8 +40,10 @@ bool bdScriptScaSkipHook(PPCRegister &r3, PPCRegister &r31) {
   r3.u64 = 0;
   return true;
 }
+REX_MIDASM_AT(bdScriptScaSkipHook, 0x821AE48C, before, 0x821ADDA4, r3, r31);
 
-void bdScriptSkillTutorialSkipHook(PPCRegister &r11) {
+REX_MIDASM_HOOK(bdScriptSkillTutorialSkipHook, (PPCRegister &r11)) {
   if (TutorialsOff())
     r11.u64 = kSkillTutorialDone;
 }
+REX_MIDASM_AT(bdScriptSkillTutorialSkipHook, 0x821AA9E4, before, r11);

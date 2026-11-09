@@ -21,15 +21,16 @@
 
 #include <plume_render_interface.h>
 #include <plume_render_interface_builders.h>
+#include <rex/memory/byte_swap.h>
 
 #include <rex/hook.h>
 #include <rex/ppc.h>
 #include <rex/runtime.h>
 #include <rex/types.h>
+#include <rex/ppc/midasm.h>
 
 #include "core/logging.h"
 #include "core/memory_helpers.h"
-#include "gpu/byte_swap.h"
 #include "gpu/d3d.h"
 #include "gpu/device.h"
 
@@ -84,7 +85,7 @@ void NotePhysicalGrowth() {
     return;
   g_physUploadWatermark = ((g_physUploadBytes / kPhysUploadWatermarkStep) + 1) *
                           kPhysUploadWatermarkStep;
-  BD_WARN("Physical geometry footprint high-water: {} MiB across {} buffers",
+  REXLOG_WARN(bd, "Physical geometry footprint high-water: {} MiB across {} buffers",
           g_physUploadBytes >> 20, g_physLiveCount);
 }
 
@@ -105,7 +106,7 @@ CreatePhysicalPlumeBuffer(plume::RenderDevice *device, u32 base_va, u32 size,
   auto plume_buffer = bd::gpu::CreateHostBuffer(
       device, desc, is_index ? "physical-ib" : "physical-vb");
   if (!plume_buffer) {
-    BD_ERROR(
+    REXLOG_ERROR(bd, 
         "CreatePhysicalPlumeBuffer: failed (size={}, {}), live={} uploadMiB={}",
         size, is_index ? "index" : "vertex", g_physLiveCount,
         g_physUploadBytes >> 20);
@@ -113,16 +114,24 @@ CreatePhysicalPlumeBuffer(plume::RenderDevice *device, u32 base_va, u32 size,
   }
   const auto *src8 = bd::mem::at<const u8>(base_va);
   if (!src8) {
-    BD_WARN("CreatePhysicalPlumeBuffer: base_va 0x{:08X} did not translate",
+    REXLOG_WARN(bd, "CreatePhysicalPlumeBuffer: base_va 0x{:08X} did not translate",
             base_va);
     return nullptr;
   }
   void *mapped = plume_buffer->map();
   if (!mapped) {
-    BD_ERROR("CreatePhysicalPlumeBuffer: map failed (size={})", size);
+    REXLOG_ERROR(bd, "CreatePhysicalPlumeBuffer: map failed (size={})", size);
     return nullptr;
   }
-  bd::gpu::ByteSwapElements(mapped, src8, size, element_size);
+  if (element_size == 2) {
+    rex::memory::copy_and_swap<u16>(static_cast<u16 *>(mapped),
+                                    reinterpret_cast<const u16 *>(src8),
+                                    size / 2);
+  } else {
+    rex::memory::copy_and_swap<u32>(static_cast<u32 *>(mapped),
+                                    reinterpret_cast<const u32 *>(src8),
+                                    size / 4);
+  }
   plume_buffer->unmap();
   return plume_buffer;
 }
@@ -137,7 +146,7 @@ bd::gpu::GuestBuffer *RegisterPhysicalBufferOnce(u32 base_va, u32 size,
   if (!device) {
     static u32 s_warned = 0; // guarded by g_physicalBuffersMutex
     if (s_warned++ < 8)
-      BD_ERROR("RegisterPhysicalBufferOnce: HostDevice null (base_va {:#010x})",
+      REXLOG_ERROR(bd, "RegisterPhysicalBufferOnce: HostDevice null (base_va {:#010x})",
                base_va);
     return nullptr;
   }
@@ -153,7 +162,7 @@ bd::gpu::GuestBuffer *RegisterPhysicalBufferOnce(u32 base_va, u32 size,
     auto fresh = CreatePhysicalPlumeBuffer(device, base_va, size, is_index,
                                            element_size);
     if (!fresh) {
-      BD_WARN("RegisterPhysicalBufferOnce: refresh failed for base_va {:#010x} "
+      REXLOG_WARN(bd, "RegisterPhysicalBufferOnce: refresh failed for base_va {:#010x} "
               "(size {}), serving stale buffer",
               base_va, size);
       return cached; // keep stale rather than crash
@@ -222,17 +231,25 @@ void SwapBlockRegionLocked(PhysicalBlock &a, u32 offset, u32 size,
                            u32 element_size) {
   const auto *src8 = bd::mem::at<const u8>(a.base + offset);
   if (!src8) {
-    BD_WARN("Block swap: base {:#010x}+{:#x} did not translate", a.base,
+    REXLOG_WARN(bd, "Block swap: base {:#010x}+{:#x} did not translate", a.base,
             offset);
     return;
   }
   void *mapped = a.buffer->map();
   if (!mapped) {
-    BD_ERROR("Block swap: map failed (block {:#010x})", a.base);
+    REXLOG_ERROR(bd, "Block swap: map failed (block {:#010x})", a.base);
     return;
   }
   auto *dst8 = static_cast<u8 *>(mapped) + offset;
-  bd::gpu::ByteSwapElements(dst8, src8, size, element_size);
+  if (element_size == 2) {
+    rex::memory::copy_and_swap<u16>(reinterpret_cast<u16 *>(dst8),
+                                    reinterpret_cast<const u16 *>(src8),
+                                    size / 2);
+  } else {
+    rex::memory::copy_and_swap<u32>(reinterpret_cast<u32 *>(dst8),
+                                    reinterpret_cast<const u32 *>(src8),
+                                    size / 4);
+  }
   a.buffer->unmap();
 }
 
@@ -248,7 +265,7 @@ bd::gpu::GuestBuffer *GetOrCreateBlockMeshLocked(PhysicalBlock &a, u32 base_va,
     return nullptr;
   const u32 offset = base_va - a.base;
   if (offset > a.size || size > a.size - offset) {
-    BD_WARN("Block mesh [{:#010x}+{:#x}] outside block [{:#010x}+{:#x}]",
+    REXLOG_WARN(bd, "Block mesh [{:#010x}+{:#x}] outside block [{:#010x}+{:#x}]",
             base_va, size, a.base, a.size);
     return nullptr;
   }
@@ -270,7 +287,7 @@ bd::gpu::GuestBuffer *GetOrCreateBlockMeshLocked(PhysicalBlock &a, u32 base_va,
         plume::RenderBufferFlag::VERTEX | plume::RenderBufferFlag::INDEX;
     a.buffer = bd::gpu::CreateHostBuffer(device, desc, "physical-block");
     if (!a.buffer) {
-      BD_ERROR("Block buffer create failed (block {:#010x}, {} KiB)", a.base,
+      REXLOG_ERROR(bd, "Block buffer create failed (block {:#010x}, {} KiB)", a.base,
                a.size >> 10);
       return nullptr;
     }
@@ -405,7 +422,7 @@ void EvictPhysicalBuffersInBlock(u32 block_base, u32 block_size) {
       g_physUploadBytes = g_physUploadBytes >= freed_bytes
                               ? g_physUploadBytes - freed_bytes
                               : 0;
-      BD_DEBUG("Physical block freed [{:#010x}+{:#x}]: {} per-mesh + {} block "
+      REXLOG_DEBUG(bd, "Physical block freed [{:#010x}+{:#x}]: {} per-mesh + {} block "
                "buffer(s)"
                " ({} mesh views, {} KiB), live={} uploadMiB={}",
                block_base, block_size, evicted, block_buffers, block_meshes,
@@ -522,10 +539,10 @@ u32 bdPhysicalVertexBufferCreate_hook(
     vb->FetchLo = size;
     vb->FetchHi = base_va;
   }
-  RegisterPhysicalGeometry(vb.guest_address(), base_va, size,
+  RegisterPhysicalGeometry(vb.GetGuestAddress(), base_va, size,
                            bd::gpu::ResourceType::VertexBuffer,
                            /*element_size=*/4, plume::RenderFormat::UNKNOWN);
-  return vb.guest_address();
+  return vb.GetGuestAddress();
 }
 
 // The guest builds an IDirect3DIndexBuffer9 struct in out_buffer:
@@ -557,10 +574,10 @@ u32 bdPhysicalIndexBufferCreate_hook(
   // Common bit 31 stays clear, so this is INDEX16: element_size=2 makes the
   // upload bswap16 per index instead of bswap32 per dword, which would swap
   // adjacent index pairs and corrupt strip IBs.
-  RegisterPhysicalGeometry(ib.guest_address(), base_va, size,
+  RegisterPhysicalGeometry(ib.GetGuestAddress(), base_va, size,
                            bd::gpu::ResourceType::IndexBuffer,
                            /*element_size=*/2, plume::RenderFormat::R16_UINT);
-  return ib.guest_address();
+  return ib.GetGuestAddress();
 }
 
 } // namespace
@@ -572,8 +589,7 @@ REX_HOOK(bdPhysicalIndexBufferCreate, bdPhysicalIndexBufferCreate_hook);
 // so neither the names nor the register order may change: see
 // config/hooks/geometry.toml. INDEX16 needs bswap16 per index, not bswap32 per
 // dword, which would swap adjacent index pairs at 4-byte boundaries.
-void bdSceneGraphRegisterIBHook(PPCRegister &r3, PPCRegister &r4,
-                                PPCRegister &r30) {
+REX_MIDASM_HOOK(bdSceneGraphRegisterIBHook, (PPCRegister &r3, PPCRegister &r4, PPCRegister &r30)) {
   const u32 struct_va = r3.u32;
   const u32 base_addr = r4.u32;
   const u32 size_bytes = r30.u32;
@@ -587,10 +603,10 @@ void bdSceneGraphRegisterIBHook(PPCRegister &r3, PPCRegister &r4,
                            bd::gpu::ResourceType::IndexBuffer,
                            index32 ? 4u : 2u, ib_format);
 }
+REX_MIDASM_AT(bdSceneGraphRegisterIBHook, 0x8227E248, before, r3, r4, r30);
 
 // VB midasm hook. Fires.
-void bdSceneGraphRegisterVBHook(PPCRegister &r3, PPCRegister &r4,
-                                PPCRegister &r31) {
+REX_MIDASM_HOOK(bdSceneGraphRegisterVBHook, (PPCRegister &r3, PPCRegister &r4, PPCRegister &r31)) {
   const u32 struct_va = r3.u32;
   const u32 base_addr = r4.u32;
   const u32 size_bytes = r31.u32;
@@ -600,6 +616,7 @@ void bdSceneGraphRegisterVBHook(PPCRegister &r3, PPCRegister &r4,
                            bd::gpu::ResourceType::VertexBuffer,
                            /*element_size=*/4, plume::RenderFormat::UNKNOWN);
 }
+REX_MIDASM_AT(bdSceneGraphRegisterVBHook, 0x8227E540, before, r3, r4, r31);
 
 // Only the two fields read here are named.
 struct BdSceneGraphObject {
@@ -617,7 +634,7 @@ static_assert(offsetof(BdSceneGraphObject, physicalBlockBase) == 0x18);
 // Evicting at bdSceneGraphDestroy's XPhysicalFree ties host UPLOAD buffer
 // lifetime to the guest geometry it mirrors, so a reused block cannot serve
 // stale geometry.
-void bdSceneGraphDestroyHook(PPCRegister &r3, PPCRegister &r31) {
+REX_MIDASM_HOOK(bdSceneGraphDestroyHook, (PPCRegister &r3, PPCRegister &r31)) {
   const u32 block_base = r3.u32;
   if (!block_base)
     return;
@@ -627,12 +644,13 @@ void bdSceneGraphDestroyHook(PPCRegister &r3, PPCRegister &r31) {
   const u32 block_size = (obj->hdbHeader1 >> 1) & 0x0FFF0000u;
   EvictPhysicalBuffersInBlock(block_base, block_size);
 }
+REX_MIDASM_AT(bdSceneGraphDestroyHook, 0x8227EC14, before, r3, r31);
 
 // After obj+0x18 receives the block base and before the meshes are
 // bump-allocated into it, so the per-mesh feeders resolve base_va to this
 // block. Registers [base, size) only, the host buffer waits for the first mesh.
 // Reads the same two obj fields the destroy hook frees by, so the two agree.
-void bdSceneGraphBuildHook(PPCRegister &r31) {
+REX_MIDASM_HOOK(bdSceneGraphBuildHook, (PPCRegister &r31)) {
   const auto *obj = bd::mem::at<const BdSceneGraphObject>(r31.u32);
   if (!obj)
     return;
@@ -647,3 +665,4 @@ void bdSceneGraphBuildHook(PPCRegister &r31) {
   a.base = block_base;
   a.size = block_size;
 }
+REX_MIDASM_AT(bdSceneGraphBuildHook, 0x8227E8A0, before, r31);

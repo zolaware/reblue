@@ -10,6 +10,7 @@
 #include "core/settings_model.h"
 #include "core/i18n.h"
 #include "core/logging.h"
+#include "core/cvar_table.h"
 #include "core/settings.h"
 #include "core/settings_rows.h"
 
@@ -111,10 +112,10 @@ const PageSlots &Slots(SettingsPage page) {
 
 const SettingRow &At(SettingsPage page, int index) { return *Find(page, index); }
 
-bool Windowed() { return rex::cvar::GetFlagByName("fullscreen") != "true"; }
+bool Windowed() { return CvarGet("ui.fullscreen") != "true"; }
 
 // Menu spelling of one bind token. The cvar stores rex's canonical key names
-// (rex::ui::ParseVirtualKey), which read as words rather than as the key legend
+// (rex::hid::ParseVirtualKey), which read as words rather than as the key legend
 // a player is looking for, so punctuation shows its printed character and the
 // long names shorten to what fits on a keycap.
 struct KeyAlias {
@@ -283,7 +284,7 @@ void SwapInto(engine::Action owner, const engine::Source &taken,
     break;
   }
   binds.SetSources(owner, sources);
-  BD_DEBUG("[config] {} swapped out of its bind", engine::ToString(owner));
+  REXLOG_DEBUG(bd, "config {} swapped out of its bind", engine::ToString(owner));
 }
 
 int ChipSource(const BindEntry &entry, int chip) {
@@ -455,8 +456,9 @@ struct MonitorList {
 
 const MonitorList &Monitors() {
   static MonitorList list;
-  const int displays =
-      std::min(platform::DisplayCount(), MonitorList::kMaxDisplays);
+  const auto found = platform::UI()->GetDisplays();
+  const int displays = std::min(static_cast<int>(found.size()),
+                                MonitorList::kMaxDisplays);
   if (list.builtDisplays == displays)
     return list;
 
@@ -465,7 +467,7 @@ const MonitorList &Monitors() {
   list.count = 1;
 
   for (int i = 1; i <= displays; ++i) {
-    const std::string name = platform::DisplayName(i);
+    const std::string &name = found[static_cast<size_t>(i - 1)].name;
     list.texts[i] = name.empty()
                         ? std::to_string(i)
                         : std::to_string(i) + ": " + name;
@@ -482,7 +484,7 @@ const MonitorList &Monitors() {
 
 // One display leaves the row nothing to choose between, so it grays out the
 // way a keybind row does without its mode.
-bool SingleDisplay() { return platform::DisplayCount() <= 1; }
+bool SingleDisplay() { return platform::UI()->GetDisplays().size() <= 1; }
 
 // A row's option list: static for every row but the two language rows and
 // Monitor, whose options depend on what the install and the host declare.
@@ -510,7 +512,7 @@ RowOpts OptsOf(const SettingRow &s) {
 double CurrentNum(const SettingRow &s) {
   if (s.binding.get)
     return s.binding.get();
-  std::string v = rex::cvar::GetFlagByName(s.binding.cvar);
+  std::string v = CvarGet(s.binding.cvar);
   if (v == "true")
     return 1.0;
   if (v == "false")
@@ -561,11 +563,11 @@ bool WriteSlider(const SettingRow &s, double value) {
   std::snprintf(buf, sizeof(buf), s.sfmt, value);
   if (s.binding.set)
     return s.binding.set(std::strtod(buf, nullptr));
-  if (!rex::cvar::SetFlagByName(s.binding.cvar, buf)) {
-    BD_WARN("[config] failed to set {} = {}", s.binding.cvar, buf);
+  if (!CvarSet(s.binding.cvar, buf)) {
+    REXLOG_WARN(bd, "config failed to set {} = {}", s.binding.cvar, buf);
     return false;
   }
-  BD_DEBUG("[config] {} = {}", s.binding.cvar, buf);
+  REXLOG_DEBUG(bd, "config {} = {}", s.binding.cvar, buf);
   return true;
 }
 
@@ -578,13 +580,13 @@ bool WriteValue(const SettingRow &s, const SettingOption &o) {
     return s.binding.setText(o.value);
   if (s.binding.set)
     return s.binding.set(o.num);
-  if (!rex::cvar::SetFlagByName(s.binding.cvar, o.value)) {
-    BD_WARN("[config] failed to set {} = {}", s.binding.cvar, o.value);
+  if (!CvarSet(s.binding.cvar, o.value)) {
+    REXLOG_WARN(bd, "config failed to set {} = {}", s.binding.cvar, o.value);
     return false;
   }
   if (s.binding.cvar2 && o.value2)
-    rex::cvar::SetFlagByName(s.binding.cvar2, o.value2);
-  BD_DEBUG("[config] {} = {}", s.binding.cvar, OptionLabel(o));
+    CvarSet(s.binding.cvar2, o.value2);
+  REXLOG_DEBUG(bd, "config {} = {}", s.binding.cvar, OptionLabel(o));
   return true;
 }
 
@@ -930,7 +932,7 @@ bool SetBindChip(const BindEntry &entry, int chip, const std::string &token,
 
   engine::Source source;
   if (!engine::ParseSource(token, source)) {
-    BD_WARN("[config] '{}' is not a bindable input", token);
+    REXLOG_WARN(bd, "config '{}' is not a bindable input", token);
     return false;
   }
   engine::Bindings &binds = engine::Bindings::Get();
@@ -955,11 +957,11 @@ bool SetBindChip(const BindEntry &entry, int chip, const std::string &token,
     updated.push_back(source);
 
   if (!binds.SetSources(entry.action, updated)) {
-    BD_WARN("[config] failed to bind {} to {}", token,
+    REXLOG_WARN(bd, "config failed to bind {} to {}", token,
             engine::ToString(entry.action));
     return false;
   }
-  BD_DEBUG("[config] {} chip {} = {}", engine::ToString(entry.action), chip,
+  REXLOG_DEBUG(bd, "config {} chip {} = {}", engine::ToString(entry.action), chip,
            token);
   if (other) {
     SwapInto(*other, source, at < 0 ? nullptr : &current[size_t(at)]);
@@ -976,7 +978,7 @@ bool ClearBindChip(const BindEntry &entry, int chip) {
   engine::Bindings &binds = engine::Bindings::Get();
   std::vector<engine::Source> kept = binds.Sources(entry.action);
   kept.erase(kept.begin() + at);
-  BD_DEBUG("[config] {} chip {} cleared", engine::ToString(entry.action), chip);
+  REXLOG_DEBUG(bd, "config {} chip {} cleared", engine::ToString(entry.action), chip);
   return binds.SetSources(entry.action, kept);
 }
 
@@ -1001,7 +1003,7 @@ bool ClearBindEntry(const BindEntry &entry) {
   }
   if (kept.size() == binds.Sources(entry.action).size())
     return false;
-  BD_DEBUG("[config] {} cleared", BindEntryLabel(entry));
+  REXLOG_DEBUG(bd, "config {} cleared", BindEntryLabel(entry));
   return binds.SetSources(entry.action, kept);
 }
 

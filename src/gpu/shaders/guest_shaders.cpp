@@ -66,7 +66,7 @@ const u8 *DxilCache() {
         ZSTD_decompress(g_dxil_cache.get(), g_dxilCacheDecompressedSize,
                         g_compressedDxilCache, g_dxilCacheCompressedSize);
     if (ZSTD_isError(n) || n != g_dxilCacheDecompressedSize) {
-      BD_ERROR("DXIL shader cache decompression failed ({} of {} bytes)", n,
+      REXLOG_ERROR(bd, "DXIL shader cache decompression failed ({} of {} bytes)", n,
                g_dxilCacheDecompressedSize);
       g_dxil_cache.reset();
     }
@@ -89,11 +89,11 @@ const u8 *LinkedDxilCache() {
                       static_cast<mz_ulong>(g_linkedDxilCacheCompressedSize)) !=
             MZ_OK ||
         out_len != g_linkedDxilCacheDecompressedSize) {
-      BD_ERROR("linked shader cache decompression failed");
+      REXLOG_ERROR(bd, "linked shader cache decompression failed");
       return;
     }
     g_linked_dxil_cache = std::move(buf);
-    BD_DEBUG("linked shader cache: {} prelinked spec-constant variant(s)",
+    REXLOG_DEBUG(bd, "linked shader cache: {} prelinked spec-constant variant(s)",
              g_linkedShaderCacheEntryCount);
   });
   return g_linked_dxil_cache.get();
@@ -126,7 +126,7 @@ const u8 *SpirvCache() {
         ZSTD_decompress(g_spirv_cache.get(), g_spirvCacheDecompressedSize,
                         g_compressedSpirvCache, g_spirvCacheCompressedSize);
     if (ZSTD_isError(n) || n != g_spirvCacheDecompressedSize) {
-      BD_ERROR("SPIR-V shader cache decompression failed ({} of {} bytes)", n,
+      REXLOG_ERROR(bd, "SPIR-V shader cache decompression failed ({} of {} bytes)", n,
                g_spirvCacheDecompressedSize);
       g_spirv_cache.reset();
     }
@@ -181,7 +181,7 @@ GuestShader *CreateShader(const be_u32 *function, ResourceType type) {
     }
     shader->shaderCacheEntry = entry;
   } else {
-    BD_WARN("Shader cache miss: hash=0x{:016X} len={} type={}", hash, hash_len,
+    REXLOG_WARN(bd, "Shader cache miss: hash=0x{:016X} len={} type={}", hash, hash_len,
             static_cast<u32>(type));
   }
   // Let boot cache replay enqueue any pending PSO that was waiting on this
@@ -222,7 +222,7 @@ plume::RenderShader *GetOrLinkShader(GuestShader *gs, u32 specConstants) {
   std::vector<u8> spirv(smolv::GetDecodedBufferSize(smol, entry->spirvSize));
   if (spirv.empty() ||
       !smolv::Decode(smol, entry->spirvSize, spirv.data(), spirv.size())) {
-    BD_ERROR("GetOrLinkShader: SPIR-V decode failed (hash=0x{:016X})",
+    REXLOG_ERROR(bd, "GetOrLinkShader: SPIR-V decode failed (hash=0x{:016X})",
              entry->hash);
     return nullptr;
   }
@@ -264,7 +264,7 @@ plume::RenderShader *GetOrLinkShader(GuestShader *gs, u32 specConstants) {
     sh = device->createShader(linkedCache + pre->dxilOffset, pre->dxilSize,
                               "main", plume::RenderShaderFormat::DXIL);
   } else {
-    BD_WARN("GetOrLinkShader: no prelinked variant, runtime DXC link "
+    REXLOG_WARN(bd, "GetOrLinkShader: no prelinked variant, runtime DXC link "
             "(hash=0x{:016X} mask=0x{:X})",
             entry->hash, masked);
     std::vector<u8> linked =

@@ -9,7 +9,7 @@
  */
 #pragma once
 
-#include <rex/graphics/xenos.h>
+#include <rex/xenos/xenos.h>
 #include <rex/types.h>
 
 #include <plume_render_interface.h>
@@ -29,7 +29,7 @@ enum class D3DFormat : u32 {
   kBD2101010As16161616 = 0x182801B6,
   // BD also reaches ConvertGuestFormat with the raw GPUTEXTUREFORMAT byte.
   kBare2101010As16161616 =
-      u32(rex::graphics::xenos::TextureFormat::k_2_10_10_10_AS_16_16_16_16),
+      u32(rex::xenos::TextureFormat::k_2_10_10_10_AS_16_16_16_16),
   kD24FS8 = 0x1A220197,
   kD24S8 = 0x2D200196,
   kR32F = 0x2DA2ABA4,

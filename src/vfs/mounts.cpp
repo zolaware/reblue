@@ -14,6 +14,7 @@
 #include <utility>
 
 #include <rex/hash.h>
+#include <rex/platform/file.h>
 
 #include "core/logging.h"
 
@@ -23,21 +24,6 @@
 namespace bd::vfs {
 
 namespace {
-
-std::vector<u8> ReadWholeFile(const std::filesystem::path &path) {
-  std::ifstream f(path, std::ios::binary | std::ios::ate);
-  if (!f)
-    return {};
-  const auto size = f.tellg();
-  if (size <= 0)
-    return {};
-  f.seekg(0);
-  std::vector<u8> data(static_cast<size_t>(size));
-  f.read(reinterpret_cast<char *>(data.data()), size);
-  if (f.gcount() != size)
-    return {};
-  return data;
-}
 
 template <typename Map> std::vector<Key> MapKeys(const Map &map) {
   std::vector<Key> keys;
@@ -125,7 +111,7 @@ struct IndexHeader_t {
   u64 stamp;
   u64 blob_bytes;
 };
-static_assert(sizeof(IndexHeader_t) == 32);
+static_assert(sizeof(IndexHeader_t) == 0x20);
 
 // The stamp covers which archives the pack tree holds and not their contents,
 // so a cached index is stale exactly when one is added, dropped, or rewritten.
@@ -156,7 +142,7 @@ bool ForEachIPKRecord(const std::filesystem::path &path, Fn &&fn) {
   f.read(reinterpret_cast<char *>(&header), sizeof(header));
   if (static_cast<size_t>(f.gcount()) != sizeof(header) ||
       std::memcmp(header.magic, "IPK1", sizeof(header.magic)) != 0) {
-    BD_WARN("[vfs] not an IPK1 archive: {}", path.string());
+    REXLOG_WARN(bd, "vfs not an IPK1 archive: {}", path.string());
     return false;
   }
 
@@ -222,7 +208,7 @@ LooseMount::Scan(const std::filesystem::path &root) {
     mount->Set(Key::FromRelative(relative.string()), entry.path());
   }
   if (walk_ec)
-    BD_ERROR("[vfs] error walking {}: {}", root.string(), walk_ec.message());
+    REXLOG_ERROR(bd, "vfs error walking {}: {}", root.string(), walk_ec.message());
 
   return mount;
 }
@@ -239,7 +225,7 @@ std::optional<u64> LooseMount::Stat(const Key &key) const {
   std::error_code ec;
   const auto size = std::filesystem::file_size(it->second, ec);
   if (ec || size == 0) {
-    BD_ERROR("[vfs] indexed file unreadable: {}", it->second.string());
+    REXLOG_ERROR(bd, "vfs indexed file unreadable: {}", it->second.string());
     return std::nullopt;
   }
   return size;
@@ -249,7 +235,8 @@ std::optional<std::vector<u8>> LooseMount::Read(const Key &key) const {
   auto it = entries_.find(key);
   if (it == entries_.end())
     return std::nullopt;
-  return ReadWholeFile(it->second);
+  auto bytes = rex::platform::ReadHostFile(it->second);
+  return bytes ? std::move(*bytes) : std::vector<u8>{};
 }
 
 std::vector<Key> LooseMount::Keys() const { return MapKeys(entries_); }
@@ -324,8 +311,8 @@ std::optional<std::vector<u8>> IPKMount::Read(const Key &key) const {
   const Record &r = *found;
 
   std::vector<u8> packed(r.zsize);
-  if (mapped_ && size_t{r.offset} + r.zsize <= mapped_->size()) {
-    std::memcpy(packed.data(), mapped_->data() + r.offset, r.zsize);
+  if (mapped_ && size_t{r.offset} + r.zsize <= mapped_->GetSize()) {
+    std::memcpy(packed.data(), mapped_->GetData() + r.offset, r.zsize);
   } else {
     std::ifstream f(path_, std::ios::binary);
     if (!f)
@@ -353,7 +340,7 @@ ShippedPackMount::Scan(const std::filesystem::path &game_root,
     mount->SaveIndex(index_cache, stamp);
   }
 
-  BD_INFO("[vfs] {} shipped archive(s), {} record name(s) under {} ({})",
+  REXLOG_INFO(bd, "vfs {} shipped archive(s), {} record name(s) under {} ({})",
           mount->archives_.size(), mount->entries_.size(), pack_root.string(),
           cached ? "cached index" : "read from archives");
   return mount;
@@ -398,7 +385,7 @@ u64 ShippedPackMount::ScanArchives(const std::filesystem::path &pack_root,
     found.push_back(std::move(archive));
   }
   if (walk_ec)
-    BD_ERROR("[vfs] error walking {}: {}", pack_root.string(),
+    REXLOG_ERROR(bd, "vfs error walking {}: {}", pack_root.string(),
              walk_ec.message());
 
   // Sorted so that a record name two archives share always resolves to the
@@ -496,7 +483,10 @@ bool ShippedPackMount::LoadIndex(const std::filesystem::path &path, u64 stamp) {
   if (path.empty())
     return false;
 
-  const auto file = ReadWholeFile(path);
+  const auto read = rex::platform::ReadHostFile(path);
+  if (!read)
+    return false;
+  const std::vector<u8> &file = *read;
   if (file.size() < sizeof(IndexHeader_t))
     return false;
 
@@ -562,7 +552,7 @@ void ShippedPackMount::SaveIndex(const std::filesystem::path &path,
             static_cast<std::streamsize>(entries_.size() * sizeof(Entry)));
     f.write(blob_.data(), static_cast<std::streamsize>(blob_.size()));
     if (!f) {
-      BD_WARN("[vfs] pack index not written: {}", temp.string());
+      REXLOG_WARN(bd, "vfs pack index not written: {}", temp.string());
       f.close();
       std::filesystem::remove(temp, ec);
       return;
@@ -571,7 +561,7 @@ void ShippedPackMount::SaveIndex(const std::filesystem::path &path,
 
   std::filesystem::rename(temp, path, ec);
   if (ec) {
-    BD_WARN("[vfs] pack index not replaced: {}", ec.message());
+    REXLOG_WARN(bd, "vfs pack index not replaced: {}", ec.message());
     std::filesystem::remove(temp, ec);
   }
 }

@@ -6,26 +6,29 @@
  */
 #include "engine/glyph_set.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <string>
 #include <string_view>
 #include <vector>
 
-#include <rex/graphics/pipeline/texture/conversion.h>
-#include <rex/graphics/pipeline/texture/util.h>
-#include <rex/graphics/xenos.h>
+#include <rex/xenos/texture_conversion.h>
+#include <rex/xenos/texture_layout.h>
+#include <rex/xenos/xenos.h>
 #include <rex/hook.h>
+#include <rex/ppc/detour.h>
 #include <rex/types.h>
-#include <rex/ui/keybinds.h>
+#include <rex/hid/virtual_key.h>
 
 #include "core/logging.h"
 #include "core/memory_helpers.h"
 #include "engine/d2anime/anime_input.h"
+#include "engine/d2anime/anime_var.h"
 #include "engine/d2anime/anime_mount.h"
 #include "engine/d2anime/anime_mouse.h"
 #include "engine/input/actions.h"
-#include "engine/input/binding_store.h"
+#include "engine/input/binding_registry.h"
 #include "engine/prompt_textures.h"
 #include "engine/settings.h"
 #include "engine/virtual_buttons.h"
@@ -42,7 +45,6 @@ REX_IMPORT(__imp__AnimeVarBag_FindVar, GlyphFindVar, u32(u32, u32));
 // Named by the recompiler, and renaming it in functions.toml would cost a full
 // rebuild for nothing.
 REX_IMPORT(__imp__AnimeVar_nearby_D008, GlyphCommitVar, u32(u32));
-REX_EXTERN(__imp__bdUiCharUvCacheInit);
 
 namespace bd::engine {
 
@@ -53,15 +55,11 @@ namespace {
 constexpr u32 kUiCharUvCache = 0x82DC98B4;
 constexpr u32 kUvBagOffset = 440;
 
-// An AnimeVar entry: type at +4, and for an element the five floats
-// AnimeVarBag_GetElementXYWHP hands back. Uv.csv puts a UV rect in the first
-// four, so 'w' is really u1 and 'h' is v1.
-constexpr u32 kVarType = 0x04;
-constexpr u32 kVarU0 = 0x28;
-constexpr u32 kVarV0 = 0x2C;
-constexpr u32 kVarU1 = 0x30;
-constexpr u32 kVarV1 = 0x34;
-constexpr u32 kVarTypeElement = 0;
+// Slots of AnimeVar_t::element that hold the UV rect.
+constexpr int kElemU0 = 0;
+constexpr int kElemV0 = 1;
+constexpr int kElemU1 = 2;
+constexpr int kElemV1 = 3;
 
 constexpr int kSheetCols = int(Glyphs::kSheetCols);
 constexpr int kSheetRows = int(Glyphs::kSheetRows);
@@ -132,7 +130,7 @@ constexpr u32 kSheetBlockLog2 = 4;
 
 void BlitSheetCell(u8 *dst, const u8 *src, size_t payloadBytes, int dstCell,
                    int srcCell) {
-  namespace tu = rex::graphics::texture_util;
+  namespace tu = rex::xenos;
   const i32 sx = i32(srcCell % kSheetCols) * i32(kCellBlocks);
   const i32 sy = i32(srcCell / kSheetCols) * i32(kCellBlocks);
   const i32 dx = i32(dstCell % kSheetCols) * i32(kCellBlocks);
@@ -269,22 +267,25 @@ PadSet HostPadSet() {
   }
 }
 
+int IndexOfKey(rex::hid::VirtualKey key) {
+  const auto *begin = std::begin(platform::kBindableKeys);
+  const auto *end = std::end(platform::kBindableKeys);
+  const auto *found = std::find(begin, end, key);
+  return found == end ? -1 : static_cast<int>(found - begin);
+}
+
 } // namespace
 
 int KeyIndex(std::string_view keyName) {
-  for (size_t i = 0; i < platform::kBindableKeyCount; ++i)
-    if (keyName == platform::kBindableKeys[i])
-      return int(i);
-  return -1;
+  const rex::hid::VirtualKey key = rex::hid::ParseVirtualKey(keyName);
+  return rex::hid::VirtualKeyToString(key) == keyName ? IndexOfKey(key) : -1;
 }
 
 int BoundKeyIndex(Action action) {
   for (const Source &s : Bindings::Get().Sources(action)) {
     if (s.kind != SourceKind::Key)
       continue;
-    const std::string name =
-        rex::ui::VirtualKeyToString(static_cast<rex::ui::VirtualKey>(s.code));
-    return name.empty() ? -1 : KeyIndex(name);
+    return IndexOfKey(static_cast<rex::hid::VirtualKey>(s.code));
   }
   return -1;
 }
@@ -351,7 +352,7 @@ void Glyphs::Rebind() {
     nameBlock_ =
         gpu::HostHeap::Get().AllocGuest(kNameStride * kHelpCells, 16);
     if (!nameBlock_) {
-      BD_WARN("[glyphs] no engine memory for cell names, prompts stay stock");
+      REXLOG_WARN(bd, "glyphs no engine memory for cell names, prompts stay stock");
       return;
     }
     for (int i = 0; i < kHelpCells; ++i) {
@@ -363,9 +364,8 @@ void Glyphs::Rebind() {
 
   for (int i = 0; i < kHelpCells; ++i) {
     const u32 va = GlyphFindVar(bag, nameBlock_ + u32(i) * kNameStride);
-    vars_[i] = (va && mem::try_load<u32>(va + kVarType) == kVarTypeElement)
-                   ? va
-                   : 0;
+    const auto *var = mem::try_at<const AnimeVar_t>(va);
+    vars_[i] = (var && var->Is(AnimeVarType::Element)) ? va : 0;
   }
   bound_ = true;
   Apply();
@@ -373,10 +373,12 @@ void Glyphs::Rebind() {
 
 void Glyphs::WriteCell(u32 va, int cell) const {
   const UVRect r = CellRect(cell);
-  mem::try_store<f32>(va + kVarU0, r.u0);
-  mem::try_store<f32>(va + kVarV0, r.v0);
-  mem::try_store<f32>(va + kVarU1, r.u1);
-  mem::try_store<f32>(va + kVarV1, r.v1);
+  if (auto *var = mem::try_at<AnimeVar_t>(va)) {
+    var->element[kElemU0] = r.u0;
+    var->element[kElemV0] = r.v0;
+    var->element[kElemU1] = r.u1;
+    var->element[kElemV1] = r.v1;
+  }
   GlyphCommitVar(va);
 }
 
@@ -398,8 +400,8 @@ UVRect Glyphs::KeyArtUV(int keyIndex) {
 }
 
 std::vector<u8> Glyphs::SheetPixels() {
-  namespace tc = rex::graphics::texture_conversion;
-  namespace tu = rex::graphics::texture_util;
+  namespace tc = rex::xenos;
+  namespace tu = rex::xenos;
   constexpr auto kSheet = bd::Embedded("glyphs/cmn_help_menue.dds");
   if (kSheet.size <= kSheetPayload)
     return {};
@@ -416,7 +418,7 @@ std::vector<u8> Glyphs::SheetPixels() {
       if (off < 0 || size_t(off) + kSheetBlockBytes > bytes)
         continue;
       u8 block[kSheetBlockBytes];
-      tc::CopySwapBlock(rex::graphics::xenos::Endian::k8in16, block, src + off,
+      tc::CopySwapBlock(rex::xenos::Endian::k8in16, block, src + off,
                         kSheetBlockBytes);
       DecodeBC3Block(
           block,
@@ -515,8 +517,8 @@ void Glyphs::Tick() {
   // Drained every tick whether or not it is read, so a press made while the
   // keyboard was also busy cannot claim the next quiet frame.
   const bool pad = TakePadInputSeen();
-  const bool keyboard = platform::Keyboard().AnyDown() ||
-                        platform::Mouse().AnyButtonDown();
+  const bool keyboard = platform::HID().IsAnyKeyDown() ||
+                        platform::HID().IsAnyButtonDown();
 
   if (keyboard) {
     lastDevice_ = GlyphSet::Keyboard;
@@ -550,7 +552,8 @@ void Glyphs::Tick() {
 // The one moment the Uv.csv bag exists and nothing has read a Help cell out of
 // it yet: bdUiCharUvCacheAcquire polls the load to completion and calls this
 // before handing the cache to anyone.
-REX_HOOK_RAW(bdUiCharUvCacheInit) {
-  __imp__bdUiCharUvCacheInit(ctx, base);
+REX_DETOUR(bdUiCharUvCacheInit, u32, (u32 cache)) {
+  const u32 result = original(cache);
   bd::engine::Glyphs::Get().Rebind();
+  return result;
 }

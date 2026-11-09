@@ -10,11 +10,11 @@
  */
 #pragma once
 
+#include <format>
 #include <functional>
 #include <string>
 #include <string_view>
 
-#include <fmt/format.h>
 #include <rex/types.h>
 
 namespace bd::i18n {
@@ -40,8 +40,8 @@ const std::string &Text(std::string_view key);
 template <typename... A> std::string Fmt(std::string_view key, A &&...args) {
   const std::string &pattern = Text(key);
   try {
-    return fmt::vformat(pattern, fmt::make_format_args(args...));
-  } catch (const fmt::format_error &) {
+    return std::vformat(pattern, std::make_format_args(args...));
+  } catch (const std::format_error &) {
     return pattern;
   }
 }

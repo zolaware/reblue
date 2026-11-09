@@ -8,19 +8,17 @@
  */
 #include <string_view>
 
-#include <rex/cvar.h>
+#include "core/cvar_table.h"
 
 #include "core/logging.h"
 #include "engine/events.h"
 
-REXCVAR_DEFINE_COMMAND_ARGS(
-    game_events,
-    [](std::string_view) {
-      const auto recent = bd::engine::EventLog::Recent();
-      BD_INFO("[events] {} published, last {} shown",
-              bd::engine::EventLog::TotalPublished(), recent.size());
-      for (const auto &e : recent)
-        BD_INFO("[events]   tick {:<8} {:<20} {:#010x} {:#010x}", e.tick,
-                e.name ? e.name : "?", e.a, e.b);
-    },
-    "GameState", "Print the most recently published engine events");
+void bd::commands::GameEvents(std::string_view) {
+  const auto recent = bd::engine::EventLog::Recent();
+  REXLOG_INFO(bd, "events {} published, last {} shown",
+          bd::engine::EventLog::TotalPublished(), recent.size());
+  for (const auto &e : recent)
+    REXLOG_INFO(bd, "events   tick {:<8} {:<20} {:#010x} {:#010x}", e.tick,
+            e.name ? e.name : "?", e.a, e.b);
+}
+

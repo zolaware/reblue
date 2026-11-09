@@ -17,7 +17,7 @@
 #include "engine/d2anime/d2anime.h"
 #include "engine/game_options.h"
 #include "engine/glyph_set.h"
-#include "engine/input/binding_store.h"
+#include "engine/input/binding_registry.h"
 #include "engine/menus/achievements_layout.h"
 #include "engine/menus/config_layout.h"
 #include "engine/menus/config_menu_data.h"
@@ -26,16 +26,15 @@
 #include <algorithm>
 
 #include <rex/types.h>
+#include <rex/color.h>
 
 namespace bd::engine {
 
 namespace {
 
-// SetColor takes 0xAARRGGBB.
-constexpr u32 kWhite = 0xFFFFFFFFu;
-constexpr u32 kHighlightYellow = 0xFFFFDC00; // restart-bound and capturing
-constexpr u32 kReorderGold = 0xFFFFD700;     // the row being carried
-constexpr u32 kFixedGray = 0xFFA0A0A0;
+constexpr rex::Color kHighlightYellow = rex::Color::FromARGB8(0xFFFFDC00u);
+constexpr rex::Color kReorderGold = rex::Color::FromARGB8(0xFFFFD700u);
+constexpr rex::Color kFixedGray = rex::Color::FromARGB8(0xFFA0A0A0u);
 constexpr double kDimAlpha = 90.0, kFullAlpha = 255.0;
 
 // Wrapped to the two description lines above the footer, which start at x=325.
@@ -99,7 +98,7 @@ void ConfigMenu::UpdateDLCDetail(int index) {
       val = wrapped.substr(pos, nl - pos);
       pos = nl + 1;
     }
-    task_.SetText(fmt::format("dlcdetail.Desc{}", i).c_str(), val);
+    task_.SetText(std::format("dlcdetail.Desc{}", i).c_str(), val);
   }
 }
 
@@ -294,7 +293,7 @@ void ConfigMenu::RefreshModVisuals() {
     const bool carried = state_ == State::REORDER && i == reorder_origin_;
     modlist_menu_.SetToggleRow(
         slot, vb, enabled,
-        carried ? kReorderGold : (enabled ? enColor : disColor));
+        carried ? kReorderGold.ToARGB8() : (enabled ? enColor : disColor));
   });
 }
 
@@ -339,7 +338,9 @@ void ConfigMenu::RefreshSettingsVisuals() {
     const bool disabled = SettingsDisabled(page, i);
     vb.SetText("Name", SettingsLabel(page, i));
     vb.SetColor("LblCol",
-                SettingsRestartBound(page, i) ? kHighlightYellow : kWhite);
+                (SettingsRestartBound(page, i) ? kHighlightYellow
+                                               : rex::colors::kWhite)
+                    .ToARGB8());
     vb.SetFloat("Dim", DimFor(disabled));
     const int rowOpts =
         ui == RowUi::Action ? 1 : SettingsOptionCount(page, i);
@@ -383,7 +384,7 @@ void ConfigMenu::RefreshSettingsVisuals() {
       static bool warned;
       if (!warned) {
         warned = true;
-        BD_WARN("config row '{}' has {} options, {} fit in a button strip",
+        REXLOG_WARN(bd, "config row '{}' has {} options, {} fit in a button strip",
                 SettingsLabel(page, i), optCount,
                 SettingItemTemplate::kMaxOpts);
       }
@@ -438,10 +439,10 @@ void ConfigMenu::RefreshKeybindVisuals() {
       vb.SetString("WndType", "NOWINDOW");
 
     const auto setUv = [&](const char *uvVar, const UVRect &r) {
-      vb.SetFloat(fmt::format("{}.x", uvVar).c_str(), r.u0);
-      vb.SetFloat(fmt::format("{}.y", uvVar).c_str(), r.v0);
-      vb.SetFloat(fmt::format("{}.w", uvVar).c_str(), r.u1);
-      vb.SetFloat(fmt::format("{}.h", uvVar).c_str(), r.v1);
+      vb.SetFloat(std::format("{}.x", uvVar).c_str(), r.u0);
+      vb.SetFloat(std::format("{}.y", uvVar).c_str(), r.v0);
+      vb.SetFloat(std::format("{}.w", uvVar).c_str(), r.u1);
+      vb.SetFloat(std::format("{}.h", uvVar).c_str(), r.v1);
     };
 
     for (int chip = 0; chip < KeybindItemTemplate::kChipCount; ++chip) {
@@ -461,9 +462,10 @@ void ConfigMenu::RefreshKeybindVisuals() {
       const bool fixed = BindChipFixed(entry, chip);
       const std::string token = BindChipToken(entry, chip);
       vb.SetString(vars.wndVar, on ? "BTN01_ON" : "BTN01_OF");
-      vb.SetColor(vars.colorVar, on ? kHighlightYellow
-                                 : fixed && !mouseInput ? kFixedGray
-                                                        : kWhite);
+      vb.SetColor(vars.colorVar,
+                  (on ? kHighlightYellow
+                      : fixed && !mouseInput ? kFixedGray : rex::colors::kWhite)
+                      .ToARGB8());
 
       if (on) {
         vb.SetText(vars.textVar, kCapturing);

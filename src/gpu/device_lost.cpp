@@ -11,6 +11,7 @@
 #include "gpu/device.h"
 
 #include <atomic>
+#include <format>
 
 #include <plume_render_interface.h>
 #if defined(REBLUE_D3D12)
@@ -20,7 +21,7 @@
 #endif
 
 #include "core/logging.h"
-#include "core/shutdown.h"
+#include <rex/app.h>
 #include "gpu/dred.h"
 #include "platform/platform.h"
 
@@ -63,20 +64,18 @@ bool ReportDeviceLost(const char *context, const char *reason, u32 code) {
     return true;
   }
 
-  BD_CRITICAL("graphics device removed (at {}): {:#010x} ({})",
+  REXLOG_CRITICAL(bd, "graphics device removed (at {}): {:#010x} ({})",
               context ? context : "?", code, reason);
   // Before the dialog: this is the only window in which the runtime still holds
   // the breadcrumb and page fault data for the dead device.
   LogDredReport(context);
-  rex::FlushLogging();
-  bd::platform::ShowFatalError(
+  rex::log::Flush();
+  bd::platform::ShowFatal(
       "Graphics Device Lost",
-      fmt::format("The graphics device was lost, so reblue has to close.\n\n"
+      std::format("The graphics device was lost, so reblue has to close.\n\n"
                   "Reason: {} ({:#010x})",
                   reason, code));
-  // Parks this thread. The sequence skips the GPU drain because DeviceIsLost()
-  // is already latched (fences never signal on a removed device).
-  bd::RequestShutdown(bd::ShutdownReason::Fatal, 1);
+  rex::RequestShutdown(1);
   return true;
 }
 

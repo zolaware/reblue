@@ -58,4 +58,7 @@ void EnqueuePipelinePriority(const PipelineState &state);
 void BeginLoadCapture();
 void EndLoadCapture();
 
+// Stops the compiler threads and joins them. Queued work is dropped.
+void StopPSOPrecache();
+
 } // namespace bd::gpu

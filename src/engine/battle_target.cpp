@@ -7,11 +7,13 @@
  * @license     BSD 3-Clause - see LICENSE
  */
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 
 #include <rex/hook.h>
 #include <rex/ppc.h>
+#include <rex/ppc/detour.h>
 #include <rex/ppc/stack.h>
 #include <rex/types.h>
 
@@ -29,7 +31,6 @@ REX_IMPORT(__imp__bdBattleTargetRefreshHighlights, TargetRefreshHighlights,
            u32(u32, u32));
 REX_IMPORT(__imp__bdWorldToScreenPos3, WorldToScreenPos3,
            void(u32, u32, u32, u32, u32));
-REX_EXTERN(__imp__bdBattleTargetSelectInput);
 
 namespace bd::engine {
 
@@ -70,10 +71,20 @@ struct BattleSelection_t {
 };
 static_assert(sizeof(BattleSelection_t) == 0x1C);
 
-constexpr u32 kScratchBytes = 0x60;
-constexpr u32 kScratch_Sel = 0x20;
-constexpr u32 kScratch_Screen = 0x40;
-constexpr u32 kScratch_World = 0x50;
+// The stack frame the hover test builds for the engine calls it makes.
+struct BattleTargetScratch_t {
+  /* 0x00 */ u8 _pad000[0x20];
+  /* 0x20 */ BattleSelection_t selection;
+  /* 0x3C */ u8 _pad03C[0x40 - 0x3C];
+  /* 0x40 */ Vec3_t screen;
+  /* 0x4C */ u8 _pad04C[0x50 - 0x4C];
+  /* 0x50 */ Vec3_t world;
+  /* 0x5C */ u8 _pad05C[0x60 - 0x5C];
+};
+static_assert(offsetof(BattleTargetScratch_t, selection) == 0x20);
+static_assert(offsetof(BattleTargetScratch_t, screen) == 0x40);
+static_assert(offsetof(BattleTargetScratch_t, world) == 0x50);
+static_assert(sizeof(BattleTargetScratch_t) == 0x60);
 
 struct Candidate {
   u32 actor = 0;
@@ -95,7 +106,7 @@ bool PadMovedTarget() {
 
 // Runs ahead of the engine's own target input, so a click in the same frame
 // confirms whoever the pointer had just moved to.
-void UpdateBattleTargetHover(PPCContext &ctx, u8 *base, u32 taskVA) {
+void UpdateBattleTargetHover(u32 taskVA) {
   // Reaching this function at all means the player is being asked who to hit,
   // and a cancel from here has somewhere to go, so escape and right-click have
   // to read as one and the arrow keys have to reach the pad. Ahead of every
@@ -140,17 +151,16 @@ void UpdateBattleTargetHover(PPCContext &ctx, u8 *base, u32 taskVA) {
   if (!currentActor || !visualRender)
     return;
 
-  // Every engine call below runs on a frame of its own, so the register state
-  // the original is about to read is left exactly as it arrived.
-  rex::CallFrame frame(ctx);
-  rex::ppc::stack_guard guard(frame.ctx);
-  alignas(8) u8 zeroed[kScratchBytes]{};
+  rex::ppc::StackFrame frame;
   const u32 scratch =
-      rex::ppc::stack_push(frame.ctx, base, zeroed, kScratchBytes);
+      frame.Push<std::array<u8, sizeof(BattleTargetScratch_t)>>().GetGuestAddress();
 
-  auto *scratchSel = mem::try_at<BattleSelection_t>(scratch + kScratch_Sel);
-  auto *world = mem::try_at<Vec3_t>(scratch + kScratch_World);
-  const auto *screen = mem::try_at<const Vec3_t>(scratch + kScratch_Screen);
+  const u32 scratchSelection = scratch + offsetof(BattleTargetScratch_t, selection);
+  const u32 scratchScreen = scratch + offsetof(BattleTargetScratch_t, screen);
+  const u32 scratchWorld = scratch + offsetof(BattleTargetScratch_t, world);
+  auto *scratchSel = mem::try_at<BattleSelection_t>(scratchSelection);
+  auto *world = mem::try_at<Vec3_t>(scratchWorld);
+  const auto *screen = mem::try_at<const Vec3_t>(scratchScreen);
   if (!scratchSel || !world || !screen)
     return;
 
@@ -160,8 +170,7 @@ void UpdateBattleTargetHover(PPCContext &ctx, u8 *base, u32 taskVA) {
     scratchSel->group = g;
     scratchSel->member = m;
     scratchSel->part = part;
-    return TargetIsSelectable(frame, base, currentActor, actor,
-                              scratch + kScratch_Sel) != 0 &&
+    return TargetIsSelectable(currentActor, actor, scratchSelection) != 0 &&
            i32(scratchSel->part) == part;
   };
 
@@ -192,9 +201,7 @@ void UpdateBattleTargetHover(PPCContext &ctx, u8 *base, u32 taskVA) {
         if (!object)
           continue;
         *world = object->worldPos;
-        WorldToScreenPos3(frame, base, visualRender, 0,
-                          scratch + kScratch_Screen, scratch + kScratch_World,
-                          0);
+        WorldToScreenPos3(visualRender, 0, scratchScreen, scratchWorld, 0);
 
         Candidate c{};
         c.actor = actorVA;
@@ -235,7 +242,7 @@ void UpdateBattleTargetHover(PPCContext &ctx, u8 *base, u32 taskVA) {
   // The highlight list is rebuilt only where the engine's own movement
   // succeeds, so a pointer move has to ask for it or the marks stay on the
   // previous target. Zero clears the list first, the value the pad passes.
-  TargetRefreshHighlights(frame, base, taskVA, 0);
+  TargetRefreshHighlights(taskVA, 0);
 }
 
 } // namespace
@@ -245,9 +252,8 @@ void UpdateBattleTargetHover(PPCContext &ctx, u8 *base, u32 taskVA) {
 // The battle's target step, called once per frame from
 // bdBattleSceneActionDispatch for as long as the player is choosing who to hit.
 // It polls buttons 0 through 23 itself, so running ahead of it leaves the
-// selection already moved when it reads the confirm button. r3 is the
-// BattleTask.
-REX_HOOK_RAW(bdBattleTargetSelectInput) {
-  bd::engine::UpdateBattleTargetHover(ctx, base, ctx.r3.u32);
-  __imp__bdBattleTargetSelectInput(ctx, base);
+// selection already moved when it reads the confirm button.
+REX_DETOUR(bdBattleTargetSelectInput, u32, (u32 task)) {
+  bd::engine::UpdateBattleTargetHover(task);
+  return original(task);
 }

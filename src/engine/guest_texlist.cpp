@@ -4,6 +4,7 @@
  */
 #include "engine/guest_texlist.h"
 
+#include <cstddef>
 #include <cstdio>
 #include <cstring>
 
@@ -66,56 +67,65 @@ constexpr u32 kLoadHandleVtable = 0x8206A9B0; // LH_Texlist
 // table at +8 has been published.
 constexpr u32 kTexlistReady = 2;
 
-// Reached through engine pointers rather than a struct, since the table and its
-// entries are the engine's own copies rather than the ones handed to it.
-constexpr u32 kVisualTexture_Table = 0x08;
-constexpr u32 kTable_Entries = 0x04;
-constexpr u32 kEntry_Texture = 0x18;
+constexpr u32 kDirBytes = 0x40;
 
 // One HostHeap block holds the lot: the engine keeps the directory string and
 // descriptor for as long as the request is alive, so nothing here is scratch.
-constexpr u32 kOffHolder = 0x00;
-constexpr u32 kOffDesc = 0x20;
-constexpr u32 kOffEntries = 0x28;
-constexpr u32 kOffDir =
-    kOffEntries + Texlist::kMaxTextures * u32(sizeof(TexlistEntry_t));
-constexpr u32 kDirBytes = 0x40;
-constexpr u32 kBlockBytes = kOffDir + kDirBytes;
+struct TexlistRequest_t {
+  /* 0x00 */ VisualTexture_t holder;
+  /* 0x20 */ TexlistDesc_t desc;
+  /* 0x28 */ TexlistEntry_t entries[Texlist::kMaxTextures];
+  /* 0x28 + entries */ char dir[kDirBytes];
+};
+static_assert(offsetof(TexlistRequest_t, holder) == 0x00);
+static_assert(offsetof(TexlistRequest_t, desc) == 0x20);
+static_assert(offsetof(TexlistRequest_t, entries) == 0x28);
+static_assert(offsetof(TexlistRequest_t, dir) ==
+              0x28 + Texlist::kMaxTextures * 0x1C);
+
+// The table the engine publishes through the holder has the descriptor's shape,
+// but it and its entries are the engine's own copies rather than the ones
+// handed to it.
+const TexlistDesc_t *PublishedTable(u32 block) {
+  const auto *holder = mem::try_at<const VisualTexture_t>(
+      block + offsetof(TexlistRequest_t, holder));
+  return holder ? mem::try_at<const TexlistDesc_t>(u32(holder->table)) : nullptr;
+}
 
 } // namespace
 
 bool Texlist::Request() {
-  const u32 block = gpu::HostHeap::Get().AllocGuest(kBlockBytes, 16);
+  const u32 block =
+      gpu::HostHeap::Get().AllocGuest(sizeof(TexlistRequest_t), 16);
   if (!block) {
-    BD_WARN("no HostHeap space for the {} texlist", dir_);
+    REXLOG_WARN(bd, "no HostHeap space for the {} texlist", dir_);
     return false;
   }
-  auto *bytes = mem::try_at<u8>(block);
-  if (!bytes) {
-    BD_WARN("texlist block 0x{:08X} did not resolve", block);
+  auto *request = mem::try_at<TexlistRequest_t>(block);
+  if (!request) {
+    REXLOG_WARN(bd, "texlist block 0x{:08X} did not resolve", block);
     gpu::HostHeap::Get().FreeGuest(block);
     return false;
   }
-  std::memset(bytes, 0, kBlockBytes);
+  std::memset(request, 0, sizeof(*request));
 
-  auto *holder = mem::at<VisualTexture_t>(block + kOffHolder);
-  holder->vtable = kVisualTextureVtable;
-  holder->handleVtable = kLoadHandleVtable;
+  request->holder.vtable = kVisualTextureVtable;
+  request->holder.handleVtable = kLoadHandleVtable;
 
-  auto *entries = mem::at<TexlistEntry_t>(block + kOffEntries);
   for (u32 i = 0; i < count_; ++i)
-    std::snprintf(entries[i].name, sizeof(entries->name), "%s", names_[i]);
+    std::snprintf(request->entries[i].name, sizeof(request->entries->name),
+                  "%s", names_[i]);
 
-  auto *desc = mem::at<TexlistDesc_t>(block + kOffDesc);
-  desc->count = count_;
-  desc->entries = block + kOffEntries;
+  request->desc.count = count_;
+  request->desc.entries = block + offsetof(TexlistRequest_t, entries);
 
-  std::snprintf(reinterpret_cast<char *>(bytes + kOffDir), kDirBytes, "%s",
-                dir_);
+  std::snprintf(request->dir, sizeof(request->dir), "%s", dir_);
 
   block_.store(block, std::memory_order_relaxed);
-  TexlistRequest(block + kOffHolder, block + kOffDir, block + kOffDesc);
-  BD_DEBUG("requested {} textures under {} at 0x{:08X}", count_, dir_, block);
+  TexlistRequest(block + offsetof(TexlistRequest_t, holder),
+                 block + offsetof(TexlistRequest_t, dir),
+                 block + offsetof(TexlistRequest_t, desc));
+  REXLOG_DEBUG(bd, "requested {} textures under {} at 0x{:08X}", count_, dir_, block);
   return true;
 }
 
@@ -125,17 +135,16 @@ bool Texlist::Request() {
 // checking it. Walk through to the texture objects once rather than trust the
 // state word.
 bool Texlist::Resolved() const {
-  const u32 holder = block_.load(std::memory_order_relaxed) + kOffHolder;
-  const u32 table = mem::try_field<u32>(holder, kVisualTexture_Table);
+  const auto *table = PublishedTable(block_.load(std::memory_order_relaxed));
   if (!table)
     return false;
-  const u32 count = mem::try_load<u32>(table);
-  const u32 entries = mem::try_load<u32>(table + kTable_Entries);
-  if (count < count_ || !entries)
+  const u32 entries = table->entries;
+  if (u32(table->count) < count_ || !entries)
     return false;
   for (u32 i = 0; i < count_; ++i) {
-    const u32 entry = entries + i * u32(sizeof(TexlistEntry_t));
-    if (!mem::try_field<u32>(entry, kEntry_Texture))
+    const auto *entry = mem::try_at<const TexlistEntry_t>(
+        entries + i * u32(sizeof(TexlistEntry_t)));
+    if (!entry || !entry->texture)
       return false;
   }
   return true;
@@ -148,14 +157,15 @@ bool Texlist::Poll() {
       state_ = Request() ? State::kLoading : State::kFailed;
     break;
   case State::kLoading: {
-    const u32 holder = block_.load(std::memory_order_relaxed) + kOffHolder;
+    const u32 holder = block_.load(std::memory_order_relaxed) +
+                       offsetof(TexlistRequest_t, holder);
     if (TexlistPoll(holder) != kTexlistReady)
       break;
     if (Resolved()) {
       ready_.store(true, std::memory_order_release);
       state_ = State::kReady;
     } else {
-      BD_WARN("{}{}.dds did not load", dir_, names_[0]);
+      REXLOG_WARN(bd, "{}{}.dds did not load", dir_, names_[0]);
       state_ = State::kFailed;
     }
     break;
@@ -170,18 +180,19 @@ bool Texlist::Poll() {
 u32 Texlist::Texture(u32 slot) const {
   if (!Ready() || slot >= count_)
     return 0;
-  const u32 holder = block_.load(std::memory_order_relaxed) + kOffHolder;
-  const u32 table = mem::try_field<u32>(holder, kVisualTexture_Table);
-  const u32 entries = table ? mem::try_load<u32>(table + kTable_Entries) : 0;
+  const auto *table = PublishedTable(block_.load(std::memory_order_relaxed));
+  const u32 entries = table ? u32(table->entries) : 0;
   if (!entries)
     return 0;
-  return mem::try_field<u32>(entries + slot * u32(sizeof(TexlistEntry_t)),
-                             kEntry_Texture);
+  const auto *entry = mem::try_at<const TexlistEntry_t>(
+      entries + slot * u32(sizeof(TexlistEntry_t)));
+  return entry ? u32(entry->texture) : 0;
 }
 
 void Texlist::Select(u32 slot) const {
   if (Ready() && slot < count_)
-    PrimSelectTexture(slot, block_.load(std::memory_order_relaxed) + kOffHolder);
+    PrimSelectTexture(slot, block_.load(std::memory_order_relaxed) +
+                              offsetof(TexlistRequest_t, holder));
 }
 
 } // namespace bd::engine

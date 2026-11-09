@@ -1,25 +1,25 @@
-#include "engine/input/binding_store.h"
+#include "engine/input/binding_registry.h"
 
 #include <algorithm>
-#include <cctype>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include <rex/cvar.h>
-#include <rex/ui/keybinds.h>
+#include <rex/hid/key_chord.h>
+#include <rex/hid/virtual_key.h>
+#include <rex/string.h>
 
+#include "core/cvar_table.h"
 #include "core/logging.h"
 #include "engine/input/button_map.h"
 #include "platform/platform.h"
-
-REXCVAR_DECLARE(i32, bd_opt_ctl_normal_type);
 
 namespace bd::engine {
 
 namespace {
 
-constexpr const char *kControlTypeCvar = "bd_opt_ctl_normal_type";
+constexpr const char *kControlTypeCvar = "bd.opt_ctl_normal_type";
 
 struct PadKeybind {
   u16 code;
@@ -27,24 +27,24 @@ struct PadKeybind {
 };
 
 constexpr PadKeybind kPadKeybinds[] = {
-    {0, "keybind_dpad_up"},          {1, "keybind_dpad_down"},
-    {2, "keybind_dpad_left"},        {3, "keybind_dpad_right"},
-    {4, "keybind_start"},            {5, "keybind_back"},
-    {6, "keybind_lstick_press"},     {7, "keybind_rstick_press"},
-    {8, "keybind_a"},                {9, "keybind_b"},
-    {10, "keybind_x"},               {11, "keybind_y"},
-    {12, "keybind_left_trigger"},    {13, "keybind_right_trigger"},
-    {14, "keybind_left_shoulder"},   {15, "keybind_right_shoulder"},
-    {16, "keybind_lstick_up"},       {17, "keybind_lstick_down"},
-    {18, "keybind_lstick_right"},    {19, "keybind_lstick_left"},
-    {20, "keybind_rstick_up"},       {21, "keybind_rstick_down"},
-    {22, "keybind_rstick_right"},    {23, "keybind_rstick_left"},
+    {0, "hid.keybind_dpad_up"},          {1, "hid.keybind_dpad_down"},
+    {2, "hid.keybind_dpad_left"},        {3, "hid.keybind_dpad_right"},
+    {4, "hid.keybind_start"},            {5, "hid.keybind_back"},
+    {6, "hid.keybind_lstick_press"},     {7, "hid.keybind_rstick_press"},
+    {8, "hid.keybind_a"},                {9, "hid.keybind_b"},
+    {10, "hid.keybind_x"},               {11, "hid.keybind_y"},
+    {12, "hid.keybind_left_trigger"},    {13, "hid.keybind_right_trigger"},
+    {14, "hid.keybind_left_shoulder"},   {15, "hid.keybind_right_shoulder"},
+    {16, "hid.keybind_lstick_up"},       {17, "hid.keybind_lstick_down"},
+    {18, "hid.keybind_lstick_right"},    {19, "hid.keybind_lstick_left"},
+    {20, "hid.keybind_rstick_up"},       {21, "hid.keybind_rstick_down"},
+    {22, "hid.keybind_rstick_right"},    {23, "hid.keybind_rstick_left"},
 };
 
 std::string OldKeys(int padButton) {
   for (const PadKeybind &bind : kPadKeybinds) {
     if (static_cast<int>(bind.code) == padButton)
-      return rex::cvar::GetFlagByName(bind.cvar);
+      return CvarGet(bind.cvar);
   }
   return {};
 }
@@ -52,14 +52,14 @@ std::string OldKeys(int padButton) {
 bool StoredKeys(int padButton) {
   for (const PadKeybind &bind : kPadKeybinds) {
     if (static_cast<int>(bind.code) == padButton)
-      return rex::cvar::HasNonDefaultValue(bind.cvar);
+      return CvarIsSet(bind.cvar);
   }
   return false;
 }
 
 bool AnyStoredKeys() {
   for (const PadKeybind &bind : kPadKeybinds) {
-    if (rex::cvar::HasNonDefaultValue(bind.cvar))
+    if (CvarIsSet(bind.cvar))
       return true;
   }
   return false;
@@ -71,12 +71,12 @@ bool MouseSource(const Source &source) {
     return true;
   if (source.kind != SourceKind::Key)
     return false;
-  const auto vk = static_cast<rex::ui::VirtualKey>(source.code);
-  return vk == rex::ui::VirtualKey::kLButton ||
-         vk == rex::ui::VirtualKey::kRButton ||
-         vk == rex::ui::VirtualKey::kMButton ||
-         vk == rex::ui::VirtualKey::kXButton1 ||
-         vk == rex::ui::VirtualKey::kXButton2;
+  const auto vk = static_cast<rex::hid::VirtualKey>(source.code);
+  return vk == rex::hid::VirtualKey::kLButton ||
+         vk == rex::hid::VirtualKey::kRButton ||
+         vk == rex::hid::VirtualKey::kMButton ||
+         vk == rex::hid::VirtualKey::kXButton1 ||
+         vk == rex::hid::VirtualKey::kXButton2;
 }
 
 int DefaultPadButton(const std::vector<Source> &sources) {
@@ -95,8 +95,6 @@ struct NamedCode {
 };
 
 constexpr NamedCode kNamed[] = {
-    {"WheelUp", SourceKind::MouseWheel, 0, 1},
-    {"WheelDown", SourceKind::MouseWheel, 0, -1},
     {"LStick", SourceKind::PadAxes, u16(AxisPair::Left), 0},
     {"RStick", SourceKind::PadAxes, u16(AxisPair::Right), 0},
     {"PadDUp", SourceKind::PadButton, 0, 0},
@@ -125,34 +123,8 @@ constexpr NamedCode kNamed[] = {
     {"RStickLeft", SourceKind::PadButton, 23, 0},
 };
 
-u8 TakeModifiers(std::string_view &token) {
-  u8 mods = 0;
-  for (;;) {
-    if (token.starts_with("Shift+")) {
-      mods |= platform::KeyboardInput::kModShift;
-      token.remove_prefix(6);
-    } else if (token.starts_with("Ctrl+")) {
-      mods |= platform::KeyboardInput::kModCtrl;
-      token.remove_prefix(5);
-    } else if (token.starts_with("Alt+")) {
-      mods |= platform::KeyboardInput::kModAlt;
-      token.remove_prefix(4);
-    } else {
-      return mods;
-    }
-  }
-}
-
-std::string_view Trim(std::string_view s) {
-  while (!s.empty() && std::isspace(static_cast<unsigned char>(s.front())))
-    s.remove_prefix(1);
-  while (!s.empty() && std::isspace(static_cast<unsigned char>(s.back())))
-    s.remove_suffix(1);
-  return s;
-}
-
 std::string CvarName(Action action) {
-  return std::string("bind_") + Describe(action).name;
+  return std::string("bind.") + Describe(action).name;
 }
 
 bool SameSource(const Source &a, const Source &b) {
@@ -173,7 +145,7 @@ void ApplyList(std::vector<Source> &out, std::vector<std::string> &errors,
     const std::string_view raw = value.substr(
         pos,
         comma == std::string_view::npos ? std::string_view::npos : comma - pos);
-    const std::string_view token = Trim(raw);
+    const std::string_view token = rex::Trim(raw);
     if (token.empty()) {
       if (comma == std::string_view::npos)
         break;
@@ -242,7 +214,7 @@ bool AxisKeys(AxisPair pair, std::string &out) {
   for (const int button : kAxisKeyButtons[which]) {
     const std::string value = OldKeys(button);
     const std::string_view token =
-        Trim(std::string_view(value).substr(0, value.find(',')));
+        rex::Trim(std::string_view(value).substr(0, value.find(',')));
     if (token.empty())
       return false;
     stored = stored || StoredKeys(button);
@@ -286,24 +258,27 @@ std::string FormatList(const std::vector<Source> &sources) {
 
 bool ParseSource(std::string_view token, Source &out) {
   out = Source{};
-  out.mods = TakeModifiers(token);
-  if (token.empty())
-    return false;
-
   for (const NamedCode &n : kNamed) {
-    if (token == n.name) {
-      out.kind = n.kind;
-      out.code = n.code;
-      out.sign = n.sign;
-      return true;
-    }
+    if (token != n.name)
+      continue;
+    out.kind = n.kind;
+    out.code = n.code;
+    out.sign = n.sign;
+    return true;
   }
 
-  const auto vk = rex::ui::ParseVirtualKey(token);
-  if (vk == rex::ui::VirtualKey::kNone)
+  const auto chord = rex::hid::ParseKeyChord(token);
+  if (!chord || chord->key == rex::hid::VirtualKey::kNone)
     return false;
+  out.mods = static_cast<u8>(chord->modifiers);
+  if (chord->key == rex::hid::VirtualKey::kWheelUp ||
+      chord->key == rex::hid::VirtualKey::kWheelDown) {
+    out.kind = SourceKind::MouseWheel;
+    out.sign = chord->key == rex::hid::VirtualKey::kWheelUp ? 1 : -1;
+    return true;
+  }
   out.kind = SourceKind::Key;
-  out.code = static_cast<u16>(vk);
+  out.code = static_cast<u16>(chord->key);
   return true;
 }
 
@@ -311,25 +286,30 @@ bool FormatSource(const Source &source, std::string &out) {
   out.clear();
 
   std::string prefix;
-  if (source.mods & platform::KeyboardInput::kModCtrl)
+  if (source.mods & platform::kModCtrl)
     prefix += "Ctrl+";
-  if (source.mods & platform::KeyboardInput::kModAlt)
+  if (source.mods & platform::kModAlt)
     prefix += "Alt+";
-  if (source.mods & platform::KeyboardInput::kModShift)
+  if (source.mods & platform::kModShift)
     prefix += "Shift+";
+
+  if (source.kind == SourceKind::MouseWheel) {
+    out = prefix + rex::hid::VirtualKeyToString(
+                       source.sign > 0 ? rex::hid::VirtualKey::kWheelUp
+                                       : rex::hid::VirtualKey::kWheelDown);
+    return true;
+  }
 
   for (const NamedCode &n : kNamed) {
     if (n.kind != source.kind || n.code != source.code)
-      continue;
-    if (n.kind == SourceKind::MouseWheel && n.sign != source.sign)
       continue;
     out = prefix + n.name;
     return true;
   }
 
   if (source.kind == SourceKind::Key) {
-    const auto vk = static_cast<rex::ui::VirtualKey>(source.code);
-    const std::string key = rex::ui::VirtualKeyToString(vk);
+    const auto vk = static_cast<rex::hid::VirtualKey>(source.code);
+    const std::string key = rex::hid::VirtualKeyToString(vk);
     if (key.empty())
       return false;
     out = prefix + key;
@@ -351,23 +331,36 @@ void Bindings::Init() {
 
     ApplyList(sources_[i], parseErrors_, action, desc.defaults);
 
-    rex::cvar::RegisterFlag(rex::cvar::FlagEntry{
-        .name = CvarName(action),
-        .type = rex::cvar::FlagType::String,
-        .category = "Input/Binds",
-        .description =
-            std::string("Inputs bound to the '") + desc.name + "' action",
-        .setter =
-            [this, i](std::string_view v) {
-              ApplyList(sources_[i], parseErrors_, static_cast<Action>(i), v);
-              ++generation_;
-              return true;
-            },
-        .getter = [this, i]() { return FormatList(sources_[i]); },
-        .default_value = desc.defaults,
-    });
+    names_[i] = CvarName(action);
+    descriptions_[i] =
+        std::string("Inputs bound to the '") + desc.name + "' action";
+    vars_[i] = std::make_unique<rex::cvar::Var<std::string>>(
+        names_[i], desc.defaults, descriptions_[i]);
+    table_.push_back(vars_[i].get());
   }
   ++generation_;
+}
+
+void Bindings::Register(rex::cvar::ICvarRegistry &registry) {
+  if (auto added = registry.Add(table_); !added) {
+    REXLOG_WARN(bd, "input binds not registered: {}", added.error().message);
+    return;
+  }
+  for (int i = 0; i < kActionCount; ++i) {
+    auto handle = registry.OnChange(
+        names_[i], [this, i](std::string_view, std::string_view v) {
+          ApplyList(sources_[i], parseErrors_, static_cast<Action>(i), v);
+          ++generation_;
+        });
+    if (handle)
+      callbacks_.push_back(std::move(*handle));
+  }
+  ++generation_;
+}
+
+void Bindings::Unregister(rex::cvar::ICvarRegistry &registry) {
+  callbacks_.clear();
+  registry.Unregister(table_);
 }
 
 void Bindings::Migrate() {
@@ -375,16 +368,16 @@ void Bindings::Migrate() {
     return;
 
   for (int i = 0; i < kActionCount; ++i) {
-    if (rex::cvar::HasNonDefaultValue(CvarName(static_cast<Action>(i)))) {
+    if (CvarIsSet(CvarName(static_cast<Action>(i)))) {
       migrated_ = true;
       return;
     }
   }
 
   int type = 0;
-  bool haveType = rex::cvar::HasNonDefaultValue(kControlTypeCvar);
+  bool haveType = CvarIsSet(kControlTypeCvar);
   if (haveType) {
-    type = REXCVAR_GET(bd_opt_ctl_normal_type);
+    type = REXCVAR_GET(bd::cvars::opt_ctl_normal_type);
     haveType = type > 0 && type < ButtonMap::kControlTypes;
   }
   const bool haveKeys = AnyStoredKeys();
@@ -462,7 +455,7 @@ void Bindings::Migrate() {
         value += token;
       }
     }
-    rex::cvar::SetFlagByName(CvarName(action), value);
+    CvarSet(CvarName(action), value);
     ++seeded;
   }
   ReportParseErrors();
@@ -472,7 +465,7 @@ void Bindings::Migrate() {
   const std::string from =
       haveType ? "controller type " + std::to_string(type) + " and its keys"
                : "the keys it had bound";
-  BD_INFO("[input] profile migrated: {} binds seeded from {}", seeded, from);
+  REXLOG_INFO(bd, "input profile migrated: {} binds seeded from {}", seeded, from);
 }
 
 const std::vector<Source> &Bindings::Sources(Action action) const {
@@ -497,20 +490,19 @@ bool Bindings::SetSource(Action action, int slot, const Source &source) {
 }
 
 bool Bindings::SetSources(Action action, const std::vector<Source> &sources) {
-  const bool ok =
-      rex::cvar::SetFlagByName(CvarName(action), FormatList(sources));
+  const bool ok = CvarSet(CvarName(action), FormatList(sources));
   ReportParseErrors();
   return ok;
 }
 
 bool Bindings::ClearSources(Action action) {
-  const bool ok = rex::cvar::SetFlagByName(CvarName(action), "");
+  const bool ok = CvarSet(CvarName(action), "");
   ReportParseErrors();
   return ok;
 }
 
 bool Bindings::Reset(Action action) {
-  rex::cvar::ResetToDefault(CvarName(action));
+  (void)Cvars().ResetToDefault(CvarName(action));
   ReportParseErrors();
   return true;
 }
@@ -521,7 +513,7 @@ bool Bindings::ResetContext(ActionContext context) {
     const auto action = static_cast<Action>(i);
     if (Describe(action).context != context)
       continue;
-    rex::cvar::ResetToDefault(CvarName(action));
+    (void)Cvars().ResetToDefault(CvarName(action));
     any = true;
   }
   ReportParseErrors();
@@ -545,7 +537,7 @@ std::optional<Action> Bindings::Conflict(Action action,
 
 void Bindings::ReportParseErrors() {
   for (const auto &msg : parseErrors_)
-    BD_WARN("{}", msg);
+    REXLOG_WARN(bd, "{}", msg);
   parseErrors_.clear();
 }
 

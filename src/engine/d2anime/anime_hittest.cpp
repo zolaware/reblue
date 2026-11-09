@@ -182,15 +182,15 @@ int CursorRowEdgeDirection(const AnimeMenu &menu) {
 }
 
 bool CursorInMenuSpace(f32 &x, f32 &y) {
-  f32 wx = 0.0f;
-  f32 wy = 0.0f;
-  if (!bd::platform::Mouse().Position(wx, wy))
+  const auto pointer = bd::platform::HID().GetPointer();
+  if (!pointer.has_position)
     return false;
+  const f32 wx = pointer.x;
+  const f32 wy = pointer.y;
 
-  f32 winW = 0.0f;
-  f32 winH = 0.0f;
-  if (!bd::platform::Mouse().WindowSize(winW, winH) || winW <= 0.0f ||
-      winH <= 0.0f)
+  const f32 winW = f32(pointer.window_width);
+  const f32 winH = f32(pointer.window_height);
+  if (winW <= 0.0f || winH <= 0.0f)
     return false;
 
   // The window is not the picture. Present blits the composite into the

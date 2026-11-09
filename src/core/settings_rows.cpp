@@ -9,15 +9,18 @@
  */
 #include "core/settings_rows.h"
 
+#include "core/cvar_table.h"
 #include "core/i18n.h"
 #include "core/settings.h"
 
+#include <cstdlib>
 #include <iterator>
 #include <string>
 
+#include <rex/ui/resolution_preset.h>
 #include <rex/cvar.h>
-#include <rex/graphics/video_mode_util.h>
 #include <rex/types.h>
+#include <rex/ui/video_mode.h>
 
 #include "audio/audio.h"
 #include "engine/engine.h"
@@ -44,28 +47,28 @@ bool RubyHidden() { return i18n::CurrentLocale() != engine::kLocaleJP; }
 bool VoiceLanguageHidden() { return engine::Language().VoiceCount() < 2; }
 
 double DisplayModeNum() {
-  if (rex::cvar::GetFlagByName("fullscreen") != "true")
+  if (CvarGet("ui.fullscreen") != "true")
     return 0.0;
-  return rex::cvar::GetFlagByName("fullscreen_exclusive") == "true" ? 2.0 : 1.0;
+  return CvarGet("ui.fullscreen_exclusive") == "true" ? 2.0 : 1.0;
 }
 
 double RenderResolutionNum() {
   i32 w = 0, h = 0;
-  return rex::graphics::video_mode_util::TryGetResolutionPresetFromCVar(w, h)
+  return rex::ui::TryGetResolutionPresetFromCvar(Cvars(), w, h)
              ? static_cast<double>(w)
              : 0.0;
 }
 
 bool SetRenderResolution(const char *preset) {
-  rex::cvar::ResetToDefault("video_mode_width");
-  rex::cvar::ResetToDefault("video_mode_height");
+  (void)Cvars().ResetToDefault("ui.video_mode_width");
+  (void)Cvars().ResetToDefault("ui.video_mode_height");
   i32 w = 0, h = 0;
   bool ok = true;
   if (!preset || !*preset ||
-      !rex::graphics::video_mode_util::TryParseResolutionPreset(preset, w, h)) {
-    rex::cvar::ResetToDefault("resolution");
+      !rex::ui::TryParseResolutionPreset(preset, w, h)) {
+    (void)Cvars().ResetToDefault("ui.resolution");
   } else {
-    ok = rex::cvar::SetFlagByName("resolution", preset);
+    ok = CvarSet("ui.resolution", preset);
   }
   gpu::Output::Recompute();
   return ok;
@@ -228,7 +231,7 @@ constexpr SettingOption kMSAA[] = {{.text = "Off", .num = 0, .key = "opt.off"},
 constexpr SettingOption kSuperSampling[] = {
     {.text = "Off", .num = 1, .key = "opt.off"},
     {.text = "On", .num = 2, .key = "opt.on"}};
-// bd_anisotropy keeps its 0..16 range for anyone who wants a middle step, but
+// bd.anisotropy keeps its 0..16 range for anyone who wants a middle step, but
 // the menus offer the two ends of it.
 constexpr i32 kAnisotropyOn = 16;
 constexpr SettingOption kAniso[] = {
@@ -494,13 +497,13 @@ constexpr SettingRow kDisplaySettings[] = {
     {.label = "settings.display.display_mode.label",
      .group = "menu.header.window",
      .binding = {.get = DisplayModeNum,
-                 .cvar = "fullscreen",
-                 .cvar2 = "fullscreen_exclusive"},
+                 .cvar = "ui.fullscreen",
+                 .cvar2 = "ui.fullscreen_exclusive"},
      .options = kDisplayMode,
      .count = OptCount(kDisplayMode)},
     {.label = "settings.display.monitor.label",
      .group = "menu.header.window",
-     .binding = {.cvar = "monitor"},
+     .binding = {.cvar = "ui.monitor"},
      .sliderUi = true,
      .special = SettingSpecial::Monitor},
     {.label = "settings.display.resolution.label",
@@ -511,7 +514,7 @@ constexpr SettingRow kDisplaySettings[] = {
      .sliderUi = true},
     {.label = "settings.display.window_size.label",
      .group = "menu.header.window",
-     .binding = {.cvar = "window_width", .cvar2 = "window_height"},
+     .binding = {.cvar = "ui.window_width", .cvar2 = "ui.window_height"},
      .options = kWindowSize,
      .count = OptCount(kWindowSize),
      .sliderUi = true,
@@ -534,13 +537,13 @@ constexpr SettingRow kDisplaySettings[] = {
      .group = "menu.header.window",
      .binding = {.get =
                      [] {
-                       return static_cast<double>(
-                           ui::Settings::Get().CursorHideSeconds());
+                       return std::strtod(
+                           CvarGet("ui.cursor_timeout").c_str(), nullptr);
                      },
                  .set =
                      [](double v) {
-                       return ui::Settings::Get().SetCursorHideSeconds(
-                           static_cast<i32>(v));
+                       return CvarSet("ui.cursor_timeout",
+                                      std::to_string(static_cast<i32>(v)));
                      }},
      .kind = SettingKind::Slider,
      .smin = 0.0,
@@ -835,7 +838,7 @@ constexpr SettingRow kControlsSettings[] = {
      .count = OptCount(kOnOff)},
     {.label = "settings.controls.mouse_sensitivity.label",
      .group = "menu.header.keyboard_mouse",
-     .binding = {.cvar = "mnk_sensitivity"},
+     .binding = {.cvar = "hid.mnk_sensitivity"},
      .kind = SettingKind::Slider,
      .smin = 0.25,
      .smax = 10.0,

@@ -17,6 +17,7 @@
 #include <vector>
 
 #include <rex/hook.h>
+#include <rex/ppc/detour.h>
 #include <rex/ppc/stack.h>
 #include <rex/types.h>
 
@@ -40,10 +41,7 @@
 #include "gpu/gpu.h"
 
 REX_IMPORT(__imp__AnimeVarBag_FindChildByName, VarBagFindChild, u32(u32, u32));
-
-REX_EXTERN(__imp__MechattMap__MainTask__Update);
-REX_EXTERN(__imp__MechattMap__MainTask__Draw);
-REX_EXTERN(__imp__WorldMapScreen_ApplyReduceLayout);
+REX_IMPORT(__imp__MechattMap__MainTask__Update, MechattMapMainTaskUpdate, void(u32));
 
 namespace bd::engine {
 
@@ -305,9 +303,9 @@ bool AreaMap::StepFloor(int delta) {
 void AreaMap::ApplyScreenVars(bool areaMap) {
   // The stock header names the world map, and the stock footer's zoom prompt
   // belongs to the world map's own LB/RB. Both are children of a layout.
-  rex::ppc::stack_guard guard;
-  const u32 headerName = rex::ppc::stack_push_string("wrmap_hdr");
-  const u32 footerName = rex::ppc::stack_push_string("wrmap_ftr");
+  rex::ppc::StackFrame frame;
+  const u32 headerName = frame.PushString("wrmap_hdr").GetGuestAddress();
+  const u32 footerName = frame.PushString("wrmap_ftr").GetGuestAddress();
 
   const D2AnimeTask layouts[kLayoutCount] = {screen_.Fade(), screen_.Layout()};
   for (int i = 0; i < kLayoutCount; ++i) {
@@ -623,8 +621,8 @@ void AreaMap::Draw(const MechattMapMainTask &screen) {
   // The body draws at half alpha and ramps to nothing at the left and right
   // edges. The engine 2D path has no gradient of its own, so the ramp is three
   // quads whose vertex colors meet.
-  constexpr u32 kMapBodyColor = 0x80FFFFFFu;
-  constexpr u32 kMapEdgeColor = 0x00FFFFFFu;
+  constexpr rex::Color kMapBodyColor = rex::Color::FromARGB8(0x80FFFFFFu);
+  constexpr rex::Color kMapEdgeColor = rex::Color::FromARGB8(0x00FFFFFFu);
   constexpr float kFadeRatio = 0.05f;
 
   const auto corner = [&](float x, float y, float u, float v, u32 color) {
@@ -653,13 +651,13 @@ void AreaMap::Draw(const MechattMapMainTask &screen) {
   };
 
   const auto band = [&](float x0, float x1, float uLeft, float uRight,
-                        u32 colorLeft, u32 colorRight) {
-    PrimBegin(kTexturedQuad2D, kMapZ, 0, 0);
+                        rex::Color colorLeft, rex::Color colorRight) {
+    PrimBegin(kTexturedQuad2D, kMapZ);
     PrimSetTexture(0, floorTex);
-    corner(x0, -halfH, uLeft, v0, colorLeft);
-    corner(x0, halfH, uLeft, v1, colorLeft);
-    corner(x1, halfH, uRight, v1, colorRight);
-    corner(x1, -halfH, uRight, v0, colorRight);
+    corner(x0, -halfH, uLeft, v0, colorLeft.ToARGB8());
+    corner(x0, halfH, uLeft, v1, colorLeft.ToARGB8());
+    corner(x1, halfH, uRight, v1, colorRight.ToARGB8());
+    corner(x1, -halfH, uRight, v0, colorRight.ToARGB8());
     PrimEnd();
   };
 
@@ -714,7 +712,7 @@ void AreaMap::Draw(const MechattMapMainTask &screen) {
       db.TexRot() * kDegToRad + leader.Rotation()[1] - kHalfPi;
   PrimSelectTexture(kChromeArrow, miniMap.ChromeTexAddress());
   PrimDrawRectRotated(markerX, markerY, kPlayerZ, kMarkerSize, kMarkerSize,
-                      heading, 0, 0, 0, 0, 0, 0, kOpaqueWhite);
+                      heading, 0, 0, 0, 0, 0, 0, kOpaqueWhite.ToARGB8());
 }
 
 // ApplyReduceLayout resets the rest of the zoom crossfade but not its alphas.
@@ -742,24 +740,22 @@ void AreaMapTick() {
 
 } // namespace bd::engine
 
-// The hooks stay raw: they call engine code on the hook's own stack, which
-// only ctx carries.
-
-REX_HOOK_RAW(MechattMap__MainTask__Update) {
-  const bd::engine::MechattMapMainTask screen(ctx.r3.u32);
+void MechattMapMainTaskUpdate_hook(u32 screenVA) {
+  const bd::engine::MechattMapMainTask screen(screenVA);
   if (bd::engine::AreaMap::Get().Update(screen))
     return;
-  __imp__MechattMap__MainTask__Update(ctx, base);
+  MechattMapMainTaskUpdate(screenVA);
 }
+REX_HOOK(MechattMap__MainTask__Update, MechattMapMainTaskUpdate_hook);
 
-REX_HOOK_RAW(MechattMap__MainTask__Draw) {
-  const bd::engine::MechattMapMainTask screen(ctx.r3.u32);
-  __imp__MechattMap__MainTask__Draw(ctx, base);
+REX_DETOUR(MechattMap__MainTask__Draw, void, (u32 screenVA)) {
+  const bd::engine::MechattMapMainTask screen(screenVA);
+  original(screenVA);
   bd::engine::AreaMap::Get().Draw(screen);
 }
 
-REX_HOOK_RAW(WorldMapScreen_ApplyReduceLayout) {
-  const bd::engine::MechattMapMainTask screen(ctx.r3.u32);
-  __imp__WorldMapScreen_ApplyReduceLayout(ctx, base);
+REX_DETOUR(WorldMapScreen_ApplyReduceLayout, void, (u32 screenVA)) {
+  const bd::engine::MechattMapMainTask screen(screenVA);
+  original(screenVA);
   bd::engine::RestoreMapCrossfade(screen);
 }

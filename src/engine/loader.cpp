@@ -9,6 +9,7 @@
 #include <cstddef>
 
 #include <rex/ppc.h>
+#include <rex/ppc/midasm.h>
 
 #include "engine/sofdec_player.h"
 
@@ -23,7 +24,7 @@ struct LoaderSlot_t {
   /* 0x04 */ u8 _pad04[0x78];
 };
 static_assert(offsetof(LoaderSlot_t, state) == 0x00);
-static_assert(sizeof(LoaderSlot_t) == 124);
+static_assert(sizeof(LoaderSlot_t) == 0x7C);
 
 struct Loader_t {
   /* 0x00 */ u8 _pad00[0x84];
@@ -71,8 +72,9 @@ bool Loader::SetIconFade(f32 v) {
 
 // Loader::vf03, ahead of the show/hide test on the loading icon fade.
 // r31 = the Loader.
-void bdLoaderIconMovieHideHook(PPCRegister &r31) {
+REX_MIDASM_HOOK(bdLoaderIconMovieHideHook, (PPCRegister &r31)) {
   if (!bd::engine::SofdecPlayer::Playing())
     return;
   bd::engine::Loader(r31.u32).SetIconFade(0.0f);
 }
+REX_MIDASM_AT(bdLoaderIconMovieHideHook, 0x82129660, before, r31);

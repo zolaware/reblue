@@ -70,7 +70,7 @@ bool CopySurfaceToTextureLocked(VideoState &s, GuestTexture *src,
   if (dst->sampleCount != plume::RenderSampleCount::COUNT_1) {
     static std::atomic<u32> s_warn{0};
     if (s_warn.fetch_add(1, std::memory_order_relaxed) < 8) {
-      BD_WARN("{}: MSAA destination {}x{} rejected (resolve targets must be "
+      REXLOG_WARN(bd, "{}: MSAA destination {}x{} rejected (resolve targets must be "
               "single-sample)",
               reason, dst->width, dst->height);
     }
@@ -82,6 +82,11 @@ bool CopySurfaceToTextureLocked(VideoState &s, GuestTexture *src,
     return false;
 
   s.draw_framebuffer_bound = false;
+
+  // A source BD never drew reads uninitialized memory, and a cube face copy
+  // covers one subresource of the destination.
+  InitializeTargetLocked(s, src);
+  InitializeTargetLocked(s, dst);
 
   const bool dims_match =
       src->width == dst->width && src->height == dst->height;
@@ -114,7 +119,7 @@ bool CopySurfaceToTextureLocked(VideoState &s, GuestTexture *src,
   } else if (dst_is_cube) {
     static std::atomic<u32> s_warn{0};
     if (s_warn.fetch_add(1, std::memory_order_relaxed) < 8) {
-      BD_WARN("{}: cube resolve dst needs convert/scale (src={}x{} fmt={} "
+      REXLOG_WARN(bd, "{}: cube resolve dst needs convert/scale (src={}x{} fmt={} "
               "dst fmt={} scale={}), no per-face RTV, skipping",
               reason, src->width, src->height, static_cast<int>(src->format),
               static_cast<int>(dst->format), resolve_scale);
@@ -127,7 +132,7 @@ bool CopySurfaceToTextureLocked(VideoState &s, GuestTexture *src,
     if (src->descriptorIndex == kInvalidDescriptorIndex) {
       static std::atomic<u32> s_warn{0};
       if (s_warn.fetch_add(1, std::memory_order_relaxed) < 8) {
-        BD_ERROR("{}: source RT 0x{:x} not in bindless heap, can't "
+        REXLOG_ERROR(bd, "{}: source RT 0x{:x} not in bindless heap, can't "
                  "shader-resolve",
                  reason, reinterpret_cast<uintptr_t>(src));
       }
@@ -138,7 +143,7 @@ bool CopySurfaceToTextureLocked(VideoState &s, GuestTexture *src,
     if (!depth_dst && !IsRenderTargetCapable(dst->format)) {
       static std::atomic<u32> s_warn{0};
       if (s_warn.fetch_add(1, std::memory_order_relaxed) < 8) {
-        BD_ERROR("{}: dst format {} is not RT-capable, skipping shader "
+        REXLOG_ERROR(bd, "{}: dst format {} is not RT-capable, skipping shader "
                  "resolve (src={}x{} fmt={} dst={}x{} fmt={})",
                  reason, static_cast<int>(dst->format), src->width, src->height,
                  static_cast<int>(src->format), dst->width, dst->height,
@@ -168,7 +173,7 @@ bool CopySurfaceToTextureLocked(VideoState &s, GuestTexture *src,
       if (!fb) {
         static std::atomic<u32> s_warn{0};
         if (s_warn.fetch_add(1, std::memory_order_relaxed) < 8) {
-          BD_ERROR("{}: createFramebuffer failed (depth_dst={}), skipping "
+          REXLOG_ERROR(bd, "{}: createFramebuffer failed (depth_dst={}), skipping "
                    "shader resolve (src={}x{} dst={}x{})",
                    reason, depth_dst ? 1 : 0, src->width, src->height,
                    dst->width, dst->height);
@@ -216,7 +221,7 @@ bool CopySurfaceToTextureLocked(VideoState &s, GuestTexture *src,
     if (!pipeline) {
       static std::atomic<u32> s_warn{0};
       if (s_warn.fetch_add(1, std::memory_order_relaxed) < 8) {
-        BD_ERROR("{}: createGraphicsPipeline failed for dst format {}", reason,
+        REXLOG_ERROR(bd, "{}: createGraphicsPipeline failed for dst format {}", reason,
                  static_cast<int>(dst->format));
       }
       return false;
@@ -298,6 +303,32 @@ bool ClearColorTargetLocked(VideoState &s, GuestTexture *dst,
 }
 
 } // namespace
+
+void InitializeTargetLocked(VideoState &s, GuestTexture *t) {
+  if (!t || !t->texture || t->layout != plume::RenderTextureLayout::UNKNOWN)
+    return;
+  const bool depth = IsDepthFormat(t->format);
+  // Mirrors the flag choice at creation: color cubes are never render targets.
+  if (!depth &&
+      (!IsRenderTargetCapable(t->format) ||
+       t->viewDimension == plume::RenderTextureViewDimension::TEXTURE_CUBE))
+    return;
+  BeginCommandList(s);
+  if (!s.command_list_open)
+    return;
+  const plume::RenderTextureLayout write_layout =
+      depth ? plume::RenderTextureLayout::DEPTH_WRITE
+            : plume::RenderTextureLayout::COLOR_WRITE;
+  plume::RenderTextureBarrier b(t->texture, write_layout);
+  s.command_list->barriers(plume::RenderBarrierStage::GRAPHICS, &b, 1);
+  s.command_list->discardTexture(t->texture);
+  t->layout = write_layout;
+  // The discard satisfies D3D12 but leaves heap garbage. A target read before
+  // BD ever wrote it should read zero, as it did from a zeroed heap.
+  if (!depth && t->sampleCount == plume::RenderSampleCount::COUNT_1 &&
+      t->viewDimension == plume::RenderTextureViewDimension::TEXTURE_2D)
+    ClearColorTargetLocked(s, t, ArgbToRenderColor(0));
+}
 
 void Video::ClearTexture(GuestTexture *texture, u32 color_argb) {
   if (!texture || !texture->texture)

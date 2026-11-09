@@ -14,7 +14,7 @@
 #include <mutex>
 #include <unordered_map>
 
-#include <rex/graphics/xenos.h>
+#include <rex/xenos/xenos.h>
 
 #include "core/logging.h"
 #include "gpu/bindless_allocator.h"
@@ -25,7 +25,7 @@ namespace bd::gpu {
 
 namespace {
 
-namespace xe = rex::graphics::xenos;
+namespace xe = rex::xenos;
 
 // Only these fields ever vary, so they form the key, not the full desc.
 // anisoEnabled is separate: at bd_anisotropy 1 both states carry maxAniso 1.
@@ -110,7 +110,7 @@ bool IsNearest(xe::TextureFilter filter) {
 } // namespace
 
 plume::RenderSamplerDesc DecodeFromFetch(const u32 fc[6]) {
-  xe::xe_gpu_texture_fetch_t fetch;
+  xe::TextureFetch fetch;
   std::memcpy(&fetch, fc, sizeof(fetch));
 
   plume::RenderSamplerDesc d;
@@ -167,8 +167,8 @@ u32 ResolveSlotLocked(const plume::RenderSamplerDesc &desc) {
   if (slot == 0) {
     static std::atomic<u32> warned{0};
     if (warned.fetch_add(1, std::memory_order_relaxed) < 4) {
-      BD_WARN(
-          "[sampler-cache] bindless sampler heap full, falling back to slot 0");
+      REXLOG_WARN(bd, 
+          "sampler-cache bindless sampler heap full, falling back to slot 0");
     }
     return 0;
   }

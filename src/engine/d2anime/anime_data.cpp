@@ -8,14 +8,17 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <string>
 #include <vector>
 
 #include <rex/hook.h>
+#include <rex/memory/byte_swap.h>
 #include <rex/ppc/stack.h>
 #include <rex/types.h>
+#include <rex/string/utf8.h>
 
-#include "core/encoding.h"
 #include "core/memory_helpers.h"
+#include "engine/d2anime/anime_var.h"
 
 REX_IMPORT(__imp__AnimeVarBag_SetStringVar, VarBag_SetString,
            void(u32, u32, u32));
@@ -39,30 +42,6 @@ namespace {
 
 constexpr u32 kMaxChainEntries = 4096;
 constexpr u32 kAnimeVarTrackCap = 512;
-
-// AnimeVar_t::type, the two the engine's own setters check before writing.
-enum class AnimeVarType : u32 {
-  Float = 2,
-  String = 3,
-};
-
-// One entry of an AnimeVarBag, as AnimeVarBag_SetStringVar and
-// AnimeVarBag_GetFloatVar read it.
-struct AnimeVar_t {
-  /* 0x00 */ u8 _pad000[0x04];
-  /* 0x04 */ be_u32 type;
-  /* 0x08 */ u8 _pad008[0x1C];
-  // The scalar for a float var. A string var stores its std::wstring in the
-  // same slot, so a wide assignment takes the address of this field rather
-  // than its value.
-  /* 0x24 */ be_f32 value;
-
-  bool Is(AnimeVarType t) const {
-    return static_cast<u32>(type) == static_cast<u32>(t);
-  }
-};
-static_assert(offsetof(AnimeVar_t, type) == 0x04);
-static_assert(offsetof(AnimeVar_t, value) == 0x24);
 
 struct AnimeData_t;
 
@@ -174,9 +153,9 @@ void AnimeData::SetString(const char *name, const char *value) {
   const u32 bag = Address();
   if (!bag)
     return;
-  rex::ppc::stack_guard guard;
-  u32 nameAddr = rex::ppc::stack_push_string(name);
-  u32 valueAddr = rex::ppc::stack_push_string(value);
+  rex::ppc::StackFrame frame;
+  u32 nameAddr = frame.PushString(name).GetGuestAddress();
+  u32 valueAddr = frame.PushString(value).GetGuestAddress();
   VarBag_SetString(bag, nameAddr, valueAddr);
 }
 
@@ -184,33 +163,29 @@ void AnimeData::SetTextU16(const char *name, std::u16string_view text) {
   const u32 bag = Address();
   if (!bag)
     return;
-  rex::ppc::stack_guard guard;
-  u32 nameAddr = rex::ppc::stack_push_string(name);
+  rex::ppc::StackFrame frame;
+  u32 nameAddr = frame.PushString(name).GetGuestAddress();
   u32 entry = VarBag_FindVar(bag, nameAddr);
   auto *var = mem::at<AnimeVar_t>(entry);
   if (!var || !var->Is(AnimeVarType::String))
     return;
 
-  std::vector<u16> be(text.size() + 1, 0);
-  for (size_t i = 0; i < text.size(); ++i)
-    be[i] = __builtin_bswap16(static_cast<u16>(text[i]));
-
-  u32 buf = rex::ppc::stack_push(be.data(), static_cast<u32>(be.size() * 2));
+  u32 buf = frame.PushWideString(text).GetGuestAddress();
   WString_Assign(entry + offsetof(AnimeVar_t, value), buf,
                  static_cast<u32>(text.size()));
   Var_PropagateString(entry);
 }
 
 void AnimeData::SetText(const char *name, std::string_view utf8) {
-  SetTextU16(name, bd::Utf8ToU16(utf8));
+  SetTextU16(name, rex::ToUTF16(utf8));
 }
 
 void AnimeData::SetColor(const char *name, u32 rgba) {
   const u32 bag = Address();
   if (!bag)
     return;
-  rex::ppc::stack_guard guard;
-  u32 nameAddr = rex::ppc::stack_push_string(name);
+  rex::ppc::StackFrame frame;
+  u32 nameAddr = frame.PushString(name).GetGuestAddress();
   VarBag_SetColor(bag, nameAddr, rgba);
 }
 
@@ -218,8 +193,8 @@ void AnimeData::SetFloat(const char *name, double value) {
   const u32 bag = Address();
   if (!bag)
     return;
-  rex::ppc::stack_guard guard;
-  u32 nameAddr = rex::ppc::stack_push_string(name);
+  rex::ppc::StackFrame frame;
+  u32 nameAddr = frame.PushString(name).GetGuestAddress();
   VarBag_SetFloat(bag, nameAddr, value);
 }
 
@@ -227,8 +202,8 @@ std::optional<f32> AnimeData::Float(const char *name) const {
   const u32 bag = Address();
   if (!bag)
     return std::nullopt;
-  rex::ppc::stack_guard guard;
-  u32 nameAddr = rex::ppc::stack_push_string(name);
+  rex::ppc::StackFrame frame;
+  u32 nameAddr = frame.PushString(name).GetGuestAddress();
   const auto *var = mem::at<AnimeVar_t>(VarBag_FindVar(bag, nameAddr));
   if (!var || !var->Is(AnimeVarType::Float))
     return std::nullopt;

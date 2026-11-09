@@ -32,4 +32,12 @@ void PollKeyboardToGuest();
 // single-key. The chord avoids colliding with guest debug F-key handlers.
 bool PollMindowsHotkey();
 
+// While Mindows is open its keys must not also drive the keyboard pad, so the
+// title reads idle pads until it closes.
+void HoldPadsForMindows(bool open);
+
+// True while Mindows holds the keyboard. Key binds then drive nothing but the
+// Mindows toggle.
+bool MindowsOwnsKeyboard();
+
 } // namespace bd::platform

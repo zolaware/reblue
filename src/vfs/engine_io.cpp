@@ -16,12 +16,11 @@
 #include <vector>
 
 #include <rex/hook.h>
-#include <rex/memory/utils.h>
+#include <rex/ppc/detour.h>
 #include <rex/ppc/function.h>
 #include <rex/runtime.h>
-#include <rex/system/function_dispatcher.h>
-#include <rex/system/kernel_state.h>
-#include <rex/system/thread_state.h>
+#include <rex/runtime/function_dispatcher.h>
+#include <rex/runtime/thread_state.h>
 #include <rex/types.h>
 
 #include "core/logging.h"
@@ -132,7 +131,7 @@ void EnqueueDeferredCompletion(u32 request, u32 cb, u32 cbctx) {
     return; // simple readers pass cb==0, nothing to complete
   std::lock_guard lock(g_pendingMutex);
   g_pending.push_back(
-      {cb, cbctx, request, rex::runtime::ThreadState::GetThreadID()});
+      {cb, cbctx, request, rex::runtime::ThreadState::GetBoundThreadID()});
   g_pendingCount.store(static_cast<u32>(g_pending.size()),
                        std::memory_order_release);
 }
@@ -141,8 +140,8 @@ void DrainDeferredCompletions() {
   if (g_draining || g_pendingCount.load(std::memory_order_acquire) == 0)
     return;
   g_draining = true;
-  const u32 tid = rex::runtime::ThreadState::GetThreadID();
-  auto *dispatcher = REX_KERNEL_STATE()->function_dispatcher();
+  const u32 tid = rex::runtime::ThreadState::GetBoundThreadID();
+  auto *dispatcher = bd::mem::runtime()->GetFunctionDispatcher();
   for (;;) {
     PendingCompletion pc;
     {
@@ -157,9 +156,9 @@ void DrainDeferredCompletions() {
       g_pendingCount.store(static_cast<u32>(g_pending.size()),
                            std::memory_order_release);
     }
-    // cb(r3=request, r4=cbctx) on a fresh nested PPCContext.
+    // cb(r3=request, r4=cbctx) on the thread's register file.
     if (auto *fn = dispatcher->GetFunction(pc.cb))
-      rex::ppc::GuestToHostFunction<void>(fn, pc.request, pc.cbctx);
+      rex::ppc::HostToGuestCall<void>(fn, pc.request, pc.cbctx);
   }
   g_draining = false;
 }
@@ -167,30 +166,25 @@ void DrainDeferredCompletions() {
 } // namespace
 
 // bdFileExistsCheck(path), returning the file size.
-//
-// Raw, on the inherited context: a typed REX_IMPORT re-roots the guest stack
-// at ThreadState's r1 and overwrites the frames live underneath it.
-REX_EXTERN(__imp__bdFileExistsCheck);
-REX_HOOK_RAW(bdFileExistsCheck) {
+REX_IMPORT(__imp__bdFileExistsCheck, guest_bdFileExistsCheck, u32(u32));
+
+u32 bdFileExistsCheck_hook(u32 pathVA) {
   auto &vfs = bd::vfs::VFS::Get();
 
-  const u32 pathVA = ctx.r3.u32;
   const auto key =
       bd::vfs::Key::FromGuestPath(bd::mem::str(pathVA)).Localized();
   auto &log = vfs.Log();
   auto answer = [&](const bd::vfs::StatResult &hit) {
     log.Record(key.string(), SourceOf(hit.kind));
-    ctx.r3.u64 = static_cast<u32>(hit.size);
+    return static_cast<u32>(hit.size);
   };
 
   if (auto hit = vfs.Files().Stat(key))
     return answer(*hit);
 
-  ctx.r3.u32 = pathVA;
-  __imp__bdFileExistsCheck(ctx, base);
-  if (ctx.r3.u32) {
+  if (const u32 result = guest_bdFileExistsCheck(pathVA)) {
     log.RecordEngineHit(key.string());
-    return;
+    return result;
   }
 
   // A path the engine cannot find may still be shipped in a pack it has not
@@ -199,20 +193,17 @@ REX_HOOK_RAW(bdFileExistsCheck) {
     return answer(*hit);
 
   log.Record(key.string(), bd::vfs::FileSource::Missing);
-  ctx.r3.u64 = 0;
+  return 0;
 }
 
-// bdFileReadStart(path, request, cb, cbctx).
-//
-// Raw, on the inherited context, for the same reason as bdFileExistsCheck.
-REX_EXTERN(__imp__bdFileReadStart);
-REX_HOOK_RAW(bdFileReadStart) {
-  auto &vfs = bd::vfs::VFS::Get();
+REX_HOOK(bdFileExistsCheck, bdFileExistsCheck_hook);
 
-  const u32 pathVA = ctx.r3.u32;
-  const u32 request = ctx.r4.u32;
-  const u32 cb = ctx.r5.u32;
-  const u32 cbctx = ctx.r6.u32;
+// bdFileReadStart(path, request, cb, cbctx).
+REX_IMPORT(__imp__bdFileReadStart, guest_bdFileReadStart,
+           i32(u32, u32, u32, u32));
+
+i32 bdFileReadStart_hook(u32 pathVA, u32 request, u32 cb, u32 cbctx) {
+  auto &vfs = bd::vfs::VFS::Get();
 
   const auto key =
       bd::vfs::Key::FromGuestPath(bd::mem::str(pathVA)).Localized();
@@ -222,35 +213,31 @@ REX_HOOK_RAW(bdFileReadStart) {
   // A serve failure falls through to the engine rather than failing the read,
   // so a broken overlay degrades to the shipped file instead of a load hang.
   if (hit && !ServeReadRequest(request, hit->bytes)) {
-    BD_ERROR("[vfs] no guest buffer for '{}' ({} bytes) from mount '{}'",
+    REXLOG_ERROR(bd, "vfs no guest buffer for '{}' ({} bytes) from mount '{}'",
              key.str(), hit->bytes.size(), hit->mount);
     hit.reset();
   }
 
   if (!hit) {
-    ctx.r3.u32 = pathVA;
-    ctx.r4.u32 = request;
-    ctx.r5.u32 = cb;
-    ctx.r6.u32 = cbctx;
-    __imp__bdFileReadStart(ctx, base);
-    if (ctx.r3.u32)
+    const i32 result = guest_bdFileReadStart(pathVA, request, cb, cbctx);
+    if (result)
       log.RecordEngineHit(key.string());
     else
       log.Record(key.string(), bd::vfs::FileSource::Missing);
-    return;
+    return result;
   }
 
   log.Record(key.string(), SourceOf(hit->kind));
   EnqueueDeferredCompletion(request, cb, cbctx);
-  ctx.r3.u64 = 1;
+  return 1;
 }
+
+REX_HOOK(bdFileReadStart, bdFileReadStart_hook);
 
 // bdFileReadStart's async completion is normally driven by the native I/O
 // worker. Overlay-served reads defer the completion callback and replay it
 // here, the universal poll chokepoint every resource loader waits on.
-REX_EXTERN(__imp__bdAsyncRequestPoll);
-
-REX_HOOK_RAW(bdAsyncRequestPoll) {
+REX_DETOUR(bdAsyncRequestPoll, u32, (u32 request)) {
   DrainDeferredCompletions();
-  __imp__bdAsyncRequestPoll(ctx, base);
+  return original(request);
 }

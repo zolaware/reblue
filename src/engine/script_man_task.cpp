@@ -10,6 +10,8 @@
 
 #include <rex/hook.h>
 #include <rex/ppc.h>
+#include <rex/ppc/detour.h>
+#include <rex/ppc/midasm.h>
 
 #include "core/memory_helpers.h"
 #include "engine/d2anime/anime_input.h"
@@ -73,38 +75,38 @@ engine::MiniMapTask ScriptManTask::MiniMap() const {
 // initialized on the first non-zero answer from slot 1 and never calls it
 // again, so the non-zero return is one edge per session, taken by a continue
 // and by a new game alike.
-REX_EXTERN(__imp__ScriptManTask__Init);
-REX_HOOK_RAW(ScriptManTask__Init) {
-  __imp__ScriptManTask__Init(ctx, base);
-  if (ctx.r3.u32)
+REX_DETOUR(ScriptManTask__Init, u32, (u32 task)) {
+  const u32 result = original(task);
+  if (result)
     bd::engine::Events::Publish(bd::engine::SaveLoaded{});
+  return result;
 }
 
-REX_EXTERN(__imp__bdFieldAreaLoadStep);
-REX_HOOK_RAW(bdFieldAreaLoadStep) {
-  const u32 script = ctx.r3.u32;
-  __imp__bdFieldAreaLoadStep(ctx, base);
-  if (ctx.r3.u32)
+REX_DETOUR(bdFieldAreaLoadStep, u32, (u32 script)) {
+  const u32 result = original(script);
+  if (result)
     bd::engine::Events::Publish(
         bd::engine::StageLoaded{bd::engine::Script(script)});
+  return result;
 }
 
 // ScriptManTask::UnloadScript, the only place a Script leaves the chain, rather
 // than Script::~Script: publishing ahead of the call still sees the stage's
 // entities and resources live. The outgoing Script is the second parameter.
-REX_EXTERN(__imp__ScriptManTask__UnloadScript);
-REX_HOOK_RAW(ScriptManTask__UnloadScript) {
-  const u32 script = ctx.r4.u32;
+REX_DETOUR(ScriptManTask__UnloadScript, void, (u32 task, u32 script)) {
   if (script)
     bd::engine::Events::Publish(
         bd::engine::StageUnloading{bd::engine::Script(script)});
-  __imp__ScriptManTask__UnloadScript(ctx, base);
+  original(task, script);
 }
 
 // Script prompts poll the menu confirm alone, but the prompt a player is
 // answering is one Interact opened, so a key moved from Confirm onto Interact
 // has to answer it too.
-void bdScriptConfirmHook(PPCRegister &r3) {
+REX_MIDASM_HOOK(bdScriptConfirmHook, (PPCRegister &r3)) {
   if (!r3.u32 && bd::engine::CheckAction(bd::engine::Action::Interact))
     r3.u64 = 1;
 }
+REX_MIDASM_AT(bdScriptConfirmHook, 0x821A6374, before, r3);
+REX_MIDASM_AT(bdScriptConfirmHook, 0x821A63EC, before, r3);
+REX_MIDASM_AT(bdScriptConfirmHook, 0x821A0398, before, r3);

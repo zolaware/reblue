@@ -18,12 +18,13 @@
 
 #include <cstring>
 #include <new>
+#include <rex/memory.h>
 #include <rex/types.h>
 #include <type_traits>
 #include <utility>
 
 #include <rex/runtime.h>
-#include <rex/system/xmemory.h>
+#include "core/memory_helpers.h"
 
 #include "gpu/host_heap.h"
 #include "gpu/resources.h"
@@ -34,7 +35,7 @@ class HostResourceHeap {
 public:
   template <typename T, typename... Args> static T *Alloc(Args &&...args) {
     static_assert(std::is_destructible_v<T>);
-    auto *memory = REX_KERNEL_MEMORY();
+    const auto memory = bd::mem::view();
     constexpr u32 kAlignment = 16;
     void *host = HostHeap::Get().Alloc(sizeof(T), kAlignment);
     if (!host)
@@ -55,7 +56,7 @@ public:
   template <typename T> static void Free(T *host_ptr) {
     if (!host_ptr)
       return;
-    auto *memory = REX_KERNEL_MEMORY();
+    const auto memory = bd::mem::view();
     const u32 guest = memory->HostToGuestVirtual(host_ptr);
     Unregister(guest);
     host_ptr->~T();
@@ -67,14 +68,14 @@ public:
   template <typename T> static T *FromGuest(u32 guest_va) {
     if (!guest_va || !IsRegistered(guest_va))
       return nullptr;
-    auto *memory = REX_KERNEL_MEMORY();
+    const auto memory = bd::mem::view();
     return static_cast<T *>(memory->TranslateVirtual<void *>(guest_va));
   }
 
   template <typename T> static u32 ToGuest(T *host_ptr) {
     if (!host_ptr)
       return 0;
-    auto *memory = REX_KERNEL_MEMORY();
+    const auto memory = bd::mem::view();
     return memory->HostToGuestVirtual(host_ptr);
   }
 

@@ -7,8 +7,8 @@
  * @license   BSD 3-Clause License
  *            See LICENSE file in the project root for full license text.
  *
- * Reserves one block in the guest physical window (vA0000000, offset 0) and
- * runs a single o1heap over it. Many small host shadow structs fragmented the
+ * Reserves one block in the guest physical window (vA0000000, offset 0) through
+ * rex::runtime::GuestAllocator, which runs a single o1heap over it. Many small host shadow structs fragmented the
  * non-coalescing system heap ("BaseHeap::Alloc failed to find contiguous
  * range"), o1heap coalesces on free. Offset-0 pointers round-trip to valid
  * guest VAs and stay FromGuest-resolvable.
@@ -24,10 +24,14 @@ class HostHeap {
 public:
   static HostHeap &Get();
 
-  // Reserve the physical block + o1heapInit. Call once while the
-  // renderer starts, before the first HostResourceHeap::Alloc. False on
-  // failure (fatal).
+  // Reserve the physical block. Call once while the renderer starts, before
+  // the first HostResourceHeap::Alloc. False on failure (fatal).
   bool Init();
+
+  // Release the block while title memory is still alive. Call from app
+  // shutdown, after the title stops and the renderer is drained. Later Free
+  // and FreeGuest calls are ignored.
+  void Shutdown();
 
   // O(1) alloc returning a 16-byte-aligned host pointer, or nullptr on
   // exhaustion (logged once). alignment must be <= O1HEAP_ALIGNMENT (16).

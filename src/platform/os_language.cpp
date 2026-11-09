@@ -4,19 +4,21 @@
  */
 #include "platform/os_language.h"
 
-#include <SDL3/SDL_locale.h>
-#include <SDL3/SDL_stdinc.h>
-
+#include <string>
 #include <string_view>
+
+#include <rex/string/utf8.h>
+
+#include "platform/host_ui.h"
 
 namespace bd::platform {
 namespace {
 
-// SDL reports no script subtag, so Traditional Chinese goes by region.
-u32 XLangFromLocale(const SDL_Locale &locale) {
-  const std::string_view lang(locale.language ? locale.language : "");
+// The host reports no script subtag, so Traditional Chinese goes by region.
+u32 XLangFromLocale(const rex::ui::HostLocale &locale) {
+  const std::string_view lang(locale.language);
   if (lang == "zh") {
-    const std::string_view country(locale.country ? locale.country : "");
+    const std::string_view country(locale.country);
     return (country == "TW" || country == "HK" || country == "MO") ? 8 : 10;
   }
   if (lang == "pl")
@@ -29,28 +31,20 @@ u32 XLangFromLocale(const SDL_Locale &locale) {
 } // namespace
 
 u32 DetectOsXLanguage() {
-  int count = 0;
-  SDL_Locale **locales = SDL_GetPreferredLocales(&count);
-  if (!locales)
+  rex::ui::IUserInterface *ui = UI();
+  if (!ui)
     return 1;
-  u32 xlang = 0;
-  for (int i = 0; i < count && !xlang; ++i) {
-    if (locales[i])
-      xlang = XLangFromLocale(*locales[i]);
+  for (const rex::ui::HostLocale &locale : ui->GetPreferredLocales()) {
+    if (const u32 xlang = XLangFromLocale(locale))
+      return xlang;
   }
-  SDL_free(locales);
-  return xlang ? xlang : 1;
+  return 1;
 }
 
 u32 XLanguageFromCode(std::string_view code) {
-  char c[8] = {};
-  const size_t n = code.size() < sizeof(c) - 1 ? code.size() : sizeof(c) - 1;
-  for (size_t i = 0; i < n; ++i)
-    c[i] = (code[i] >= 'A' && code[i] <= 'Z') ? static_cast<char>(code[i] + 32)
-                                              : code[i];
   // Codes follow BD's Language Set (bd_boot.ini): US JP DE FR ES IT KR TW CN
   // PO, with common ISO aliases also accepted. Values are XLanguage ids.
-  const std::string_view s(c, n);
+  const std::string s = rex::utf8_lower_ascii(code.substr(0, 7));
   if (s == "us" || s == "en")
     return 1;
   if (s == "jp" || s == "ja")

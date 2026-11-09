@@ -127,7 +127,7 @@ u32 Video::RetireSlot(const char *what) {
     static std::atomic<u32> s_hits{0};
     const u32 n = s_hits.fetch_add(1, std::memory_order_relaxed);
     if (n < 16 || (n & 0xFF) == 0) {
-      BD_WARN("[retire-race] #{} {} parked into slot {} while it is being "
+      REXLOG_WARN(bd, "retire-race #{} {} parked into slot {} while it is being "
               "reclaimed, freed with no fence covering it",
               n, what, slot);
     }
@@ -150,7 +150,7 @@ void DrainTextureBacklog(VideoState &s) {
     if (pending > kTextureBacklogFlushAll) {
       static std::atomic<u32> s_logged{0};
       if (s_logged.fetch_add(1, std::memory_order_relaxed) < 8) {
-        BD_WARN("texture free backlog reached {}, flushing it in one drain",
+        REXLOG_WARN(bd, "texture free backlog reached {}, flushing it in one drain",
                 pending);
       }
     }

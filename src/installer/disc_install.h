@@ -22,10 +22,7 @@
 #include <thread>
 #include <vector>
 
-namespace rex::filesystem {
-class Device;
-class Entry;
-} // namespace rex::filesystem
+#include <rex/filesystem/container.h>
 
 namespace bd::installer {
 
@@ -68,27 +65,30 @@ struct InstallProgress {
   }
 };
 
-bool ValidateDisc(rex::filesystem::Entry &root, int disc_number);
+bool ValidateDisc(const rex::filesystem::Container &container,
+                  const rex::filesystem::ContainerNode &root, int disc_number);
 
-std::string DiscFingerprint(size_t content_size, rex::filesystem::Entry &root,
+std::string DiscFingerprint(size_t content_size,
+                            const rex::filesystem::Container &container,
+                            const rex::filesystem::ContainerNode &root,
                             int disc_number);
 
 class DiscImage {
 public:
   static std::unique_ptr<DiscImage> Open(const std::filesystem::path &file);
 
-  DiscImage(std::unique_ptr<rex::filesystem::Device> device,
-            size_t content_size);
+  DiscImage(rex::filesystem::Container container, size_t content_size);
   ~DiscImage();
 
-  rex::filesystem::Entry *Root(int disc_number) const {
+  const rex::filesystem::ContainerNode *Root(int disc_number) const {
     return roots_[disc_number - 1];
   }
+  const rex::filesystem::Container &container() const { return container_; }
   size_t ContentSize() const { return content_size_; }
 
 private:
-  std::unique_ptr<rex::filesystem::Device> device_;
-  std::array<rex::filesystem::Entry *, kDiscCount> roots_{};
+  rex::filesystem::Container container_;
+  std::array<const rex::filesystem::ContainerNode *, kDiscCount> roots_{};
   size_t content_size_ = 0;
 };
 

@@ -15,6 +15,7 @@
 #include <optional>
 #include <string>
 
+#include <rex/cvar/registry.h>
 #include <rex/types.h>
 
 #include "platform/http.h"
@@ -114,6 +115,7 @@ private:
   std::optional<Release> newer_;
   std::optional<AppManifest> manifest_;
   std::atomic<bool> started_{false};
+  rex::cvar::CallbackHandle channelWatch_;
   std::atomic<bool> checking_{false};
   std::atomic<Stage> stage_{Stage::kIdle};
   std::atomic<bool> has_newer_{false};

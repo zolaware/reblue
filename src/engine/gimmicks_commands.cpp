@@ -12,7 +12,7 @@
 #include <string>
 #include <string_view>
 
-#include <rex/cvar.h>
+#include "core/cvar_table.h"
 #include <rex/string.h>
 
 #include "core/logging.h"
@@ -27,7 +27,7 @@ using bd::engine::GimmickKind;
 using bd::engine::Tally;
 
 std::string Scope(std::string_view args) {
-  const std::string_view a = rex::string::trim(args);
+  const std::string_view a = rex::Trim(args);
   if (!a.empty())
     return std::string(a);
   return bd::engine::Game::Get().ScriptManTask().Script().Name();
@@ -44,11 +44,11 @@ std::string Describe(const Tally &t) {
 
 bool Guard(const std::string &stem) {
   if (!Gimmicks::Get().IsReady()) {
-    BD_WARN("[gimmicks] no field session, so the flag array is unreadable");
+    REXLOG_WARN(bd, "gimmicks no field session, so the flag array is unreadable");
     return false;
   }
   if (!Gimmicks::Get().Has(stem)) {
-    BD_WARN("[gimmicks] '{}' is not a stage the engine has loaded", stem);
+    REXLOG_WARN(bd, "gimmicks '{}' is not a stage the engine has loaded", stem);
     return false;
   }
   return true;
@@ -56,67 +56,59 @@ bool Guard(const std::string &stem) {
 
 } // namespace
 
-REXCVAR_DEFINE_COMMAND_ARGS(
-    game_gimmicks,
-    [](std::string_view args) {
-      const std::string stem = Scope(args);
-      if (!Guard(stem))
-        return;
-      const auto &g = Gimmicks::Get();
-      BD_INFO("[gimmicks] {}:", stem);
-      BD_INFO("[gimmicks]   search points  {}", Describe(g.Points(stem)));
-      BD_INFO("[gimmicks]   chests         {}", Describe(g.Chests(stem)));
-      BD_INFO("[gimmicks]   barriers       {}", Describe(g.Barriers(stem)));
-    },
-    "GameState",
-    "Gimmicks found. Takes a map stem, or nothing for the current map");
+void bd::commands::GameGimmicks(std::string_view args) {
+  const std::string stem = Scope(args);
+  if (!Guard(stem))
+    return;
+  const auto &g = Gimmicks::Get();
+  REXLOG_INFO(bd, "gimmicks {}:", stem);
+  REXLOG_INFO(bd, "gimmicks   search points  {}", Describe(g.Points(stem)));
+  REXLOG_INFO(bd, "gimmicks   chests         {}", Describe(g.Chests(stem)));
+  REXLOG_INFO(bd, "gimmicks   barriers       {}", Describe(g.Barriers(stem)));
+}
 
-REXCVAR_DEFINE_COMMAND_ARGS(
-    game_gimmicks_by_type,
-    [](std::string_view args) {
-      const std::string stem = Scope(args);
-      if (!Guard(stem))
-        return;
-      const auto &g = Gimmicks::Get();
-      BD_INFO("[gimmicks] {} by kind:", stem);
-      for (u32 i = 0; i < bd::engine::kSearchKindCount; ++i) {
-        const auto kind = static_cast<GimmickKind>(i);
-        const Tally t = g.Points(stem, kind);
-        if (t.total)
-          BD_INFO("[gimmicks]   {:<8} {}", ToString(kind), Describe(t));
-      }
-      for (u32 i = 0; i < bd::engine::kBarrierColorCount; ++i) {
-        const auto color = static_cast<BarrierColor>(i);
-        const Tally t = g.Barriers(stem, color);
-        if (t.total)
-          BD_INFO("[gimmicks]   {:<8} barriers {}", ToString(color),
-                  Describe(t));
-      }
-    },
-    "GameState", "Gimmicks found, split by kind and barrier color");
 
-REXCVAR_DEFINE_COMMAND_ARGS(
-    game_gimmick_points,
-    [](std::string_view args) {
-      const std::string stem = Scope(args);
-      if (stem.empty()) {
-        BD_WARN("[gimmicks] usage: game_gimmick_points [map stem]");
-        return;
-      }
-      if (!Guard(stem))
-        return;
-      const auto markers = Gimmicks::Get().Markers(stem);
-      BD_INFO("[gimmicks] {}: {} placed", stem, markers.size());
-      for (size_t i = 0; i < markers.size(); ++i) {
-        const auto &m = markers[i];
-        BD_INFO("[gimmicks]   {:>3} {:<8} {:>10.2f} {:>10.2f} {:>10.2f}  {} "
-                "{} {}={} opens at {}",
-                i, ToString(m.kind), m.x, m.y, m.z,
-                !m.trackable ? "respawns"
-                             : (m.collected ? "found" : "undiscovered"),
-                m.opensAt ? "var" : "flag", m.flag, m.value,
-                m.opensAt ? m.opensAt : 1);
-      }
-    },
-    "GameState",
-    "List one map's gimmicks, chests and barriers with positions and state");
+void bd::commands::GameGimmicksByType(std::string_view args) {
+  const std::string stem = Scope(args);
+  if (!Guard(stem))
+    return;
+  const auto &g = Gimmicks::Get();
+  REXLOG_INFO(bd, "gimmicks {} by kind:", stem);
+  for (u32 i = 0; i < bd::engine::kSearchKindCount; ++i) {
+    const auto kind = static_cast<GimmickKind>(i);
+    const Tally t = g.Points(stem, kind);
+    if (t.total)
+      REXLOG_INFO(bd, "gimmicks   {:<8} {}", ToString(kind), Describe(t));
+  }
+  for (u32 i = 0; i < bd::engine::kBarrierColorCount; ++i) {
+    const auto color = static_cast<BarrierColor>(i);
+    const Tally t = g.Barriers(stem, color);
+    if (t.total)
+      REXLOG_INFO(bd, "gimmicks   {:<8} barriers {}", ToString(color),
+              Describe(t));
+  }
+}
+
+
+void bd::commands::GameGimmickPoints(std::string_view args) {
+  const std::string stem = Scope(args);
+  if (stem.empty()) {
+    REXLOG_WARN(bd, "gimmicks usage: game_gimmick_points [map stem]");
+    return;
+  }
+  if (!Guard(stem))
+    return;
+  const auto markers = Gimmicks::Get().Markers(stem);
+  REXLOG_INFO(bd, "gimmicks {}: {} placed", stem, markers.size());
+  for (size_t i = 0; i < markers.size(); ++i) {
+    const auto &m = markers[i];
+    REXLOG_INFO(bd, "gimmicks   {:>3} {:<8} {:>10.2f} {:>10.2f} {:>10.2f}  {} "
+            "{} {}={} opens at {}",
+            i, ToString(m.kind), m.x, m.y, m.z,
+            !m.trackable ? "respawns"
+                         : (m.collected ? "found" : "undiscovered"),
+            m.opensAt ? "var" : "flag", m.flag, m.value,
+            m.opensAt ? m.opensAt : 1);
+  }
+}
+

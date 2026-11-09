@@ -2,7 +2,7 @@
 
 #include <rex/types.h>
 
-#include "engine/input/binding_store.h"
+#include "engine/input/binding_registry.h"
 
 namespace bd::engine {
 
@@ -13,6 +13,9 @@ public:
   void Sample(u32 padBlock);
 
   bool Active(const Source &source) const;
+
+  // Active without the Mindows keyboard hold, for the action that closes it.
+  bool ActiveUnheld(const Source &source) const;
 
   f32 Axis(const Source &source, int component) const;
 

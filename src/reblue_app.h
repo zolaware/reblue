@@ -1,7 +1,6 @@
 /**
  * @file    reblue_app.h
- * @brief   ReblueApp: the application class wiring paths, installer, and
- * renderer.
+ * @brief   ReblueApp: the title app wiring paths, installer, and renderer.
  *
  * @copyright Copyright (c) 2026 Tom Clay <tomc@tctechstuff.com>
  *            All rights reserved.
@@ -10,52 +9,58 @@
  */
 #pragma once
 
-#include <atomic>
+#include <array>
 #include <filesystem>
-#include <functional>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <thread>
 
-#include <rex/rex_app.h>
+#include <rex/cli_action.h>
+#include <rex/cvar/registry.h>
+#include <rex/gpu/overlay.h>
+#include <rex/ui/title_app.h>
 
 #include "installer/installer.h"
 #include "ui/ui.h"
 
-struct ImFontAtlas;
-
-class ReblueApp : public rex::ReXApp {
+class ReblueApp : public rex::ui::TitleApp {
 public:
-  static std::unique_ptr<rex::ui::WindowedApp>
-  Create(rex::ui::WindowedAppContext &ctx);
+  ReblueApp();
   ~ReblueApp() override;
 
+  // Raises the installer or the upgrade prompt when the install needs one.
+  // True while that setup UI owns the boot, false when the title can launch or
+  // shutdown was requested.
+  bool PrepareSetup();
+  bool SetupActive() const;
+  void PresentSetupFrame();
+
+  // Starts the replacement executable an install or upgrade chose, after
+  // Shutdown released everything.
+  void RunHandoff();
+
 protected:
-  void OnPostInitLogging() override;
-  void OnPreSetup(rex::RuntimeConfig &config) override;
-  void OnConfigureFonts(ImFontAtlas *atlas) override;
-  void OnConfigureStyle(ImGuiStyle &imgui_style,
-                        rex::ui::Style &ui_style) override;
-  void OnCreateDialogs(rex::ui::ImGuiDrawer *drawer) override;
-  std::unique_ptr<rex::ui::ImmediateDrawer> OnCreateImmediateDrawer() override;
-  std::optional<rex::PathConfig>
-  OnFinalizePaths(const rex::PathConfig &defaults,
-                  std::function<void(rex::PathConfig)> resume) override;
-  void OnConfigurePaths(rex::PathConfig &paths) override;
-  void OnConfigureLogging(rex::LogConfig &config) override;
-  void OnPreLaunchModule() override;
-  void OnWindowPixelSizeChanged(u32 pixel_width, u32 pixel_height) override;
-  bool OnWindowCloseRequested() override;
+  rex::Result<void> OnConfigure(rex::Config &config) override;
+  rex::Result<void> OnInit(rex::Config &config, rex::API &api) override;
+  void OnCreateWindow(rex::ui::TitleUI &ui) override;
+  bool OnEvent(const rex::ui::UIEvent &event) override;
+  rex::Result<void> OnTitleLaunch(rex::Runtime &runtime) override;
   void OnShutdown() override;
+  std::span<const rex::CLIAction> GetActions() const override;
+  rex::Result<void> OnAction(const rex::CLIAction &action,
+                             const rex::CLIOption &option) override;
 
 private:
-  explicit ReblueApp(rex::ui::WindowedAppContext &ctx);
+  static constexpr std::array<rex::CLIAction, 1> kActions = {REX_CLI_ACTION(
+      repair, "Open the installer wizard in repair mode on an existing install "
+              "to re-copy game files or add DLC, even when the install is valid")};
+  bool repair_requested_ = false;
 
-  // Paths for booting against a recorded install. One owner: the resume that
-  // follows the upgrade prompt has to reach the same answer OnFinalizePaths
-  // would have returned.
-  rex::PathConfig PathsForInstall(const rex::PathConfig &defaults,
+  // Paths for booting against a recorded install. One owner: a declined
+  // upgrade prompt has to reach the same answer PrepareSetup would have.
+  rex::PathsConfig PathsForInstall(const rex::PathsConfig &defaults,
                                   const bd::installer::InstallConfig &cfg);
 
   // Whether this build sits outside a non-portable install, so upgrading it
@@ -67,34 +72,24 @@ private:
   void RestampInstall(const bd::installer::InstallConfig &cfg);
 
 #if defined(_WIN32) && defined(REBLUE_BUILD_INSTALLER)
-  // Raises the prompt over the pre-guest pump and hands the answer to
-  // FinishUpgrade. The caller returns nullopt: this owns what happens next.
-  void BeginUpgrade(const bd::installer::InstallConfig &cfg,
-                    rex::PathConfig defaults,
-                    std::function<void(rex::PathConfig)> resume);
+  // Raises the prompt over the setup frames and hands the answer to
+  // FinishUpgrade.
+  void BeginUpgrade(const bd::installer::InstallConfig &cfg);
 
-  // Accepted: copies this build in, restamps, and relaunches from the install.
+  // Accepted: copies this build in, restamps, and hands off to the install.
   // Declined: boots the install as it stands, leaving the record alone so the
   // offer comes back next launch.
-  void FinishUpgrade(bool accepted, bd::installer::InstallConfig cfg,
-                     rex::PathConfig defaults,
-                     std::function<void(rex::PathConfig)> resume);
+  void FinishUpgrade(bool accepted, const bd::installer::InstallConfig &cfg);
 #endif
 
 #ifdef REBLUE_BUILD_INSTALLER
-  void FinishInstaller(rex::PathConfig defaults,
-                       std::function<void(rex::PathConfig)> resume,
-                       bool completed, const bd::installer::InstallConfig &cfg,
+  void FinishInstaller(bool completed, const bd::installer::InstallConfig &cfg,
                        const bd::installer::WizardChoices &choices);
 #endif
 
-  // Pre-guest UI plumbing for the installer wizard: bring up the native device
-  // + overlay, then a tick thread that presents frames until the wizard
-  // resolves. No Runtime/guest exists yet.
-  bool BeginPreGuestUI();
-  void StartPreGuestPump();
-  void PumpPreGuestFrame();
-  void StopPreGuestPump();
+  // Brings up the native device and the overlay hook before the title, so the
+  // setup UI can draw. No Runtime exists yet.
+  bool BeginPreTitleUI();
   void InstallOverlayDrawHook();
 
   // Raises the update prompt the first time Updates::Newer() has an answer.
@@ -113,25 +108,30 @@ private:
 #ifdef REBLUE_BUILD_INSTALLER
   std::unique_ptr<bd::installer::InstallerWizard> installer_wizard_;
 #endif
-  std::unique_ptr<bd::ui::FadeOverlay> fade_overlay_;
-  std::unique_ptr<bd::ui::PauseOverlay> pause_overlay_;
 
   // The check the prompt last answered, so a re-run offers its build instead
   // of reading as the one already declined.
   u32 update_prompt_generation_ = 0;
   std::unique_ptr<bd::ui::UpdateStatusOverlay> update_status_;
+  std::unique_ptr<bd::ui::UpdatePromptDialog> update_prompt_;
 
 #if defined(_WIN32) && defined(REBLUE_BUILD_INSTALLER)
   std::unique_ptr<bd::installer::UpgradePrompt> upgrade_prompt_;
 #endif
 
-  std::thread pre_guest_tick_thread_;
-  std::atomic<bool> pre_guest_pump_stop_{false};
-  std::atomic<bool> pre_guest_tick_pending_{false};
-
-  // Active profile, resolved once in OnConfigurePaths from the 'profile' cvar.
+  // Active profile, resolved once in OnConfigure from --bd.profile.
   // profile_root_ = install_root_/"profiles"/active_profile_ = user_data_root.
   std::string active_profile_ = "default";
   std::filesystem::path install_root_;
   std::filesystem::path profile_root_;
+
+  // How OnInit resolved XCONFIG_USER_LANGUAGE, logged in OnTitleLaunch.
+  bool language_autodetected_ = false;
+  std::string unknown_language_code_;
+  std::string location_warning_;
+
+  rex::cvar::ICvarRegistry *cvars_ = nullptr;
+  rex::gpu::IOverlayDrawer *overlay_drawer_ = nullptr;
+  std::thread::id ui_thread_;
+  std::optional<std::filesystem::path> handoff_exe_;
 };

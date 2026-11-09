@@ -12,6 +12,8 @@
 #include <imgui.h>
 
 #include "core/i18n.h"
+#include <rex/ui/color.h>
+#include "ui/theme.h"
 #include "platform/platform.h"
 
 namespace bd::ui {
@@ -35,9 +37,8 @@ const char *ErrorKey(Updates::ApplyResult result) {
 
 } // namespace
 
-UpdatePromptDialog::UpdatePromptDialog(rex::ui::ImGuiDrawer *drawer,
-                                       UpdatePromptContext ctx)
-    : rex::ui::ImGuiDialog(drawer), ctx_(std::move(ctx)) {}
+UpdatePromptDialog::UpdatePromptDialog(UpdatePromptContext ctx)
+    : ctx_(std::move(ctx)) {}
 
 void UpdatePromptDialog::OnDraw(ImGuiIO &) {
   const ImGuiViewport *vp = ImGui::GetMainViewport();
@@ -83,13 +84,15 @@ void UpdatePromptDialog::OnDraw(ImGuiIO &) {
       bd::platform::RequestWarmReboot();
       return;
     }
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.90f, 0.40f, 0.30f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_Text, rex::ui::ToImVec4(Theme::kError));
     ImGui::TextWrapped("%s", T(ErrorKey(result)));
     ImGui::PopStyleColor();
     ImGui::Spacing();
     ImGui::Separator();
     ImGui::Spacing();
-    if (ImGui::Button(T("update.close"), ImVec2(120, 0)))
+    if (ImGui::Button(T("update.close"),
+                      ImVec2(bd::platform::UI()->GetStyle().metrics.button_width,
+                             0)))
       Close();
     ImGui::End();
     return;

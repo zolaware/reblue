@@ -88,7 +88,7 @@ GuestVertexDeclaration *CreateVertexDeclaration(GuestVertexElement *elements) {
 
   auto *decl = HostResourceHeap::Alloc<GuestVertexDeclaration>();
   if (!decl) {
-    BD_ERROR("CreateVertexDeclaration: HostResourceHeap::Alloc failed "
+    REXLOG_ERROR(bd, "CreateVertexDeclaration: HostResourceHeap::Alloc failed "
              "(elements={}, hash=0x{:X}), returning null decl",
              element_count, hash);
     return nullptr;

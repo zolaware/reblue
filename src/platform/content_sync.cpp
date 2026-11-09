@@ -106,11 +106,11 @@ void ContentSync::Check(const std::string &url) {
   std::string error;
   auto manifest = ContentManifest::Fetch(url, error);
   if (!manifest) {
-    BD_WARN("[content] manifest fetch from {} failed: {}", url, error);
+    REXLOG_WARN(bd, "content manifest fetch from {} failed: {}", url, error);
     stage_.store(Stage::kDone);
     return;
   }
-  BD_INFO("[content] manifest names {} pack(s)", manifest->packs.size());
+  REXLOG_INFO(bd, "content manifest names {} pack(s)", manifest->packs.size());
 
   auto &catalog = bd::vfs::VFS::Get().Content();
 
@@ -118,12 +118,12 @@ void ContentSync::Check(const std::string &url) {
   u64 bytes = 0;
   for (const auto &entry : manifest->packs) {
     if (!IsUsableId(entry.id)) {
-      BD_WARN("[content] manifest names an unusable pack id, skipping it");
+      REXLOG_WARN(bd, "content manifest names an unusable pack id, skipping it");
       continue;
     }
     if (!entry.min_app.empty() &&
         Version::Compare(entry.min_app, REBLUE_VERSION_STRING) > 0) {
-      BD_INFO("[content] '{}' needs v{}, skipping", entry.id, entry.min_app);
+      REXLOG_INFO(bd, "content '{}' needs v{}, skipping", entry.id, entry.min_app);
       continue;
     }
     if (catalog.InstalledVersion(entry.id) >= entry.version)
@@ -133,12 +133,12 @@ void ContentSync::Check(const std::string &url) {
   }
 
   if (wanted.empty()) {
-    BD_INFO("[content] every pack the manifest names is installed");
+    REXLOG_INFO(bd, "content every pack the manifest names is installed");
     stage_.store(Stage::kDone);
     return;
   }
 
-  BD_INFO("[content] {} pack(s) on offer", wanted.size());
+  REXLOG_INFO(bd, "content {} pack(s) on offer", wanted.size());
   {
     std::lock_guard lock(mutex_);
     pending_ = std::move(wanted);
@@ -161,7 +161,7 @@ void ContentSync::Fetch() {
   }
 
   auto &catalog = bd::vfs::VFS::Get().Content();
-  BD_INFO("[content] fetching {} pack(s)", wanted.size());
+  REXLOG_INFO(bd, "content fetching {} pack(s)", wanted.size());
 
   std::vector<std::string> fetched;
   for (size_t i = 0; i < wanted.size(); ++i) {
@@ -180,13 +180,13 @@ void ContentSync::Fetch() {
 
     std::error_code ec;
     if (!WritePackFile(staged, entry)) {
-      BD_ERROR("[content] could not stamp '{}' with its version", entry.id);
+      REXLOG_ERROR(bd, "content could not stamp '{}' with its version", entry.id);
       std::filesystem::remove_all(staged, ec);
       continue;
     }
     std::filesystem::remove(zip, ec);
     fetched.push_back(entry.id);
-    BD_INFO("[content] fetched '{}' v{}", entry.id, entry.version);
+    REXLOG_INFO(bd, "content fetched '{}' v{}", entry.id, entry.version);
   }
 
   done_.store(wanted.size());

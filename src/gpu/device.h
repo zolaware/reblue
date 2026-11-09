@@ -27,7 +27,7 @@
 #include "gpu/resources.h"
 
 namespace rex::ui {
-class Window;
+class IWindow;
 }
 
 namespace bd::gpu {
@@ -43,7 +43,7 @@ public:
   }
 
   // Host setup runs pre-Runtime, and the guest tail completes after.
-  static bool CreateHostDevice(rex::ui::Window *window);
+  static bool CreateHostDevice(rex::ui::IWindow &window);
 
   // Shutdown stage 1: atomic store only, so it cannot deadlock against a guest
   // thread parked inside the renderer. After it returns BeginCommandList
@@ -51,10 +51,8 @@ public:
   static void BeginShutdown();
 
   // Device, queue and guest-owned resources are deliberately leaked: plume's
-  // device release calls vkDestroyDevice with no child tracking. 'ui_pump' runs
-  // while draining, or the render thread deadlocks against the UI thread it is
-  // waiting on inside Present's overlay marshal.
-  static void Shutdown(const std::function<void()> &ui_pump = {});
+  // device release calls vkDestroyDevice with no child tracking.
+  static void Shutdown();
 
   // Draw-time backstop for a draw that beats the first Clear.
   static void OpenCommandList();

@@ -15,9 +15,11 @@
 #include <rex/ppc.h>
 #include <rex/runtime.h>
 #include <rex/types.h>
+#include <rex/ppc/midasm.h>
 
 #include "core/logging.h"
 #include "core/memory_helpers.h"
+#include "engine/visual_object.h"
 #include "gpu/device.h"
 #include "gpu/host_resource_heap.h"
 #include "gpu/pipeline/pipeline_cache.h"
@@ -52,19 +54,6 @@ static_assert(sizeof(ShaderTableEntry_t) == 0x88);
 static_assert(offsetof(ShaderTableEntry_t, vsHandle) == 0x40);
 static_assert(offsetof(ShaderTableEntry_t, psPath) == 0x44);
 static_assert(offsetof(ShaderTableEntry_t, psHandle) == 0x84);
-
-// The model object the loader hands the predictor. Only the two fields the
-// technique closure needs are named.
-struct VisualObject_t {
-  /* 0x000 */ u8 _pad000[0x740];
-  // kToonMarkerValue marks the view-toon class, whose models reach the toon
-  // closure on top of whatever base technique they carry.
-  /* 0x740 */ be_u32 classMarker;
-  /* 0x744 */ u8 _pad744[0x474];
-  /* 0xBB8 */ be_u32 baseTechnique;
-};
-static_assert(offsetof(VisualObject_t, classMarker) == 0x740);
-static_assert(offsetof(VisualObject_t, baseTechnique) == 0xBB8);
 
 // One slot of the 32-entry declaration cache at 0x82DBE830, which
 // hcgVertexDeclarationRegist keys by packed vertex format word and whose
@@ -293,7 +282,7 @@ size_t EmitTechDeclLocked(u32 tech, const DeclRecord &d) {
   }
 #ifdef REBLUE_PSO_CAP
   if (emitted)
-    BD_DEBUG("pso_predict: emitted {} pipeline(s) tech={} decl=0x{:016X} "
+    REXLOG_DEBUG(bd, "pso_predict: emitted {} pipeline(s) tech={} decl=0x{:016X} "
              "stride={}{}",
              emitted, tech, d.decl->hash, d.stride,
              d.skinned ? " skinned" : "");
@@ -353,17 +342,17 @@ void OnModelTechniqueKnown(u32 visualVa, bool loadRequest) {
     return;
 
   const u32 tech = bd::mem::try_field<u32>(
-      visualVa, offsetof(VisualObject_t, baseTechnique), kTechniqueCount);
+      visualVa, offsetof(bd::engine::VisualObject_t, baseTechnique), kTechniqueCount);
   if (tech >= kTechniqueCount) {
     static std::unordered_set<u32> s_badTech;
     std::lock_guard<std::mutex> lock(g_mutex);
     if (s_badTech.insert(tech).second)
-      BD_WARN("pso_predict: model base technique {} out of range (vo=0x{:08X})",
+      REXLOG_WARN(bd, "pso_predict: model base technique {} out of range (vo=0x{:08X})",
               tech, visualVa);
     return;
   }
   const u32 toonMarker =
-      bd::mem::try_field<u32>(visualVa, offsetof(VisualObject_t, classMarker));
+      bd::mem::try_field<u32>(visualVa, offsetof(bd::engine::VisualObject_t, classMarker));
 
   std::vector<u32> reachable = ReachableTechniques(tech);
   if (toonMarker == kToonMarkerValue) {
@@ -407,7 +396,7 @@ void OnModelTechniqueKnown(u32 visualVa, bool loadRequest) {
   }
 #ifdef REBLUE_PSO_CAP
   if (fresh)
-    BD_DEBUG("pso_predict: model tech={}{} -> {} candidate pair(s), {} new",
+    REXLOG_DEBUG(bd, "pso_predict: model tech={}{} -> {} candidate pair(s), {} new",
              tech, toonMarker == kToonMarkerValue ? "+toon" : "", candidates,
              fresh);
 #endif
@@ -451,7 +440,7 @@ void OnLoadBegin(u32 loadModelVa) {
       it->second.decls.clear();
 #ifdef REBLUE_PSO_CAP
     if (it == g_assets.end() || it->second.requesters.empty())
-      BD_DEBUG("pso_predict: load-begin asset=0x{:08X} has no requester yet "
+      REXLOG_DEBUG(bd, "pso_predict: load-begin asset=0x{:08X} has no requester yet "
                "(LH_Model preload?)",
                loadModelVa);
 #endif
@@ -522,62 +511,77 @@ std::string DescribePair(u64 vsHash, u64 psHash) {
 // Midasm hooks: bracket bdSceneGraphBuild so predicted PSOs are queued before
 // the model goes live. Hook C registers decls, and bdModelLoadEnd closes the
 // token.
-void bdModelLoadBeginHook(PPCRegister &r30) {
+REX_MIDASM_HOOK(bdModelLoadBeginHook, (PPCRegister &r30)) {
   if (!bd::gpu::PrecacheEnabled())
     return;
   bd::gpu::BeginLoadCapture();
   bd::gpu::OnLoadBegin(r30.u32);
 }
+REX_MIDASM_AT(bdModelLoadBeginHook, 0x8217B9F8, before, r30);
 
-void bdModelLoadRequestTechHook(PPCRegister &r3) {
+REX_MIDASM_HOOK(bdModelLoadRequestTechHook, (PPCRegister &r3)) {
   bd::gpu::OnModelTechniqueKnown(r3.u32, true);
 }
+REX_MIDASM_AT(bdModelLoadRequestTechHook, 0x82140178, before, r3);
 
-void bdModelLoadAssetMapHook(PPCRegister &r3, PPCRegister &r31) {
+REX_MIDASM_HOOK(bdModelLoadAssetMapHook, (PPCRegister &r3, PPCRegister &r31)) {
   bd::gpu::OnLoadModelCreated(r3.u32, r31.u32);
 }
+REX_MIDASM_AT(bdModelLoadAssetMapHook, 0x8214023C, before, r3, r31);
 
 // Late technique writers: fire after 'stw rX, 0xBB8(rBase)', re-emit closure.
-void bdTechAssignCloudHook(PPCRegister &r31) {
+REX_MIDASM_HOOK(bdTechAssignCloudHook, (PPCRegister &r31)) {
   bd::gpu::OnModelTechniqueKnown(r31.u32, false);
 }
-void bdTechAssignWaterHook(PPCRegister &r31) {
+REX_MIDASM_AT(bdTechAssignCloudHook, 0x82453A74, after, r31);
+REX_MIDASM_HOOK(bdTechAssignWaterHook, (PPCRegister &r31)) {
   bd::gpu::OnModelTechniqueKnown(r31.u32, false);
 }
-void bdTechAssignEffectHook(PPCRegister &r31) {
+REX_MIDASM_AT(bdTechAssignWaterHook, 0x8245438C, after, r31);
+REX_MIDASM_HOOK(bdTechAssignEffectHook, (PPCRegister &r31)) {
   bd::gpu::OnModelTechniqueKnown(r31.u32, false);
 }
-void bdTechAssignSssHook(PPCRegister &r31) {
+REX_MIDASM_AT(bdTechAssignEffectHook, 0x82455568, after, r31);
+REX_MIDASM_HOOK(bdTechAssignSssHook, (PPCRegister &r31)) {
   bd::gpu::OnModelTechniqueKnown(r31.u32, false);
 }
-void bdTechAssignFrescoHook(PPCRegister &r3) {
+REX_MIDASM_AT(bdTechAssignSssHook, 0x824559DC, after, r31);
+REX_MIDASM_HOOK(bdTechAssignFrescoHook, (PPCRegister &r3)) {
   bd::gpu::OnModelTechniqueKnown(r3.u32, false);
 }
-void bdTechAssignWaterfallHook(PPCRegister &r31) {
+REX_MIDASM_AT(bdTechAssignFrescoHook, 0x82455C54, after, r3);
+REX_MIDASM_HOOK(bdTechAssignWaterfallHook, (PPCRegister &r31)) {
   bd::gpu::OnModelTechniqueKnown(r31.u32, false);
 }
-void bdTechAssignWaterfallBHook(PPCRegister &r25) {
+REX_MIDASM_AT(bdTechAssignWaterfallHook, 0x82457264, after, r31);
+REX_MIDASM_HOOK(bdTechAssignWaterfallBHook, (PPCRegister &r25)) {
   bd::gpu::OnModelTechniqueKnown(r25.u32, false);
 }
-void bdTechAssignMdlTextHook(PPCRegister &r25) {
+REX_MIDASM_AT(bdTechAssignWaterfallBHook, 0x82457B78, after, r25);
+REX_MIDASM_HOOK(bdTechAssignMdlTextHook, (PPCRegister &r25)) {
   bd::gpu::OnModelTechniqueKnown(r25.u32, false);
 }
-void bdTechAssignMdlMirrorHook(PPCRegister &r25) {
+REX_MIDASM_AT(bdTechAssignMdlTextHook, 0x82294DC0, after, r25);
+REX_MIDASM_HOOK(bdTechAssignMdlMirrorHook, (PPCRegister &r25)) {
   bd::gpu::OnModelTechniqueKnown(r25.u32, false);
 }
-void bdTechAssignWindHook(PPCRegister &r29) {
+REX_MIDASM_AT(bdTechAssignMdlMirrorHook, 0x82294F4C, after, r25);
+REX_MIDASM_HOOK(bdTechAssignWindHook, (PPCRegister &r29)) {
   bd::gpu::OnModelTechniqueKnown(r29.u32, false);
 }
+REX_MIDASM_AT(bdTechAssignWindHook, 0x82143B50, after, r29);
 
-void bdModelLoadEndHook() {
+REX_MIDASM_HOOK(bdModelLoadEndHook, ()) {
   bd::gpu::OnLoadEnd();
   bd::gpu::EndLoadCapture();
 }
+REX_MIDASM_AT(bdModelLoadEndHook, 0x8217B9FC, before);
 
 // r3 = the declaration cache slot hcgVertexDeclarationRegist returned, r31 =
 // per-vertex stride.
-void bdSceneGraphPredictDeclHook(PPCRegister &r3, PPCRegister &r31) {
+REX_MIDASM_HOOK(bdSceneGraphPredictDeclHook, (PPCRegister &r3, PPCRegister &r31)) {
   if (!bd::gpu::PrecacheEnabled())
     return;
   bd::gpu::OnDeclRegistered(r3.u32, static_cast<u8>(r31.u32));
 }
+REX_MIDASM_AT(bdSceneGraphPredictDeclHook, 0x8227E4B4, before, r3, r31);

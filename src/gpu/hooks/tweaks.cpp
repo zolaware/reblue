@@ -19,6 +19,7 @@
 #include <rex/ppc.h>
 #include <rex/runtime.h>
 #include <rex/types.h>
+#include <rex/ppc/midasm.h>
 
 #include "core/logging.h"
 #include "core/memory_helpers.h"
@@ -105,17 +106,20 @@ f32 SceneRenderScale() {
 
 } // namespace bd::gpu
 
-bool bdSceneTilingSuppressHook() { return true; }
+REX_MIDASM_BRANCH(bdSceneTilingSuppressHook, ()) { return true; }
+REX_MIDASM_AT(bdSceneTilingSuppressHook, 0x82186C40, before, 0x82186C54);
 
-void bdSceneRenderScaleHook(PPCRegister &r31) {
+REX_MIDASM_HOOK(bdSceneRenderScaleHook, (PPCRegister &r31)) {
   bd::engine::VisualRender render(r31.u32);
   const f32 rate = static_cast<f32>(bd::gpu::Settings::Get().SuperSampling());
   if (render.RenderRate() != rate)
     render.SetRenderRate(rate);
   render.SetFSAA(bd::gpu::Settings::Get().MSAA() > 0);
 }
+REX_MIDASM_AT(bdSceneRenderScaleHook, 0x8213307C, after, r31);
+REX_MIDASM_AT(bdSceneRenderScaleHook, 0x8213597C, before, r31);
 
-void bdReflectionResolutionScaleHook(PPCRegister &r31) {
+REX_MIDASM_HOOK(bdReflectionResolutionScaleHook, (PPCRegister &r31)) {
   auto *info = bd::mem::at<bd::gpu::PlaneReflectInfo>(r31.u32);
   if (!info)
     return;
@@ -148,15 +152,18 @@ void bdReflectionResolutionScaleHook(PPCRegister &r31) {
     info->lastScale = -1.0f;
   }
 }
+REX_MIDASM_AT(bdReflectionResolutionScaleHook, 0x82178670, before, r31);
 
-void bdReflectionSurfaceTagHook(PPCRegister &r3) {
+REX_MIDASM_HOOK(bdReflectionSurfaceTagHook, (PPCRegister &r3)) {
   auto *surface =
       bd::gpu::HostResourceHeap::FromGuest<bd::gpu::GuestTexture>(r3.u32);
   if (surface)
     surface->reflection = true;
 }
+REX_MIDASM_AT(bdReflectionSurfaceTagHook, 0x821876A4, after, r3);
+REX_MIDASM_AT(bdReflectionSurfaceTagHook, 0x821876E0, after, r3);
 
-void bdReflectionTextureSeedHook(PPCRegister &r3) {
+REX_MIDASM_HOOK(bdReflectionTextureSeedHook, (PPCRegister &r3)) {
   auto *texture =
       bd::gpu::HostResourceHeap::FromGuest<bd::gpu::GuestTexture>(r3.u32);
   if (!texture)
@@ -164,16 +171,20 @@ void bdReflectionTextureSeedHook(PPCRegister &r3) {
   texture->reflection = true;
   bd::gpu::Video::ClearTexture(texture, kOpaqueBlackArgb);
 }
+REX_MIDASM_AT(bdReflectionTextureSeedHook, 0x82177CCC, after, r3);
+REX_MIDASM_AT(bdReflectionTextureSeedHook, 0x821786D0, after, r3);
 
 // The light frustum is world-space and receivers sample by UV, so a larger map
 // is just finer with no shader change.
-void bdShadowResolutionScaleHook(PPCRegister &r3, PPCRegister &r4) {
+REX_MIDASM_HOOK(bdShadowResolutionScaleHook, (PPCRegister &r3, PPCRegister &r4)) {
   const u32 d = static_cast<u32>(bd::gpu::Settings::Get().ShadowDimension());
   r3.u32 = d;
   r4.u32 = d;
 }
+REX_MIDASM_AT(bdShadowResolutionScaleHook, 0x821871E4, before, r3, r4);
+REX_MIDASM_AT(bdShadowResolutionScaleHook, 0x8217517C, before, r3, r4);
 
-void bdShadowMapTextureResizeHook(PPCRegister &r31) {
+REX_MIDASM_HOOK(bdShadowMapTextureResizeHook, (PPCRegister &r31)) {
   auto *info = bd::mem::at<bd::gpu::ShadowMapInfo>(r31.u32);
   if (!info)
     return;
@@ -184,21 +195,23 @@ void bdShadowMapTextureResizeHook(PPCRegister &r31) {
   const u32 d = static_cast<u32>(bd::gpu::Settings::Get().ShadowDimension());
   bd::gpu::Video::ResizeTexture(texture, d, d);
 }
+REX_MIDASM_AT(bdShadowMapTextureResizeHook, 0x82175308, before, r31);
 
 // f1 is the sun frustum's coverage scale, and BD's own curve saturates at a
 // half-extent of ~512 world units, dropping distant casters laterally. Scaling
 // it widens the fov of the virtual sun eye. 1.0 leaves BD's coverage alone.
-void bdShadowCoverageScaleHook(PPCRegister &f1) {
+REX_MIDASM_HOOK(bdShadowCoverageScaleHook, (PPCRegister &f1)) {
   const f64 cov = bd::gpu::ShadowCoverageScale();
   if (cov != 1.0)
     f1.f64 *= cov;
 }
+REX_MIDASM_AT(bdShadowCoverageScaleHook, 0x82175974, before, f1);
 
 // The composite blur scale c27.y, stored at 4(r11) just above. The composite
 // squares it to size the circle of confusion it picks a blur LOD with, so the
 // square root of the wanted intensity is what makes half the setting read as
 // half the blur.
-void bdDOFStrengthScaleHook(PPCRegister &r11) {
+REX_MIDASM_HOOK(bdDOFStrengthScaleHook, (PPCRegister &r11)) {
   const f64 strength = bd::gpu::Settings::Get().DOFStrength();
   if (strength >= 1.0)
     return;
@@ -206,40 +219,47 @@ void bdDOFStrengthScaleHook(PPCRegister &r11) {
   if (y)
     *y = static_cast<f32>(static_cast<f32>(*y) * std::sqrt(strength));
 }
+REX_MIDASM_AT(bdDOFStrengthScaleHook, 0x82217224, after, r11);
 
-void bdGaussianBlurTapStepHook(PPCRegister &f0, PPCRegister &f13,
-                               PPCRegister &r28) {
+REX_MIDASM_HOOK(bdGaussianBlurTapStepHook, (PPCRegister &f0, PPCRegister &f13, PPCRegister &r28)) {
   if (r28.u32 != kSsScatterBlurEA)
     ScaleBlurTapStep(f0, f13, DOFIntermediateScale());
 }
+REX_MIDASM_AT(bdGaussianBlurTapStepHook, 0x8221515C, before, f0, f13, r28);
 
-void bdBloomBlurTapStepHook(PPCRegister &f0, PPCRegister &f13) {
+REX_MIDASM_HOOK(bdBloomBlurTapStepHook, (PPCRegister &f0, PPCRegister &f13)) {
   ScaleBlurTapStep(f0, f13, BloomTargetScale());
 }
+REX_MIDASM_AT(bdBloomBlurTapStepHook, 0x82215B28, before, f0, f13);
 
-void bdBloomTargetSizeHook(PPCRegister &r4, PPCRegister &r5) {
+REX_MIDASM_HOOK(bdBloomTargetSizeHook, (PPCRegister &r4, PPCRegister &r5)) {
   ScaleTargetDims(r4, r5, BloomTargetScale());
 }
+REX_MIDASM_AT(bdBloomTargetSizeHook, 0x8221B360, after, r4, r5);
+REX_MIDASM_AT(bdBloomTargetSizeHook, 0x8221B38C, after, r4, r5);
 
-void bdBloomPoolInvalidateHook(PPCRegister &r31) {
+REX_MIDASM_HOOK(bdBloomPoolInvalidateHook, (PPCRegister &r31)) {
   if (PostQualityChanged(r31.u32))
     InvalidatePoolKeys(r31.u32, kBloomPoolSlotDims);
 }
+REX_MIDASM_AT(bdBloomPoolInvalidateHook, 0x8221B238, before, r31);
 
-void bdDOFPoolInvalidateHook(PPCRegister &r31) {
+REX_MIDASM_HOOK(bdDOFPoolInvalidateHook, (PPCRegister &r31)) {
   if (PostQualityChanged(r31.u32))
     InvalidatePoolKeys(r31.u32, kDOFPoolSlotDims);
 }
+REX_MIDASM_AT(bdDOFPoolInvalidateHook, 0x82217130, before, r31);
 
-void bdDOFIntermediateScaleHook(PPCRegister &r28, PPCRegister &r26) {
+REX_MIDASM_HOOK(bdDOFIntermediateScaleHook, (PPCRegister &r28, PPCRegister &r26)) {
   ScaleTargetDims(r28, r26, DOFIntermediateScale());
 }
+REX_MIDASM_AT(bdDOFIntermediateScaleHook, 0x82217600, before, r28, r26);
 
 // r3 is a shader constant flush descriptor: flags @0 (bit1 = pixel shader
 // flush), startReg @4, endReg @8, pData @0xC. The fountain water object authors
 // c51.w = 1000 and bd_water_ps computes color = 2*c51.w*lit, so a glint reaches
 // ~5748 HDR. 1.0 matches the milder sibling water object.
-void bdWaterSpecIntensityClampHook(PPCRegister &r3) {
+REX_MIDASM_HOOK(bdWaterSpecIntensityClampHook, (PPCRegister &r3)) {
   constexpr float ceiling = 1.0f;
   const auto *d = bd::mem::at<const be_u32>(r3.u32);
   if (!d)
@@ -258,13 +278,15 @@ void bdWaterSpecIntensityClampHook(PPCRegister &r3) {
     *w = static_cast<float>(ceiling);
   }
 }
+REX_MIDASM_AT(bdWaterSpecIntensityClampHook, 0x824547B0, before, r3);
+REX_MIDASM_AT(bdWaterSpecIntensityClampHook, 0x824547B8, before, r3);
 
 // The NDC->UV half-scale is always 0.5, but the guest derives it as
 // sceneRT.dim/1280x720*0.5, so every resolution setting leaks into screen-space
 // FX. Pixel stage only: Toon/Fur/caustics/cloud author VS reg50 as their own
 // per-object data. BD writes reg50 inline with no FN setter, so nothing else
 // marks the constants dirty and the upload carrying this pin would be skipped.
-void bdCameraRefractionUvScaleHook(PPCRegister &r11) {
+REX_MIDASM_HOOK(bdCameraRefractionUvScaleHook, (PPCRegister &r11)) {
   auto *dev = bd::mem::at<bd::gpu::D3DDevice>(r11.u32);
   if (!dev)
     return;
@@ -273,13 +295,15 @@ void bdCameraRefractionUvScaleHook(PPCRegister &r11) {
   ps[1] = 0.5f;
   bd::gpu::Video::MarkPSConstantsDirty();
 }
+REX_MIDASM_AT(bdCameraRefractionUvScaleHook, 0x82142FAC, before, r11);
+REX_MIDASM_AT(bdCameraRefractionUvScaleHook, 0x8213d034, before, r11);
 
 // The motion blur PS clamps its sample UV to [0.01, 0.99], an inset that hid
 // under X360 TV overscan. Its UV is the quad's own position attribute, so the
 // inset cannot be applied independently of coverage, so +/-0.98 (= 2*0.99-1)
 // puts the visible edge exactly on the clamp bound. r5 is the 4-vertex buffer,
 // pos xy at +0/+4, stride 0x28.
-void bdMotionBlurQuadInsetHook(PPCRegister &r5) {
+REX_MIDASM_HOOK(bdMotionBlurQuadInsetHook, (PPCRegister &r5)) {
   for (u32 i = 0; i < 4; ++i) {
     auto *v = bd::mem::at<be_f32>(r5.u32 + i * 0x28);
     if (!v)
@@ -288,28 +312,32 @@ void bdMotionBlurQuadInsetHook(PPCRegister &r5) {
     v[1] = static_cast<float>(v[1]) * 0.98f;
   }
 }
+REX_MIDASM_AT(bdMotionBlurQuadInsetHook, 0x8213d18c, before, r5);
 
 // The fur shell loop writes edgeRW (VS c51) inline per shell, where .z =
 // shell/N is the volume slice and .y the extrusion, bypassing
 // SetVertexShaderConstantFN, so nothing else marks the constants dirty between
 // shells.
-void bdFurShellConstantsDirtyHook() {
+REX_MIDASM_HOOK(bdFurShellConstantsDirtyHook, ()) {
   bd::gpu::Video::MarkVSConstantsDirty();
 }
+REX_MIDASM_AT(bdFurShellConstantsDirtyHook, 0x8227FBD4, before);
 
 // The engine drops a 2D prim with no trace when the Visual::Tag frame pool has
 // under 0x25A00 bytes free, which is indistinguishable from a task never
 // submitting one. f31 is the prim's z.
-void bdPrimBeginDropWarnHook(PPCRegister &f31) {
+REX_MIDASM_HOOK(bdPrimBeginDropWarnHook, (PPCRegister &f31)) {
   static u32 dropCount = 0;
   ++dropCount;
   if (dropCount <= 16 || (dropCount & 0x3FF) == 0)
-    BD_WARN("bdPrimBegin: 2D prim dropped (z={}, {} total this session)",
+    REXLOG_WARN(bd, "bdPrimBegin: 2D prim dropped (z={}, {} total this session)",
             f31.f64, dropCount);
 }
+REX_MIDASM_AT(bdPrimBeginDropWarnHook, 0x82146478, before, f31);
 
 // All 300 NTSC blocks across BD's shipped db_posteffect records are Enable 0,
 // so the only place the scanline offset fires is the Battle Viewer.
-bool bdNtscFilterNoiseDisableHook() {
+REX_MIDASM_BRANCH(bdNtscFilterNoiseDisableHook, ()) {
   return !bd::gpu::Settings::Get().NTSCFilter();
 }
+REX_MIDASM_AT(bdNtscFilterNoiseDisableHook, 0x8221914C, before, 0x822191A0);

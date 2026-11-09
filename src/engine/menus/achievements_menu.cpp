@@ -61,7 +61,7 @@ void RegisterAchievementsVFS() {
   const auto &rows = GetAchievementList().empty() ? RefreshAchievementList()
                                                   : GetAchievementList();
   if (rows.empty()) {
-    BD_WARN("[achv] catalog empty, deferring VFS registration");
+    REXLOG_WARN(bd, "achv catalog empty, deferring VFS registration");
     return;
   }
 
@@ -109,7 +109,7 @@ void AchievementsMenu::Preload(const Task &parent) {
     intro_ = D2AnimeTask::Load(parent, "d2anime\\camp\\dia\\s_dia_top_ach.csv",
                                D2AnimeTask::Reveal::Held);
     if (!intro_) {
-      BD_WARN("[achv] transition load failed, the screen will pop in");
+      REXLOG_WARN(bd, "achv transition load failed, the screen will pop in");
     } else {
       intro.SyncVars(intro_.AnimeData());
       // The list screen waits for the next call: eleven child anime arrived
@@ -121,7 +121,7 @@ void AchievementsMenu::Preload(const Task &parent) {
   task_ = D2AnimeTask::Load(parent, "d2anime\\camp\\dia\\l_dia_ach.csv",
                             D2AnimeTask::Reveal::Held);
   if (!task_) {
-    BD_ERROR("[achv] LoadAsync failed");
+    REXLOG_ERROR(bd, "achv LoadAsync failed");
     intro_.Kill();
     intro_ = D2AnimeTask();
     return;
@@ -134,7 +134,7 @@ void AchievementsMenu::Preload(const Task &parent) {
   // would otherwise hit the handover from the transition.
   GetAchievementIconAtlas();
 
-  BD_DEBUG("[achv] preloaded: list 0x{:08X}, transition 0x{:08X}",
+  REXLOG_DEBUG(bd, "achv preloaded: list 0x{:08X}, transition 0x{:08X}",
            task_.Address(), intro_.Address());
 }
 
@@ -160,7 +160,7 @@ void AchievementsMenu::Create(const Task &parent) {
     intro_.SetVisibleAndPlay(true);
 
   active_ = true;
-  BD_DEBUG("[achv] opened, child task at 0x{:08X}", task_.Address());
+  REXLOG_DEBUG(bd, "achv opened, child task at 0x{:08X}", task_.Address());
 }
 
 void AchievementsMenu::Close() {
@@ -178,7 +178,7 @@ void AchievementsMenu::Close() {
   intro_frames_ = 0;
   fade_ = 0.0f;
 
-  BD_DEBUG("[achv] closed");
+  REXLOG_DEBUG(bd, "achv closed");
 }
 
 // Not gated on active_: the handles outlive a closed viewer, and a stale one
@@ -193,7 +193,7 @@ void AchievementsMenu::Abandon() {
   intro_frames_ = 0;
   fade_ = 0.0f;
 
-  BD_DEBUG("[achv] abandoned with the host task");
+  REXLOG_DEBUG(bd, "achv abandoned with the host task");
 }
 
 // The engine's own transition state waits on the finished flag, which AnimeData
@@ -236,7 +236,7 @@ void AchievementsMenu::StartOutro() {
       static_cast<float>(AchievementsTransitionLayout::kEndFrame));
   intro_.SetAnimSpeed(-intro_speed_);
 
-  BD_DEBUG("[achv] outro from anime frame {} at speed {}",
+  REXLOG_DEBUG(bd, "achv outro from anime frame {} at speed {}",
            intro_.AnimTime(), intro_.AnimSpeed());
 }
 
@@ -270,7 +270,7 @@ bool AchievementsMenu::DiscoverMenu() {
   for (size_t i = 0; i < rows.size(); ++i)
     list_menu_.AddEntryData(static_cast<int>(i), rows[i].unlocked);
 
-  BD_DEBUG("[achv] discovered list at 0x{:08X}", list_menu_.Address());
+  REXLOG_DEBUG(bd, "achv discovered list at 0x{:08X}", list_menu_.Address());
   return true;
 }
 
@@ -295,7 +295,7 @@ void AchievementsMenu::Transition(State next) {
     list_menu_.SetVisibleAndPlay(true);
     list_menu_.SetActive(true);
     list_menu_.AttachCursor();
-    BD_DEBUG("[achv] state -> FADE_IN");
+    REXLOG_DEBUG(bd, "achv state -> FADE_IN");
   }
 }
 
@@ -350,7 +350,7 @@ void AchievementsMenu::Update() {
     // Both draw the strip, divider, header and icon at the same coordinates,
     // so swapping them in one frame shows nothing. Hidden rather than killed:
     // leaving is the same screen played backwards.
-    BD_DEBUG("[achv] transition ran {} frames (anime frame {}, length {})",
+    REXLOG_DEBUG(bd, "achv transition ran {} frames (anime frame {}, length {})",
              intro_frames_, intro_.AnimTime(), intro_.AnimLength());
     intro_.SetVisibleAndPlay(false);
     state_ = State::INIT;
@@ -367,7 +367,7 @@ void AchievementsMenu::Update() {
       AchievementsTransitionLayout::Get().SyncVars(intro_.AnimeData());
     if (!OutroFinished())
       return;
-    BD_DEBUG("[achv] outro ran {} frames (anime frame {})", intro_frames_,
+    REXLOG_DEBUG(bd, "achv outro ran {} frames (anime frame {})", intro_frames_,
              intro_.AnimTime());
     intro_.SetAnimSpeed(intro_speed_);
     intro_.SetVisibleAndPlay(false);
@@ -386,7 +386,7 @@ void AchievementsMenu::Update() {
     if (fade_ >= 1.0f) {
       fade_ = 1.0f;
       state_ = State::LIST;
-      BD_DEBUG("[achv] state -> LIST");
+      REXLOG_DEBUG(bd, "achv state -> LIST");
     }
   }
 

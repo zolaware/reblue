@@ -10,7 +10,7 @@
 #include <filesystem>
 #include <fstream>
 
-#include <rex/filesystem.h>
+#include <rex/platform/file.h>
 #include <rex/types.h>
 #include <toml++/toml.h>
 
@@ -34,12 +34,12 @@ namespace fs = std::filesystem;
 void Migrate(InstallConfig &cfg) {
   const int stored = cfg.schema_version;
   if (stored > kInstallSchemaVersion) {
-    BD_WARN("Install record schema {} was written by a newer build", stored);
+    REXLOG_WARN(bd, "Install record schema {} was written by a newer build", stored);
     return;
   }
   cfg.schema_version = kInstallSchemaVersion;
   if (stored != kInstallSchemaVersion)
-    BD_INFO("Install record migrated from schema {} to {}", stored,
+    REXLOG_INFO(bd, "Install record migrated from schema {} to {}", stored,
             kInstallSchemaVersion);
 }
 
@@ -48,7 +48,7 @@ bool HasGameFiles(const InstallConfig &cfg) {
   std::error_code ec;
   if (fs::exists(default_xex, ec))
     return true;
-  BD_WARN("Install record ({}) present but {} missing, treating as uninstalled",
+  REXLOG_WARN(bd, "Install record ({}) present but {} missing, treating as uninstalled",
           ToString(cfg.connector), default_xex.string());
   return false;
 }
@@ -63,7 +63,7 @@ std::optional<InstallConfig> Finish(InstallConfig cfg) {
 }
 
 fs::path PortableRecordPath() {
-  return rex::filesystem::GetExecutableFolder() / kPortableRecordName;
+  return rex::platform::GetExecutableFolder() / kPortableRecordName;
 }
 
 std::string FingerprintKey(int index) {
@@ -97,7 +97,7 @@ std::optional<InstallConfig> ReadRecordFile(const fs::path &path,
     cfg.schema_version = t["schema_version"].value_or(0);
     cfg.app_version = t["app_version"].value_or(std::string{});
   } catch (const toml::parse_error &e) {
-    BD_WARN("Install record {} unreadable: {}", path.string(), e.what());
+    REXLOG_WARN(bd, "Install record {} unreadable: {}", path.string(), e.what());
     return std::nullopt;
   }
   if (connector == InstallConnector::kPortableFile)
@@ -107,13 +107,13 @@ std::optional<InstallConfig> ReadRecordFile(const fs::path &path,
 
 bool WriteRecordFile(const fs::path &path, const toml::table &t) {
   if (path.empty()) {
-    BD_ERROR("Install record: neither XDG_CONFIG_HOME nor HOME is set");
+    REXLOG_ERROR(bd, "Install record: neither XDG_CONFIG_HOME nor HOME is set");
     return false;
   }
   std::error_code ec;
   fs::create_directories(path.parent_path(), ec);
   if (ec) {
-    BD_ERROR("Install record: cannot create {}: {}",
+    REXLOG_ERROR(bd, "Install record: cannot create {}: {}",
              path.parent_path().string(), ec.message());
     return false;
   }
@@ -122,20 +122,20 @@ bool WriteRecordFile(const fs::path &path, const toml::table &t) {
   {
     std::ofstream out(tmp, std::ios::trunc);
     if (!out) {
-      BD_ERROR("Install record: cannot write {}", tmp.string());
+      REXLOG_ERROR(bd, "Install record: cannot write {}", tmp.string());
       return false;
     }
     out << t << '\n';
     out.flush();
     if (!out.good()) {
-      BD_ERROR("Install record: write to {} failed", tmp.string());
+      REXLOG_ERROR(bd, "Install record: write to {} failed", tmp.string());
       fs::remove(tmp, ec);
       return false;
     }
   }
   fs::rename(tmp, path, ec);
   if (ec) {
-    BD_ERROR("Install record: rename to {} failed: {}", path.string(),
+    REXLOG_ERROR(bd, "Install record: rename to {} failed: {}", path.string(),
              ec.message());
     fs::remove(tmp, ec);
     return false;
@@ -229,7 +229,7 @@ bool ClearRegistry() {
   LONG status = RegDeleteTreeW(HKEY_CURRENT_USER, kInstallKey);
   if (status == ERROR_SUCCESS || status == ERROR_FILE_NOT_FOUND)
     return true;
-  BD_ERROR("RegDeleteTreeW failed: {}", status);
+  REXLOG_ERROR(bd, "RegDeleteTreeW failed: {}", status);
   return false;
 }
 
@@ -239,7 +239,7 @@ bool WriteRegistry(const InstallConfig &config) {
                                        nullptr, REG_OPTION_NON_VOLATILE,
                                        KEY_WRITE, nullptr, &key, nullptr);
   if (create_status != ERROR_SUCCESS) {
-    BD_ERROR("RegCreateKeyExW failed: {}", create_status);
+    REXLOG_ERROR(bd, "RegCreateKeyExW failed: {}", create_status);
     return false;
   }
   {
@@ -257,7 +257,7 @@ bool WriteRegistry(const InstallConfig &config) {
                       bd::Utf8ToWide(REBLUE_VERSION_STRING));
     if (ok)
       return true;
-    BD_ERROR("Failed to write one or more values to install record");
+    REXLOG_ERROR(bd, "Failed to write one or more values to install record");
   }
   // Partial write: clear so InstallConfig::Read sees nullopt and re-runs the
   // installer.
@@ -311,7 +311,7 @@ bool InstallConfig::Write() const {
     return WriteRecordFile(ConfigRecordPath(), Serialize(*this, true));
 #endif
   default:
-    BD_ERROR("Install connector '{}' is not available on this platform",
+    REXLOG_ERROR(bd, "Install connector '{}' is not available on this platform",
              ToString(connector));
     return false;
   }

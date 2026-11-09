@@ -7,17 +7,18 @@
  */
 #include "engine/guest_texture.h"
 
-#include <rex/graphics/pipeline/texture/conversion.h>
-#include <rex/graphics/pipeline/texture/util.h>
-#include <rex/graphics/xenos.h>
+#include <rex/math.h>
+#include <rex/xenos/texture_conversion.h>
+#include <rex/xenos/texture_layout.h>
+#include <rex/xenos/xenos.h>
 
 namespace bd::engine {
 
 namespace {
 
-namespace tc = rex::graphics::texture_conversion;
-namespace tu = rex::graphics::texture_util;
-namespace xe = rex::graphics::xenos;
+namespace tc = rex::xenos;
+namespace tu = rex::xenos;
+namespace xe = rex::xenos;
 
 // Field values are transcribed from the stock UI atlases (d2anime\res\ic_item,
 // camp\cfg\res\mark_config) and, for the format word, from the one shipped
@@ -43,10 +44,6 @@ constexpr u32 kFetchSwizzle = 0x00000D10;
 // 2D, no packed mip tail, mip address zero.
 constexpr u32 kFetchDimension = 0x00000200;
 
-u32 AlignUp(u32 v, u32 alignment) {
-  return (v + alignment - 1u) & ~(alignment - 1u);
-}
-
 void PutBe32(std::vector<u8> &out, u32 v) {
   out.push_back(static_cast<u8>(v >> 24));
   out.push_back(static_cast<u8>(v >> 16));
@@ -61,8 +58,8 @@ void PutBe32(std::vector<u8> &out, u32 v) {
 // what the mirror reads back is what went in, texel for texel.
 std::vector<u8> BuildGuestTexture(const std::vector<u8> &rgba, u32 width,
                                   u32 height) {
-  const u32 pitch = AlignUp(width, kTileEdge);
-  const u32 tiledRows = AlignUp(height, kTileEdge);
+  const u32 pitch = rex::RoundUp(width, kTileEdge);
+  const u32 tiledRows = rex::RoundUp(height, kTileEdge);
   const u32 payloadBytes = pitch * tiledRows * kTexelBytes;
 
   std::vector<u8> blob;

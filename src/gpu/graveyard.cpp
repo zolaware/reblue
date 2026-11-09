@@ -16,6 +16,7 @@
 #include <mutex>
 
 #include <plume_render_interface.h>
+#include <rex/memory.h>
 #include <rex/runtime.h>
 
 #include "core/profiling.h"
@@ -23,6 +24,7 @@
 #include "core/logging.h"
 #include "gpu/frame.h"
 #include "gpu/host_resource_heap.h"
+#include "core/memory_helpers.h"
 
 namespace bd::gpu {
 
@@ -46,7 +48,7 @@ void DetachMirrorsLocked(VideoState &s, GuestTexture *dead) {
       slot = nullptr;
   }
   if (dead->mappedMemory) {
-    REX_KERNEL_MEMORY()->SystemHeapFree(dead->mappedMemory);
+    bd::mem::memory()->SystemHeapFree(dead->mappedMemory);
     dead->mappedMemory = 0;
   }
   s.draw_framebuffer_bound = false;
@@ -62,7 +64,7 @@ bool DrainResolveLinksLocked(VideoState &s, GuestTexture *tex,
         static std::atomic<u32> s_lost{0};
         const u32 n = s_lost.fetch_add(1, std::memory_order_relaxed);
         if (n < 8) {
-          BD_WARN("#{} unmaterialized resolve link into {}x{} fmt={} dropped "
+          REXLOG_WARN(bd, "#{} unmaterialized resolve link into {}x{} fmt={} dropped "
                   "(content lost)",
                   n, dst->width, dst->height, u32(dst->format));
         }
@@ -93,7 +95,7 @@ void ParkTextureGPUObjects(GuestTexture *tex) {
 }
 
 void DestroyResourceNow(u32 guest_va, ResourceType type) {
-  auto *memory = REX_KERNEL_MEMORY();
+  auto *memory = bd::mem::memory();
   void *host = memory->TranslateVirtual<void *>(guest_va);
   switch (type) {
   case ResourceType::Texture:

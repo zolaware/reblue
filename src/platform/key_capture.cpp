@@ -5,13 +5,10 @@
 #include "platform/key_capture.h"
 
 #include <chrono>
-#include <string_view>
 
-#include <rex/ui/keybinds.h>
-#include <rex/ui/virtual_key.h>
+#include <rex/hid/virtual_key.h>
 
-#include "platform/keyboard_input.h"
-#include "platform/mouse_input.h"
+#include "platform/hid.h"
 
 namespace bd::platform {
 namespace {
@@ -42,32 +39,23 @@ u32 s_padButtons = 0;
 int s_wheelSeen = 0;
 bool s_canceled = false;
 
-// The three mouse names sit in the same bindable list as the keys, and
-// ParseVirtualKey even resolves them, but a mouse button never reaches the
-// keyboard tracker: that is fed by key events alone. Polled against the
-// keyboard they read as permanently up, so a mouse button could be typed into
-// a config file and never captured from the bind screen.
 struct MouseName {
-  const char *name;
-  rex::ui::MouseEvent::Button button;
+  VK key;
+  rex::hid::MouseButton button;
 };
 
 constexpr MouseName kMouseButtons[] = {
-    {"LMB", rex::ui::MouseEvent::Button::kLeft},
-    {"RMB", rex::ui::MouseEvent::Button::kRight},
-    {"MMB", rex::ui::MouseEvent::Button::kMiddle},
+    {VK::kLButton, rex::hid::MouseButton::kLeft},
+    {VK::kRButton, rex::hid::MouseButton::kRight},
+    {VK::kMButton, rex::hid::MouseButton::kMiddle},
 };
 
 bool KeyDown(size_t i) {
-  const std::string_view name = kBindableKeys[i];
+  const VK key = kBindableKeys[i];
   for (const MouseName &mb : kMouseButtons)
-    if (name == mb.name)
-      return Mouse().IsButtonDown(mb.button);
-
-  auto vk = rex::ui::ParseVirtualKey(name);
-  if (vk == rex::ui::VirtualKey::kNone)
-    return false;
-  return Keyboard().IsDown(vk);
+    if (key == mb.key)
+      return HID().IsButtonDown(mb.button);
+  return HID().IsKeyDown(key);
 }
 
 bool SlotDown(size_t i) {
@@ -77,13 +65,13 @@ bool SlotDown(size_t i) {
 }
 
 std::string ModifierPrefix() {
-  const u8 mods = Keyboard().Modifiers();
+  const u8 mods = static_cast<u8>(HID().GetModifiers());
   std::string prefix;
-  if (mods & KeyboardInput::kModCtrl)
+  if (mods & kModCtrl)
     prefix += "Ctrl+";
-  if (mods & KeyboardInput::kModAlt)
+  if (mods & kModAlt)
     prefix += "Alt+";
-  if (mods & KeyboardInput::kModShift)
+  if (mods & kModShift)
     prefix += "Shift+";
   return prefix;
 }
@@ -95,7 +83,7 @@ void SetCapturePadButtons(u32 buttons) { s_padButtons = buttons; }
 void BeginKeyCapture() {
   for (size_t i = 0; i < kCaptureSlotCount; ++i)
     s_prev_down[i] = SlotDown(i);
-  s_wheelSeen = Mouse().WheelDetents();
+  s_wheelSeen = HID().GetWheel();
   s_capturing = true;
   s_pending = -1;
   s_canceled = false;
@@ -117,14 +105,13 @@ std::string PollKeyCapture() {
     s_capturing = false;
     const size_t hit = static_cast<size_t>(s_pending);
     s_pending = -1;
-    if (hit < kBindableKeyCount &&
-        std::string_view(kBindableKeys[hit]) == "Escape" &&
+    if (hit < kBindableKeyCount && kBindableKeys[hit] == VK::kEscape &&
         std::chrono::steady_clock::now() - s_pendingSince >= kCancelHold) {
       s_canceled = true;
       return {};
     }
     if (hit < kBindableKeyCount)
-      return s_pendingPrefix + kBindableKeys[hit];
+      return s_pendingPrefix + rex::hid::VirtualKeyToString(kBindableKeys[hit]);
     return kPadTokens[hit - kBindableKeyCount];
   }
 
@@ -141,7 +128,7 @@ std::string PollKeyCapture() {
   if (s_pending >= 0)
     return {};
 
-  const int wheel = Mouse().WheelDetents();
+  const int wheel = HID().GetWheel();
   if (wheel == 0) {
     s_wheelSeen = 0;
     return {};

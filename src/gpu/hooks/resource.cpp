@@ -12,6 +12,9 @@
 #include <unordered_set>
 
 #include <rex/hook.h>
+#include <rex/memory.h>
+#include <rex/memory/byte_swap.h>
+#include <rex/ppc/detour.h>
 #include <rex/runtime.h>
 #include <rex/types.h>
 
@@ -19,7 +22,6 @@
 
 #include "core/logging.h"
 #include "core/memory_helpers.h"
-#include "gpu/byte_swap.h"
 #include "gpu/d3d.h"
 #include "gpu/device.h"
 #include "gpu/format.h"
@@ -94,7 +96,7 @@ bd::gpu::GuestTexture *D3DDevice_CreateTexture_hook(u32 width, u32 height,
   auto *texture =
       bd::gpu::HostResourceHeap::Alloc<bd::gpu::GuestTexture>(rtype);
   if (!texture) {
-    BD_ERROR("CreateTexture: host resource heap exhausted");
+    REXLOG_ERROR(bd, "CreateTexture: host resource heap exhausted");
     return nullptr;
   }
 
@@ -165,7 +167,7 @@ bd::gpu::GuestTexture *D3DDevice_CreateTexture_hook(u32 width, u32 height,
       bd::gpu::Video::BindTextureSRV(texture);
     }
   } else {
-    BD_ERROR("CreateTexture fired before Video host device exists");
+    REXLOG_ERROR(bd, "CreateTexture fired before Video host device exists");
   }
   texture->width = width;
   texture->height = height;
@@ -185,13 +187,13 @@ bd::gpu::GuestBuffer *D3DDevice_CreateVertexBuffer_hook(u32 length,
   auto *b = bd::gpu::HostResourceHeap::Alloc<bd::gpu::GuestBuffer>(
       bd::gpu::ResourceType::VertexBuffer);
   if (!b) {
-    BD_ERROR("CreateVertexBuffer: host resource heap exhausted");
+    REXLOG_ERROR(bd, "CreateVertexBuffer: host resource heap exhausted");
     return nullptr;
   }
-  auto *memory = REX_KERNEL_MEMORY();
+  auto *memory = bd::mem::memory();
   b->guestMirrorVa = memory->SystemHeapAlloc(length, 0x20);
   if (!b->guestMirrorVa) {
-    BD_ERROR("CreateVertexBuffer: mirror alloc failed ({} bytes)", length);
+    REXLOG_ERROR(bd, "CreateVertexBuffer: mirror alloc failed ({} bytes)", length);
     bd::gpu::HostResourceHeap::Free(b);
     return nullptr;
   }
@@ -216,13 +218,13 @@ bd::gpu::GuestBuffer *D3DDevice_CreateIndexBuffer_hook(u32 length,
   auto *b = bd::gpu::HostResourceHeap::Alloc<bd::gpu::GuestBuffer>(
       bd::gpu::ResourceType::IndexBuffer);
   if (!b) {
-    BD_ERROR("CreateIndexBuffer: host resource heap exhausted");
+    REXLOG_ERROR(bd, "CreateIndexBuffer: host resource heap exhausted");
     return nullptr;
   }
-  auto *memory = REX_KERNEL_MEMORY();
+  auto *memory = bd::mem::memory();
   b->guestMirrorVa = memory->SystemHeapAlloc(length, 0x20);
   if (!b->guestMirrorVa) {
-    BD_ERROR("CreateIndexBuffer: mirror alloc failed ({} bytes)", length);
+    REXLOG_ERROR(bd, "CreateIndexBuffer: mirror alloc failed ({} bytes)", length);
     bd::gpu::HostResourceHeap::Free(b);
     return nullptr;
   }
@@ -302,12 +304,20 @@ void UnlockGuestBuffer(bd::gpu::GuestBuffer *b, u32 stride_bytes) {
 
   void *mapped = b->buffer->map();
   if (!mapped) {
-    BD_ERROR("UnlockGuestBuffer: map failed (size={}, {})", b->dataSize,
+    REXLOG_ERROR(bd, "UnlockGuestBuffer: map failed (size={}, {})", b->dataSize,
              is_index ? "index" : "vertex");
     return;
   }
 
-  bd::gpu::ByteSwapElements(mapped, mirror, b->dataSize, stride_bytes);
+  if (stride_bytes == 2) {
+    rex::memory::copy_and_swap<u16>(static_cast<u16 *>(mapped),
+                                    reinterpret_cast<const u16 *>(mirror),
+                                    b->dataSize / 2);
+  } else {
+    rex::memory::copy_and_swap<u32>(static_cast<u32 *>(mapped),
+                                    reinterpret_cast<const u32 *>(mirror),
+                                    b->dataSize / 4);
+  }
   b->buffer->unmap();
 }
 
@@ -348,7 +358,7 @@ bool TakeSurfaceLevel(u32 va) {
 // Frees the struct to HostHeap at zero. Untracked VAs return 0 (matching the
 // unknown-resource path in D3DResource_Release_hook).
 u32 ReleaseSurfaceLevel(rex::MappedPtr<bd::gpu::D3DResource> res) {
-  const u32 surface_va = res.guest_address();
+  const u32 surface_va = res.GetGuestAddress();
   if (!IsSurfaceLevel(surface_va))
     return 0;
   const u32 prev = res->ReferenceCount;
@@ -368,7 +378,7 @@ u32 D3DResource_Release_hook(rex::MappedPtr<bd::gpu::D3DResource> res) {
   if (!res)
     return 0;
   bd::gpu::ResourceType type;
-  if (!bd::gpu::HostResourceHeap::GetType(res.guest_address(), &type)) {
+  if (!bd::gpu::HostResourceHeap::GetType(res.GetGuestAddress(), &type)) {
     return ReleaseSurfaceLevel(res);
   }
   const u32 prev = res->ReferenceCount;
@@ -377,7 +387,7 @@ u32 D3DResource_Release_hook(rex::MappedPtr<bd::gpu::D3DResource> res) {
   const u32 next = prev - 1;
   res->ReferenceCount = next;
   if (next == 0) {
-    bd::gpu::Video::QueueResourceDestroy(res.guest_address(), type);
+    bd::gpu::Video::QueueResourceDestroy(res.GetGuestAddress(), type);
   }
   return next;
 }
@@ -386,8 +396,8 @@ u32 D3DResource_AddRef_hook(rex::MappedPtr<bd::gpu::D3DResource> res) {
   if (!res)
     return 0;
   bd::gpu::ResourceType ignored;
-  if (!bd::gpu::HostResourceHeap::GetType(res.guest_address(), &ignored)) {
-    if (!IsSurfaceLevel(res.guest_address()))
+  if (!bd::gpu::HostResourceHeap::GetType(res.GetGuestAddress(), &ignored)) {
+    if (!IsSurfaceLevel(res.GetGuestAddress()))
       return 0; // same in-struct refcount
   }
   const u32 next = u32(res->ReferenceCount) + 1;
@@ -475,7 +485,7 @@ u32 FillLockedRectScratch(bd::gpu::GuestTexture *tex,
   const u32 slice_pitch = pitch * tex->height;
   if (!slice_pitch)
     return 0; // UNKNOWN format (e.g. BCn): no host pitch
-  auto *memory = REX_KERNEL_MEMORY();
+  auto *memory = bd::mem::memory();
   if (!tex->mappedMemory)
     tex->mappedMemory = memory->SystemHeapAlloc(slice_pitch, 0x10);
   if (!tex->mappedMemory)
@@ -544,42 +554,43 @@ REX_HOOK(D3DResource_Destroy, D3DResource_Destroy_hook);
 REX_HOOK(D3DResource_GetType, D3DResource_GetType_hook);
 REX_HOOK(D3DTexture_GetSurfaceLevel, D3DTexture_GetSurfaceLevel_hook);
 
-// The five below run their original raw, on the inherited context: a typed
-// REX_IMPORT re-roots the guest stack at ThreadState's r1 and overwrites the
-// frames live underneath it.
-
 // bdAllocRenderBuffer's native malloc branch hand-builds a 52-byte D3DTexture
 // outside every D3D hook, the sole producer of FromGuest-null textures, so a
 // host mirror is built and registered for ResolveGuestTexture to find.
-REX_EXTERN(__imp__bdAllocRenderBuffer);
-REX_HOOK_RAW(bdAllocRenderBuffer) {
-  // r3 is the asset basename, kept so a reject names the dropped texture.
-  const u32 name = ctx.r3.u32;
-  __imp__bdAllocRenderBuffer(ctx, base);
-  const u32 result = ctx.r3.u32;
+REX_DETOUR(bdAllocRenderBuffer, u32,
+           (u32 name, u32 texture, u32 data, u32 param, u32 outTexture,
+            u32 outData)) {
+  const u32 result = original(name, texture, data, param, outTexture, outData);
   if (result &&
       !bd::gpu::HostResourceHeap::FromGuest<bd::gpu::GuestTexture>(result)) {
     bd::gpu::GetOrCreateNativeMirror(result, name);
   }
+  return result;
 }
 
 // LoadTexture__vf03 releases a texture resource object. A native malloc
 // texture has its XPhysical data slot set, so its registry entry is evicted
 // before the original frees and zeroes the fields. DDS textures leave that
 // slot at 0 and are left alone.
-REX_EXTERN(__imp__LoadTexture__vf03);
-REX_HOOK_RAW(LoadTexture__vf03) {
-  const auto *res = bd::mem::at<const LoadTextureResource>(ctx.r3.u32);
+REX_DETOUR(LoadTexture__vf03, u32, (u32 self)) {
+  const auto *res = bd::mem::at<const LoadTextureResource>(self);
   if (res && u32(res->xphysicalData)) {
     bd::gpu::EvictNativeTexture(res->textureVa);
   }
-  __imp__LoadTexture__vf03(ctx, base);
+  return original(self);
 }
 
-REX_EXTERN(__imp__D3DSurface_GetDesc);
-REX_HOOK_RAW(D3DSurface_GetDesc) {
-  const u32 surfaceVA = ctx.r3.u32;
-  auto *desc = bd::mem::at<bd::gpu::D3DSurfaceDesc>(ctx.r4.u32);
+REX_IMPORT(__imp__D3DSurface_GetDesc, OriginalSurfaceGetDesc,
+           void(u32, u32));
+REX_IMPORT(__imp__D3DTexture_GetLevelDesc, OriginalTextureGetLevelDesc,
+           void(u32, u32, u32));
+REX_IMPORT(__imp__D3DVolumeTexture_GetLevelDesc,
+           OriginalVolumeTextureGetLevelDesc, void(u32, u32, u32));
+
+namespace {
+
+void D3DSurface_GetDesc_hook(u32 surfaceVA, u32 descVA) {
+  auto *desc = bd::mem::at<bd::gpu::D3DSurfaceDesc>(descVA);
   if (!desc)
     return;
 
@@ -590,7 +601,7 @@ REX_HOOK_RAW(D3DSurface_GetDesc) {
   }
   if (!tex) {
     // Unresolved: let the recompiled body decode the real SizeBits.
-    __imp__D3DSurface_GetDesc(ctx, base);
+    OriginalSurfaceGetDesc(surfaceVA, descVA);
     return;
   }
 
@@ -604,21 +615,24 @@ REX_HOOK_RAW(D3DSurface_GetDesc) {
   desc->Height = tex->height;
 }
 
+} // namespace
+
+REX_HOOK(D3DSurface_GetDesc, D3DSurface_GetDesc_hook);
+
 // The recompiled D3DTexture_GetLevelDesc runs XGComputeTextureTailSize, which
 // divides by zero when the texture has no Xenos fetch constant, as reblue host
 // textures do not. Fill D3DSURFACE_DESC from host fields instead.
-REX_EXTERN(__imp__D3DTexture_GetLevelDesc);
-REX_HOOK_RAW(D3DTexture_GetLevelDesc) {
-  const u32 texture_guest = ctx.r3.u32;
-  const u32 level = ctx.r4.u32;
-  auto *desc = bd::mem::at<bd::gpu::D3DSurfaceDesc>(ctx.r5.u32);
+namespace {
+
+void D3DTexture_GetLevelDesc_hook(u32 texture_guest, u32 level, u32 descVA) {
+  auto *desc = bd::mem::at<bd::gpu::D3DSurfaceDesc>(descVA);
   if (!desc)
     return;
 
   auto *tex = bd::gpu::ResolveGuestTexture(texture_guest);
   if (!tex) {
     // Unresolved: let the recompiled body decode it if it has a fetch constant.
-    __imp__D3DTexture_GetLevelDesc(ctx, base);
+    OriginalTextureGetLevelDesc(texture_guest, level, descVA);
     return;
   }
 
@@ -643,20 +657,24 @@ REX_HOOK_RAW(D3DTexture_GetLevelDesc) {
   desc->Height = h;
 }
 
+} // namespace
+
+REX_HOOK(D3DTexture_GetLevelDesc, D3DTexture_GetLevelDesc_hook);
+
 // Volume twin of D3DTexture_GetLevelDesc. D3DVOLUME_DESC adds Depth and has no
 // MultiSample fields.
-REX_EXTERN(__imp__D3DVolumeTexture_GetLevelDesc);
-REX_HOOK_RAW(D3DVolumeTexture_GetLevelDesc) {
-  const u32 texture_guest = ctx.r3.u32;
-  const u32 level = ctx.r4.u32;
-  auto *desc = bd::mem::at<bd::gpu::D3DVolumeDesc>(ctx.r5.u32);
+namespace {
+
+void D3DVolumeTexture_GetLevelDesc_hook(u32 texture_guest, u32 level,
+                                        u32 descVA) {
+  auto *desc = bd::mem::at<bd::gpu::D3DVolumeDesc>(descVA);
   if (!desc)
     return;
 
   auto *tex = bd::gpu::ResolveGuestTexture(texture_guest);
   if (!tex) {
     // Unresolved: let the recompiled body decode it if it has a fetch constant.
-    __imp__D3DVolumeTexture_GetLevelDesc(ctx, base);
+    OriginalVolumeTextureGetLevelDesc(texture_guest, level, descVA);
     return;
   }
 
@@ -679,3 +697,7 @@ REX_HOOK_RAW(D3DVolumeTexture_GetLevelDesc) {
   desc->Height = h;
   desc->Depth = d;
 }
+
+} // namespace
+
+REX_HOOK(D3DVolumeTexture_GetLevelDesc, D3DVolumeTexture_GetLevelDesc_hook);

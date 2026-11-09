@@ -11,6 +11,7 @@
 #include <cstddef>
 
 #include <rex/hook.h>
+#include <rex/ppc/detour.h>
 
 #include "engine/events.h"
 #include "engine/game.h"
@@ -29,7 +30,7 @@ struct ItemSlot_t {
 };
 static_assert(offsetof(ItemSlot_t, itemId) == 0x00);
 static_assert(offsetof(ItemSlot_t, count) == 0x04);
-static_assert(sizeof(ItemSlot_t) == 8);
+static_assert(sizeof(ItemSlot_t) == 0x08);
 
 struct ItemSaveData_t {
   /* 0x0000 */ ItemSlot_t slots[kSlotCount];
@@ -119,21 +120,21 @@ size_t ItemSaveData::UsedCount() const {
 // operands: the opcodes set and subtract as well as add, they clamp, and they
 // refuse an add that would overflow a slot.
 
-REX_EXTERN(__imp__bdScriptOpGiveGold);
-REX_HOOK_RAW(bdScriptOpGiveGold) {
+REX_DETOUR(bdScriptOpGiveGold, u32, (u32 script, u32 operands)) {
   const u32 before = bd::engine::Game::Get().ItemSaveData().Gold();
-  __imp__bdScriptOpGiveGold(ctx, base);
+  const u32 result = original(script, operands);
   const u32 after = bd::engine::Game::Get().ItemSaveData().Gold();
   if (after != before)
     bd::engine::Events::Publish(bd::engine::GoldChanged{before, after});
+  return result;
 }
 
-REX_EXTERN(__imp__bdScriptOpGiveItem);
-REX_HOOK_RAW(bdScriptOpGiveItem) {
+REX_DETOUR(bdScriptOpGiveItem, u32, (u32 script, u32 operands)) {
   const auto before = bd::engine::Slots(bd::engine::Game::Get().ItemSaveData());
-  __imp__bdScriptOpGiveItem(ctx, base);
+  const u32 result = original(script, operands);
   const bd::engine::ItemGained gained = bd::engine::GainedSince(
       bd::engine::Game::Get().ItemSaveData(), before);
   if (gained.itemId)
     bd::engine::Events::Publish(gained);
+  return result;
 }

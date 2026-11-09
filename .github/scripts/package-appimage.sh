@@ -21,7 +21,7 @@ mkdir -p "${APPDIR}/usr/bin" "${APPDIR}/usr/lib"
 cp "${BUILD_DIR}/reblue" "${BUILD_DIR}/gamecontrollerdb.txt" "${APPDIR}/usr/bin/"
 
 shopt -s nullglob
-libs=("${BUILD_DIR}"/librexruntime*.so*)
+libs=("${BUILD_DIR}"/librexruntime*.so* "${BUILD_DIR}"/librexfilesystem*.so* "${BUILD_DIR}"/librexcore*.so*)
 if [ ${#libs[@]} -eq 0 ]; then
   echo "::error::no librexruntime*.so in ${BUILD_DIR}"
   exit 1

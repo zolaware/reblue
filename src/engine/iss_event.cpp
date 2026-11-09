@@ -11,7 +11,9 @@
 
 #include <rex/hook.h>
 #include <rex/ppc.h>
+#include <rex/ppc/detour.h>
 #include <rex/types.h>
+#include <rex/ppc/midasm.h>
 
 #include "core/memory_helpers.h"
 #include "engine/events.h"
@@ -167,8 +169,7 @@ std::string IssEvent::Prefix() const {
 // basename both were parsed from. Two instructions later BD stores that id to
 // its own current event global, gated on id % 100 == 0. reblue mirrors it here
 // instead of polling that global.
-void bdEventSceneCreatedHook(PPCRegister &r30, PPCRegister &r11,
-                             PPCRegister &r31) {
+REX_MIDASM_HOOK(bdEventSceneCreatedHook, (PPCRegister &r30, PPCRegister &r11, PPCRegister &r31)) {
   const char *name = bd::mem::str(r31.u32);
   u32 prefix = 0;
   if (name[0])
@@ -176,23 +177,24 @@ void bdEventSceneCreatedHook(PPCRegister &r30, PPCRegister &r11,
              static_cast<u8>(name[1]);
   bd::engine::OnEventSceneCreated(r30.u32, static_cast<i32>(r11.u32), prefix);
 }
+REX_MIDASM_AT(bdEventSceneCreatedHook, 0x823F5B30, before, r30, r11, r31);
 
 // Publishing from here rather than from the body above works because the
 // publish is host-only, so the returned issEvent in r3 survives it untouched.
-REX_EXTERN(__imp__bdEventSceneCreate);
-REX_HOOK_RAW(bdEventSceneCreate) {
-  __imp__bdEventSceneCreate(ctx, base);
+REX_DETOUR(bdEventSceneCreate, u32, (u32 parent, u32 name)) {
+  const u32 event = original(parent, name);
   bd::engine::PublishStarted();
+  return event;
 }
 
 // issEvent destructor, at BD's matching clear. r31 = the dying task.
-void bdEventSceneDestroyedHook(PPCRegister &r31) {
+REX_MIDASM_HOOK(bdEventSceneDestroyedHook, (PPCRegister &r31)) {
   bd::engine::OnEventSceneDestroyed(r31.u32);
 }
+REX_MIDASM_AT(bdEventSceneDestroyedHook, 0x823F5D9C, before, r31);
 
 // The issEvent destructor itself, which issGimmick shares.
-REX_EXTERN(__imp__issEvent__dtor);
-REX_HOOK_RAW(issEvent__dtor) {
-  __imp__issEvent__dtor(ctx, base);
+REX_DETOUR(issEvent__dtor, void, (u32 event)) {
+  original(event);
   bd::engine::PublishEnded();
 }

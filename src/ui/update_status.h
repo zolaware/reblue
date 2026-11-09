@@ -13,15 +13,11 @@
 
 struct ImGuiIO;
 
-namespace rex::ui {
-class ImGuiDrawer;
-} // namespace rex::ui
-
 namespace bd::ui {
 
 class UpdateStatusOverlay final : public rex::ui::ImGuiDialog {
 public:
-  explicit UpdateStatusOverlay(rex::ui::ImGuiDrawer *drawer);
+  UpdateStatusOverlay() = default;
   ~UpdateStatusOverlay();
 
   // True once neither check has anything left to say, so the owner can drop

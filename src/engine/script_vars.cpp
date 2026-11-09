@@ -9,6 +9,7 @@
 #include <cstddef>
 
 #include <rex/hook.h>
+#include <rex/ppc/detour.h>
 
 #include "core/memory_helpers.h"
 #include "engine/events.h"
@@ -56,11 +57,10 @@ u32 ScriptVars::NothingsCollected() const { return Global(kVarNothings); }
 // lifetime Nothings total is the only one in the title. That case sits inside
 // a jump table with no boundary of its own, so the count is read on either
 // side of the step rather than off the store.
-REX_EXTERN(__imp__Gmk__ReactGim__vf13);
-REX_HOOK_RAW(Gmk__ReactGim__vf13) {
+REX_DETOUR(Gmk__ReactGim__vf13, void, (u32 gimmick)) {
   const auto &game = bd::engine::Game::Get();
   const u32 before = game.ScriptManTask().Vars().NothingsCollected();
-  __imp__Gmk__ReactGim__vf13(ctx, base);
+  original(gimmick);
   const u32 after = game.ScriptManTask().Vars().NothingsCollected();
   if (after > before)
     bd::engine::Events::Publish(bd::engine::NothingCollected{after});

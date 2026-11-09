@@ -1,19 +1,17 @@
 #include <rex/cvar.h>
 #include <rex/hook.h>
+#include <rex/ppc/detour.h>
 #include <rex/types.h>
 
+#include "core/cvar_table.h"
 #include "core/memory_helpers.h"
 #include "engine/cutscene_pause.h"
 #include "engine/input/action_state.h"
 #include "engine/input/actions.h"
-#include "engine/input/binding_store.h"
+#include "engine/input/binding_registry.h"
 #include "engine/input/button_map.h"
 #include "engine/input/input_sources.h"
-
-REX_EXTERN(__imp__bdPadInputPoll);
-
-REXCVAR_DEFINE_BOOL(bd_input_bindings, true, "Input",
-                    "Route input through reblue's binding layer");
+#include "engine/input/pad_block.h"
 
 namespace bd::engine {
 
@@ -24,19 +22,10 @@ inline constexpr u32 kAttractMode = 0x82DDA860;
 
 namespace {
 
-constexpr u32 kConnectedOffset = 0x00;
-constexpr u32 kConnectEdgeOffset = 0x01;
-constexpr u32 kDisconnectEdgeOffset = 0x02;
-
-constexpr u32 kHeldOffset = 0x0C;
-constexpr u32 kPressedOffset = 0x10;
-constexpr u32 kReleasedOffset = 0x14;
-constexpr u32 kRepeatOffset = 0x18;
-
 constexpr int kAxisPairs = 2;
 constexpr int kAxisComponents = 2;
-constexpr u32 kAnalogOffset[kAxisPairs * kAxisComponents] = {0x1C, 0x20, 0x24,
-                                                             0x28};
+static_assert(sizeof(PadBlock_t::analog) ==
+              kAxisPairs * kAxisComponents * sizeof(be_f32));
 
 constexpr u32 kFirstStickBit = 16;
 constexpr int kStickDirections = 4;
@@ -155,9 +144,8 @@ void AddStickDirections(const AxisState &axes, PadWords &words) {
   g_prevStick = (g_prevStick & ~mask) | now;
 }
 
-void StoreWord(u32 va, u32 value, u32 claimed) {
-  const u32 kept = mem::try_load<u32>(va) & ~claimed;
-  mem::try_store<u32>(va, kept | value);
+void StoreWord(be_u32 &word, u32 value, u32 claimed) {
+  word = (u32(word) & ~claimed) | value;
 }
 
 void WritePadZero(bool route) {
@@ -182,34 +170,35 @@ void WritePadZero(bool route) {
     words = PadWords{.claimed = ~0u};
   }
 
-  StoreWord(addr::kPadZeroBlock + kHeldOffset, words.held, words.claimed);
-  StoreWord(addr::kPadZeroBlock + kPressedOffset, words.pressed,
-            words.claimed);
-  StoreWord(addr::kPadZeroBlock + kReleasedOffset, words.released,
-            words.claimed);
-  StoreWord(addr::kPadZeroBlock + kRepeatOffset, words.repeat, words.claimed);
+  auto *pad = mem::try_at<PadBlock_t>(addr::kPadZeroBlock);
+  if (!pad)
+    return;
+
+  StoreWord(pad->held, words.held, words.claimed);
+  StoreWord(pad->pressed, words.pressed, words.claimed);
+  StoreWord(pad->released, words.released, words.claimed);
+  StoreWord(pad->repeat, words.repeat, words.claimed);
 
   for (int pair = 0; pair < kAxisPairs; ++pair) {
     for (int component = 0; component < kAxisComponents; ++component) {
       const int slot = pair * kAxisComponents + component;
-      mem::try_store<f32>(addr::kPadZeroBlock + kAnalogOffset[slot],
-                          axes.value[pair][component]);
+      pad->analog[slot] = axes.value[pair][component];
     }
   }
 
   if (!g_driving)
-    mem::try_store<u8>(addr::kPadZeroBlock + kConnectEdgeOffset, 1);
+    pad->connectEdge = 1;
   g_driving = true;
-  mem::try_store<u8>(addr::kPadZeroBlock + kConnectedOffset, 1);
-  mem::try_store<u8>(addr::kPadZeroBlock + kDisconnectEdgeOffset, 0);
+  pad->connected = 1;
+  pad->disconnectEdge = 0;
 }
 
 } // namespace
 
 } // namespace bd::engine
 
-REX_HOOK_RAW(bdPadInputPoll) {
-  const bool route = REXCVAR_GET(bd_input_bindings);
-  __imp__bdPadInputPoll(ctx, base);
+REX_DETOUR(bdPadInputPoll, void, ()) {
+  const bool route = REXCVAR_GET(bd::cvars::input_bindings);
+  original();
   bd::engine::WritePadZero(route);
 }

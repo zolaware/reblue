@@ -107,13 +107,13 @@ bool CreateChunk(UploadChunk &chunk) {
                                 plume::RenderBufferFlag::DEVICE_ADDRESSABLE),
       "cb-upload-chunk");
   if (!chunk.buffer) {
-    BD_ERROR("constant_buffers: createBuffer({} MiB chunk) failed",
+    REXLOG_ERROR(bd, "constant_buffers: createBuffer({} MiB chunk) failed",
              kUploadChunkSize / (1024 * 1024));
     return false;
   }
   chunk.mapped = reinterpret_cast<u8 *>(chunk.buffer->map());
   if (!chunk.mapped) {
-    BD_ERROR("constant_buffers: RenderBuffer::map() returned null");
+    REXLOG_ERROR(bd, "constant_buffers: RenderBuffer::map() returned null");
     chunk.buffer.reset();
     return false;
   }
@@ -125,7 +125,7 @@ ConstantAllocation Allocate(UploadState &s, u32 size, u32 alignment) {
   if (!s.ready)
     return {};
   if (size > kUploadChunkSize) {
-    BD_ERROR("constant_buffers: single allocation {} exceeds chunk size {}",
+    REXLOG_ERROR(bd, "constant_buffers: single allocation {} exceeds chunk size {}",
              size, kUploadChunkSize);
     return {};
   }
@@ -145,7 +145,7 @@ ConstantAllocation Allocate(UploadState &s, u32 size, u32 alignment) {
     const u32 total = up.chunkIndex + 1;
     if (total > up.peakChunkCount) {
       up.peakChunkCount = total;
-      BD_DEBUG("constant_buffers: slot {} grew to {} chunk(s) ({} MiB total)",
+      REXLOG_DEBUG(bd, "constant_buffers: slot {} grew to {} chunk(s) ({} MiB total)",
                s.cursor, total, total * (kUploadChunkSize / (1024 * 1024)));
     }
   }
@@ -193,11 +193,7 @@ void CopyByteSwap32Impl(u8 *dst, u32 guest_va, u32 size) {
   }
 #endif
   for (; i < count; ++i) {
-#if defined(_MSC_VER)
-    const u32 v = _byteswap_ulong(src[i]);
-#else
-    const u32 v = __builtin_bswap32(src[i]);
-#endif
+    const u32 v = rex::byte_swap(src[i]);
     if constexpr (kFlushNaN) {
       // NaN iff exponent all-1 and mantissa != 0, i.e. |bits| > +Inf bits.
       out[i] = (v & 0x7FFFFFFFu) > 0x7F800000u ? 0u : v;
@@ -473,7 +469,7 @@ ConstantAllocation UploadGuestBytes(u32 guest_va, u32 size, u32 alignment) {
     return {};
   const auto *src = bd::mem::at<const u8>(guest_va);
   if (!src) {
-    BD_WARN("constant_buffers: UploadGuestBytes translate failed for "
+    REXLOG_WARN(bd, "constant_buffers: UploadGuestBytes translate failed for "
             "guest_va={:#x}",
             guest_va);
     return {};

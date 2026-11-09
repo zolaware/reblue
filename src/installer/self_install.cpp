@@ -11,7 +11,7 @@
 
 #include <iterator>
 
-#include <rex/filesystem.h>
+#include <rex/platform/file.h>
 
 #include "core/logging.h"
 #include "core/program_files.h"
@@ -21,7 +21,7 @@ namespace bd::installer {
 namespace fs = std::filesystem;
 
 bool CopyProgramTo(const fs::path &install, std::string &error) {
-  const fs::path here = rex::filesystem::GetExecutablePath().parent_path();
+  const fs::path here = rex::platform::GetExecutablePath().parent_path();
   std::error_code ec;
   if (!here.empty() && fs::equivalent(here, install, ec))
     return true;
@@ -36,7 +36,7 @@ bool CopyProgramTo(const fs::path &install, std::string &error) {
       return false;
     }
   }
-  BD_INFO("Copied {} program files into {}", std::size(kProgramFiles),
+  REXLOG_INFO(bd, "Copied {} program files into {}", std::size(kProgramFiles),
           install.string());
   return true;
 }

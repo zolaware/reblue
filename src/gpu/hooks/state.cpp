@@ -11,6 +11,7 @@
 #include <cstring>
 
 #include <rex/hook.h>
+#include <rex/ppc/detour.h>
 #include <rex/runtime.h>
 #include <rex/types.h>
 
@@ -75,7 +76,7 @@ void D3DDevice_SetRenderTarget_hook(
     rex::MappedPtr<bd::gpu::D3DDevice> pDevice, u32 RenderTargetIndex,
     rex::MappedPtr<bd::gpu::D3DSurface> pRenderTarget) {
   auto *surface = bd::gpu::HostResourceHeap::FromGuest<bd::gpu::GuestTexture>(
-      pRenderTarget.guest_address());
+      pRenderTarget.GetGuestAddress());
 
   // Maintain the device RT shadow the recompiled D3DDevice_GetRenderTarget
   // reads: the RT stack push/pop (every Sofdec movie frame) saves via the
@@ -83,7 +84,7 @@ void D3DDevice_SetRenderTarget_hook(
   // each stack pop.
   if (pDevice && RenderTargetIndex < 4) {
     pDevice->renderTargetShadow[RenderTargetIndex] =
-        pRenderTarget.guest_address();
+        pRenderTarget.GetGuestAddress();
   }
 
   // MRT is not modeled. BD issues SetRenderTarget(idx=1..3, NULL) every frame
@@ -119,11 +120,11 @@ void D3DDevice_SetDepthStencilSurface_hook(
     rex::MappedPtr<bd::gpu::D3DDevice> pDevice,
     rex::MappedPtr<bd::gpu::D3DSurface> pZStencilSurface) {
   auto *surface = bd::gpu::HostResourceHeap::FromGuest<bd::gpu::GuestTexture>(
-      pZStencilSurface.guest_address());
+      pZStencilSurface.GetGuestAddress());
   // Shadow for the recompiled D3DDevice_GetDepthStencilSurface (+0x2F98). Raw
   // VA as given, the pop's re-Set re-applies the type filter below.
   if (pDevice) {
-    pDevice->depthStencilShadow = pZStencilSurface.guest_address();
+    pDevice->depthStencilShadow = pZStencilSurface.GetGuestAddress();
   }
   // FromGuest verifies registration, not ResourceType: reject non-depth so a
   if (surface) {
@@ -246,30 +247,44 @@ void D3DDevice_SetIndices_hook(u32 /*device*/, u32 indices_guest) {
   bd::gpu::Video::SetIndices(ib);
 }
 
+} // namespace
+
 // SetSamplerState is deliberately NOT hooked: its recompiled body writes the
 // sampler state table at device+0x1BC, which FlushRenderState reads directly.
 //
-// The constant setters below stay raw: they touch no argument, only run the
-// original and then mark dirty to gate the CBV upload, and their arities
-// differ.
-#define REBLUE_CONSTANT_DIRTY_HOOK(fn, mark)                                   \
-  REX_EXTERN(__imp__##fn);                                                     \
-  REX_HOOK_RAW(fn) {                                                           \
-    __imp__##fn(ctx, base);                                                    \
+// The constant setters below only run the original and then mark dirty to gate
+// the CBV upload. Their arities differ, so each names its own parameters.
+#define REBLUE_CONSTANT_DIRTY_HOOK(fn, params, args, mark)                     \
+  REX_DETOUR(fn, void, params) {                                               \
+    original args;                                                             \
     mark;                                                                      \
   }
 
-REBLUE_CONSTANT_DIRTY_HOOK(D3DDevice_SetVertexShaderConstantFN,
-                           bd::gpu::Video::MarkVSConstantsDirty())
+REBLUE_CONSTANT_DIRTY_HOOK(
+    D3DDevice_SetVertexShaderConstantFN,
+    (u32 device, u32 startRegister, u32 data, u32 count, u64 dirtyMask),
+    (device, startRegister, data, count, dirtyMask),
+    bd::gpu::Video::MarkVSConstantsDirty())
 REBLUE_CONSTANT_DIRTY_HOOK(D3DDevice_SetVertexShaderConstantI,
+                           (u32 device, u32 startRegister, u32 data, u32 count),
+                           (device, startRegister, data, count),
                            bd::gpu::Video::MarkVSConstantsDirty())
 REBLUE_CONSTANT_DIRTY_HOOK(D3DDevice_SetVertexShaderConstantB,
+                           (u32 device, u32 startRegister, u32 data, u32 count),
+                           (device, startRegister, data, count),
                            bd::gpu::Video::MarkVSConstantsDirty())
-REBLUE_CONSTANT_DIRTY_HOOK(D3DDevice_SetPixelShaderConstantFN,
-                           bd::gpu::Video::MarkPSConstantsDirty())
+REBLUE_CONSTANT_DIRTY_HOOK(
+    D3DDevice_SetPixelShaderConstantFN,
+    (u32 device, u32 startRegister, u32 data, u32 count, u64 dirtyMask),
+    (device, startRegister, data, count, dirtyMask),
+    bd::gpu::Video::MarkPSConstantsDirty())
 REBLUE_CONSTANT_DIRTY_HOOK(D3DDevice_SetPixelShaderConstantI,
+                           (u32 device, u32 startRegister, u32 data, u32 count),
+                           (device, startRegister, data, count),
                            bd::gpu::Video::MarkPSConstantsDirty())
 REBLUE_CONSTANT_DIRTY_HOOK(D3DDevice_SetPixelShaderConstantB,
+                           (u32 device, u32 startRegister, u32 data, u32 count),
+                           (device, startRegister, data, count),
                            bd::gpu::Video::MarkPSConstantsDirty())
 
 // bdSetViewportConstants writes (1/W, 1/H, 0, scale) into VS c21 (device+0x850)
@@ -278,20 +293,25 @@ REBLUE_CONSTANT_DIRTY_HOOK(D3DDevice_SetPixelShaderConstantB,
 // Both write the constant shadows directly via g_pD3DDevice and skip the D3D
 // setter path, so the FN setter hooks never see them, so mark both stages
 // dirty.
-REBLUE_CONSTANT_DIRTY_HOOK(bdSetViewportConstants,
+REBLUE_CONSTANT_DIRTY_HOOK(bdSetViewportConstants, (), (),
                            (bd::gpu::Video::MarkVSConstantsDirty(),
                             bd::gpu::Video::MarkPSConstantsDirty()))
 REBLUE_CONSTANT_DIRTY_HOOK(Visual__DrawVerticesUP,
+                           (u32 count, u32 vertices, u32 psConstant3,
+                            u32 vsConstant20),
+                           (count, vertices, psConstant3, vsConstant20),
                            (bd::gpu::Video::MarkVSConstantsDirty(),
                             bd::gpu::Video::MarkPSConstantsDirty()))
 // Visual__DrawSortedQueues also writes PS c3 (device+0x1730) inline during its
 // draw setup, a separate writer from Visual__DrawVerticesUP that likewise skips
 // the setter path.
-REBLUE_CONSTANT_DIRTY_HOOK(Visual__DrawSortedQueues,
+REBLUE_CONSTANT_DIRTY_HOOK(Visual__DrawSortedQueues, (), (),
                            (bd::gpu::Video::MarkVSConstantsDirty(),
                             bd::gpu::Video::MarkPSConstantsDirty()))
 
 #undef REBLUE_CONSTANT_DIRTY_HOOK
+
+namespace {
 
 // bdSetRenderState. BD's chokepoint for every D3DRS write: the per-D3DRS guest
 // setters have no direct xrefs, so all state reaches them through this vtable
@@ -313,12 +333,7 @@ REX_HOOK(D3DDevice_SetVertexDeclaration, D3DDevice_SetVertexDeclaration_hook);
 REX_HOOK(D3DDevice_SetTexture, D3DDevice_SetTexture_hook);
 REX_HOOK(D3DDevice_SetStreamSource, D3DDevice_SetStreamSource_hook);
 REX_HOOK(D3DDevice_SetIndices, D3DDevice_SetIndices_hook);
-// Raw, on the inherited context: a typed REX_IMPORT re-roots the guest stack
-// at ThreadState's r1 and overwrites the frames live underneath it.
-REX_EXTERN(__imp__bdSetRenderState);
-REX_HOOK_RAW(bdSetRenderState) {
-  const u32 offset = ctx.r3.u32;
-  const u32 value = ctx.r4.u32;
+REX_DETOUR(bdSetRenderState, void, (u32 offset, u32 value)) {
   // Depth/cull/color-write are read from g_renderStateCache at draw time
   // (ReadDeviceRenderState), which sees LTCG-inlined sites a function
   // hook can't. Only alpha test feeds SharedConstants: it is fixed-function ROP
@@ -329,5 +344,5 @@ REX_HOOK_RAW(bdSetRenderState) {
     bd::gpu::Video::SetAlphaThreshold(static_cast<float>(value) *
                                       kAlphaRefScale);
   }
-  __imp__bdSetRenderState(ctx, base);
+  original(offset, value);
 }

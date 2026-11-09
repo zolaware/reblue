@@ -14,6 +14,7 @@
 #include <thread>
 #include <unordered_set>
 #include <utility>
+#include <vector>
 
 #include "core/logging.h"
 #include "core/threading.h"
@@ -31,7 +32,7 @@ struct WorkItem {
 };
 
 std::mutex g_queueMutex;
-std::condition_variable g_queueCv;
+std::condition_variable_any g_queueCv;
 // Two lanes share one mutex/cv. Priority holds a load's own predicted PSOs so
 // they compile ahead of the background backlog (boot replay residual + global
 // coverage), the set a draw in the first frames after a load needs warm.
@@ -55,14 +56,14 @@ void ProcessItem(WorkItem &item) {
       const size_t n =
           g_buildFailures.fetch_add(1, std::memory_order_relaxed) + 1;
       if (n == 1 || (n & 0x3FF) == 0)
-        BD_WARN("pso_precache: GetOrCreatePipeline returned null ({} total, "
+        REXLOG_WARN(bd, "pso_precache: GetOrCreatePipeline returned null ({} total, "
                 "possible device-loss/transient-alloc failure)",
                 n);
     }
   } catch (const std::exception &e) {
-    BD_ERROR("pso_precache GetOrCreatePipeline exception: {}", e.what());
+    REXLOG_ERROR(bd, "pso_precache GetOrCreatePipeline exception: {}", e.what());
   } catch (...) {
-    BD_ERROR("pso_precache GetOrCreatePipeline unknown exception");
+    REXLOG_ERROR(bd, "pso_precache GetOrCreatePipeline unknown exception");
   }
 
   // Release even on a nullptr build or thrown compile so the gate cannot hang.
@@ -70,16 +71,20 @@ void ProcessItem(WorkItem &item) {
     item.token->ReleasePending();
 }
 
-void WorkerLoop() {
+std::vector<std::jthread> g_workers;
+
+void WorkerLoop(const std::stop_token &stop) {
   // A load hands every worker an 8ms link at once, and at normal priority that
   // convoy preempts the render thread and the frame stretches to 300ms.
   DemoteThreadToBackground();
-  for (;;) {
+  while (!stop.stop_requested()) {
     WorkItem item;
     {
       std::unique_lock<std::mutex> lock(g_queueMutex);
-      g_queueCv.wait(
-          lock, [] { return !g_priorityQueue.empty() || !g_queue.empty(); });
+      if (!g_queueCv.wait(lock, stop, [] {
+            return !g_priorityQueue.empty() || !g_queue.empty();
+          }))
+        return;
       if (!g_priorityQueue.empty()) {
         item = std::move(g_priorityQueue.front());
         g_priorityQueue.pop_front();
@@ -93,9 +98,9 @@ void WorkerLoop() {
     try {
       ProcessItem(item);
     } catch (const std::exception &e) {
-      BD_ERROR("pso_precache worker exception: {}", e.what());
+      REXLOG_ERROR(bd, "pso_precache worker exception: {}", e.what());
     } catch (...) {
-      BD_ERROR("pso_precache worker unknown exception");
+      REXLOG_ERROR(bd, "pso_precache worker unknown exception");
     }
   }
 }
@@ -108,15 +113,25 @@ void StartWorkerPool() {
       count = hw - 3u; // leave 3 for the game
     if (count < 2u)
       count = 2u;
-    // Never joinable: a static vector of these std::terminates if the message
-    // loop unwinds to main instead of exiting via TerminateProcessNow.
+    std::lock_guard<std::mutex> lock(g_queueMutex);
     for (unsigned i = 0; i < count; ++i)
-      std::thread(WorkerLoop).detach();
-    BD_DEBUG("pso_precache: started {} compiler thread(s)", count);
+      g_workers.emplace_back(WorkerLoop);
+    REXLOG_DEBUG(bd, "pso_precache: started {} compiler thread(s)", count);
   });
 }
 
 } // namespace
+
+void StopPSOPrecache() {
+  std::vector<std::jthread> workers;
+  {
+    std::lock_guard<std::mutex> lock(g_queueMutex);
+    workers.swap(g_workers);
+  }
+  for (auto &worker : workers)
+    worker.request_stop();
+  g_queueCv.notify_all();
+}
 
 bool PrecacheEnabled() { return Settings::Get().PSOPrecache(); }
 
@@ -180,7 +195,7 @@ void EndLoadCapture() {
 
   // Pushed to the priority lane and warm ahead of background work, so a heavy
   // load spawn still can't freeze the load thread for hundreds of ms.
-  BD_DEBUG("pso_precache: load queued {} priority pipeline(s) (cache total {})",
+  REXLOG_DEBUG(bd, "pso_precache: load queued {} priority pipeline(s) (cache total {})",
            enqueued, PipelineCacheSize());
 }
 

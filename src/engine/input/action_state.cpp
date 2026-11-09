@@ -4,7 +4,7 @@
 #include <vector>
 
 #include "core/memory_helpers.h"
-#include "engine/input/binding_store.h"
+#include "engine/input/binding_registry.h"
 #include "engine/input/dispatch.h"
 #include "engine/input/input_sources.h"
 
@@ -61,9 +61,12 @@ void InputActions::Resolve() {
     if (Describe(action).kind != ActionKind::Dispatched)
       continue;
     const auto &sources = binds.Sources(action);
+    const auto active = [&](const Source &s) {
+      return action == Action::Mindows ? in.ActiveUnheld(s) : in.Active(s);
+    };
     bool held = false;
     for (const Source &s : sources) {
-      if (in.Active(s)) {
+      if (active(s)) {
         held = true;
         break;
       }
@@ -81,7 +84,7 @@ void InputActions::Resolve() {
     for (const Source &s : sources) {
       if (consumedCount == kMaxConsumed)
         break;
-      if (in.Active(s))
+      if (active(s))
         consumed[consumedCount++] = s;
     }
   }

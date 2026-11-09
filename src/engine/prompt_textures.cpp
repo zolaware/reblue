@@ -13,6 +13,7 @@
 #include <vector>
 
 #include <rex/ppc.h>
+#include <rex/ppc/midasm.h>
 #include <stb_image.h>
 
 #include "core/logging.h"
@@ -21,7 +22,7 @@
 #include "engine/glyph_set.h"
 #include "engine/guest_texture.h"
 #include "engine/input/actions.h"
-#include "engine/input/binding_store.h"
+#include "engine/input/binding_registry.h"
 #include "engine/live_texture_stamp.h"
 #include "embedded.h"
 #include "platform/platform.h"
@@ -212,7 +213,7 @@ const CapLibrary *Library() {
   if (!pixels || w <= 0 || h <= 0) {
     if (pixels)
       stbi_image_free(pixels);
-    BD_ERROR("[prompts] the key cap library did not decode");
+    REXLOG_ERROR(bd, "prompts the key cap library did not decode");
     return nullptr;
   }
 
@@ -233,7 +234,7 @@ const CapLibrary *Sheet() {
 
   s_sheet.rgba = Glyphs::SheetPixels();
   if (s_sheet.rgba.empty()) {
-    BD_ERROR("[prompts] the glyph sheet did not decode");
+    REXLOG_ERROR(bd, "[prompts] the glyph sheet did not decode");
     return nullptr;
   }
   s_sheet.cellPx = Glyphs::kSheetCellPx;
@@ -416,7 +417,7 @@ void PromptTextures::Publish() {
   published_ = true;
 
   if (!padArt_) {
-    BD_WARN("[prompts] cap library has no pad button cells, composing only "
+    REXLOG_WARN(bd, "prompts cap library has no pad button cells, composing only "
             "while a keyboard drives");
     return;
   }
@@ -445,7 +446,7 @@ void PromptTextures::SetEnabled(bool on) {
   if (!on) {
     enabled_ = false;
     LayoutMount::Remove(kMount);
-    BD_DEBUG("[prompts] released, the shipped button art loads again");
+    REXLOG_DEBUG(bd, "prompts released, the shipped button art loads again");
     return;
   }
   enabled_ = true;
@@ -454,7 +455,7 @@ void PromptTextures::SetEnabled(bool on) {
   for (const PromptTex &tex : kTextures)
     mount.AddRaw(tex.key, [t = &tex] { return Compose(*t); });
   mount.Publish(kMount);
-  BD_DEBUG("[prompts] serving {} composed prompt textures",
+  REXLOG_DEBUG(bd, "prompts serving {} composed prompt textures",
            std::size(kTextures));
 }
 
@@ -464,6 +465,8 @@ void PromptTextures::SetEnabled(bool on) {
 // for their ic_btn row and know only the four face ids. A rebind that parts
 // Interact from Confirm leaves it on a spare id, and the switch's fall-through
 // leaves the row rect zeroed, which draws the whole sheet.
-void bdPromptIconButtonHook(PPCRegister &r11) {
+REX_MIDASM_HOOK(bdPromptIconButtonHook, (PPCRegister &r11)) {
   r11.u64 = bd::engine::PromptIconButton(r11.u32);
 }
+REX_MIDASM_AT(bdPromptIconButtonHook, 0x8219EC88, before, r11);
+REX_MIDASM_AT(bdPromptIconButtonHook, 0x82228B68, before, r11);

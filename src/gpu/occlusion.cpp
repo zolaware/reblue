@@ -15,6 +15,7 @@
 #include <plume_render_interface.h>
 
 #include "core/logging.h"
+#include "core/settings.h"
 #include "gpu/hooks/tweaks.h"
 #include "gpu/occlusion.h"
 
@@ -102,11 +103,13 @@ void Occlusion::Begin() {
       const u32 normalized = oversample > 1u ? count / oversample : count;
       s.occlusion_last_count = normalized > 16384u ? 16384u : normalized;
       if (normalized > 16384u)
-        BD_DEV_WARN("[occlusion] normalized count {} (raw {} / {}x) > 16384 (slot "
-               "{}), clamped",
-               normalized, count, oversample, slot);
+        if (::bd::Settings::Get().Devmode()) {
+          REXLOG_WARN(bd, "occlusion normalized count {} (raw {} / {}x) > 16384 (slot "
+                 "{}), clamped",
+                 normalized, count, oversample, slot);
+        }
     } else {
-      BD_ERROR("occlusion readback map() null (slot {}), keeping count {}",
+      REXLOG_ERROR(bd, "occlusion readback map() null (slot {}), keeping count {}",
                slot, s.occlusion_last_count);
     }
   }

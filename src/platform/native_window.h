@@ -12,16 +12,11 @@
 #include <plume_render_interface.h>
 
 namespace rex::ui {
-class Window;
+class IWindow;
 }
 
 namespace bd::platform {
 
-// Fill 'out' with the swapchain surface target for 'window'. The window is
-// the single SDK SDL3 window on every platform. Only the handle plume needs
-// differs, since its RenderWindow type is per-platform: a Win32 HWND, an
-// NSWindow plus CAMetalLayer, or the SDL window itself on Linux. Returns false
-// and logs when that handle is unavailable.
-bool GetNativeRenderWindow(rex::ui::Window *window, plume::RenderWindow &out);
+bool GetNativeRenderWindow(rex::ui::IWindow &window, plume::RenderWindow &out);
 
 } // namespace bd::platform

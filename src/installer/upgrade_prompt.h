@@ -17,24 +17,13 @@
 
 struct ImGuiIO;
 
-namespace rex::ui {
-class ImGuiDrawer;
-class WindowedAppContext;
-} // namespace rex::ui
-
 namespace bd::installer {
 
-// Raised before the renderer hands off to the guest, so it draws through the
-// same pre-guest pump the wizard uses. A unique_ptr owns it as it owns the
-// wizard, so this never calls Close(), and it answers through a deferred
-// callback: the owner drops it there, and OnDraw must have returned first.
 class UpgradePrompt final : public rex::ui::ImGuiDialog {
 public:
   using DoneCallback = std::function<void(bool accepted)>;
 
-  UpgradePrompt(rex::ui::ImGuiDrawer *drawer,
-                rex::ui::WindowedAppContext &app_context,
-                std::filesystem::path install_root, std::string installed,
+  UpgradePrompt(std::filesystem::path install_root, std::string installed,
                 DoneCallback on_done);
 
 protected:
@@ -43,7 +32,6 @@ protected:
 private:
   void Answer(bool accepted);
 
-  rex::ui::WindowedAppContext &app_context_;
   std::filesystem::path install_root_;
   std::string installed_; // the version the install records today
   DoneCallback on_done_;

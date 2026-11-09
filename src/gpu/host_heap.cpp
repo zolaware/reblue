@@ -7,14 +7,18 @@
  */
 #include "gpu/host_heap.h"
 
+#include <memory>
 #include <mutex>
 
 #include <o1heap.h>
+#include <rex/memory.h>
 #include <rex/runtime.h>
-#include <rex/system/xmemory.h>
+#include <rex/runtime/guest_allocator.h>
+#include <rex/runtime/xmemory.h>
 
 #include "core/logging.h"
 #include "core/profiling.h"
+#include "core/memory_helpers.h"
 
 // Tracy mem/plot macros. These compile to nothing without
 // REXGLUE_ENABLE_PROFILING.
@@ -47,14 +51,12 @@ namespace {
 // 64 MiB in the 512 MiB vA0000000 window. Host shadow structs are small, so
 // this is generous. The "HostHeap Peak Bytes" plot says when to raise it.
 constexpr u32 kHeapSize = 64u * 1024u * 1024u;
+constexpr u32 kPageSize64K = 64u * 1024u;
 
 struct HeapState {
-  std::mutex mutex; // o1heap is not internally synchronized.
-  O1HeapInstance *handle = nullptr;
-  u32 guest_va = 0;
-  void *host_base = nullptr;
+  std::mutex mutex;
+  std::unique_ptr<rex::runtime::GuestAllocator> allocator;
   u64 live_count = 0;
-  bool ready = false;
   bool oom_logged = false;
 };
 
@@ -66,7 +68,7 @@ HeapState &state() {
 #if defined(REXGLUE_ENABLE_PROFILING)
 // Caller holds state().mutex.
 void EmitPlotsLocked(const HeapState &s) {
-  const O1HeapDiagnostics d = o1heapGetDiagnostics(s.handle);
+  const auto d = s.allocator->GetDiagnostics();
   BD_MEM_PLOT("HostHeap Live Bytes", d.allocated);
   BD_MEM_PLOT("HostHeap Peak Bytes", d.peak_allocated);
   BD_MEM_PLOT("HostHeap Live Allocs", s.live_count);
@@ -86,48 +88,24 @@ HostHeap &HostHeap::Get() {
 bool HostHeap::Init() {
   HeapState &s = state();
   std::lock_guard<std::mutex> lock(s.mutex);
-  if (s.ready)
+  if (s.allocator)
     return true;
 
-  auto *memory = REX_KERNEL_MEMORY();
+  auto *memory = bd::mem::memory();
   if (!memory) {
-    BD_ERROR("HostHeap::Init: no Memory instance");
+    REXLOG_ERROR(bd, "HostHeap::Init: no Memory instance");
     return false;
   }
 
-  using namespace rex::memory;
-  // (physical, 64 KB page) -> vA0000000, host_address_offset 0.
-  BaseHeap *heap =
-      memory->LookupHeapByType(/*physical=*/true, /*page_size=*/64 * 1024);
-  if (!heap) {
-    BD_ERROR(
-        "HostHeap::Init: LookupHeapByType(physical, 64K) returned null");
+  // The physical 64K heap is vA0000000 with host_address_offset 0.
+  auto allocator = rex::runtime::GuestAllocator::Create(
+      *memory, kHeapSize, kPageSize64K, /*physical=*/true, kPageSize64K, 0);
+  if (!allocator) {
+    REXLOG_ERROR(bd, "HostHeap::Init: failed to reserve {} bytes in vA0000000: {}",
+                 kHeapSize, allocator.error().GetDescription());
     return false;
   }
-
-  u32 guest_va = 0;
-  const bool ok =
-      heap->Alloc(kHeapSize, 64u * 1024u,
-                  kMemoryAllocationReserve | kMemoryAllocationCommit,
-                  kMemoryProtectRead | kMemoryProtectWrite,
-                  /*top_down=*/true, &guest_va);
-  if (!ok || !guest_va) {
-    BD_ERROR("HostHeap::Init: failed to reserve {} bytes in vA0000000",
-             kHeapSize);
-    return false;
-  }
-
-  void *host_base = memory->TranslateVirtual<void *>(guest_va);
-  O1HeapInstance *handle = o1heapInit(host_base, kHeapSize);
-  if (!handle) {
-    BD_ERROR("HostHeap::Init: o1heapInit failed (size {})", kHeapSize);
-    return false;
-  }
-
-  s.handle = handle;
-  s.guest_va = guest_va;
-  s.host_base = host_base;
-  s.ready = true;
+  s.allocator = std::move(*allocator);
 
 #if defined(REXGLUE_ENABLE_PROFILING)
   if (TracyIsStarted) {
@@ -144,29 +122,45 @@ bool HostHeap::Init() {
   return true;
 }
 
+void HostHeap::Shutdown() {
+  HeapState &s = state();
+  std::lock_guard<std::mutex> lock(s.mutex);
+  if (!s.allocator)
+    return;
+  if (s.live_count)
+    REXLOG_DEBUG(bd, "HostHeap::Shutdown: releasing {} live blocks", s.live_count);
+  s.allocator.reset();
+  s.live_count = 0;
+  s.oom_logged = false;
+}
+
 void *HostHeap::Alloc(std::size_t size, std::size_t alignment) {
   BD_CPU_ZONE("HostHeap::Alloc");
   HeapState &s = state();
   std::lock_guard<std::mutex> lock(s.mutex);
-  if (!s.ready) {
-    BD_ERROR("HostHeap::Alloc before Init");
+  if (!s.allocator) {
+    REXLOG_ERROR(bd, "HostHeap::Alloc before Init or after Shutdown");
     return nullptr;
   }
   if (size == 0)
     size = 1;
+  if (size > kHeapSize) {
+    REXLOG_ERROR(bd, "HostHeap::Alloc size {} exceeds the heap", size);
+    return nullptr;
+  }
   // o1heap only guarantees O1HEAP_ALIGNMENT (16), so reject larger to avoid
   // silent under-alignment.
   if (alignment > O1HEAP_ALIGNMENT) {
-    BD_ERROR("HostHeap::Alloc alignment {} > {} unsupported", alignment,
+    REXLOG_ERROR(bd, "HostHeap::Alloc alignment {} > {} unsupported", alignment,
              static_cast<std::size_t>(O1HEAP_ALIGNMENT));
     return nullptr;
   }
 
-  void *p = o1heapAllocate(s.handle, size);
+  void *p = s.allocator->Allocate(static_cast<u32>(size));
   if (!p) {
     if (!s.oom_logged) {
-      const O1HeapDiagnostics d = o1heapGetDiagnostics(s.handle);
-      BD_ERROR("HostHeap OOM: req {} allocated {}/{} peak {} (raise "
+      const auto d = s.allocator->GetDiagnostics();
+      REXLOG_ERROR(bd, "HostHeap OOM: req {} allocated {}/{} peak {} (raise "
                "kHeapSize)",
                size, d.allocated, d.capacity, d.peak_allocated);
       s.oom_logged = true;
@@ -187,10 +181,10 @@ void HostHeap::Free(void *host_ptr) {
   BD_CPU_ZONE("HostHeap::Free");
   HeapState &s = state();
   std::lock_guard<std::mutex> lock(s.mutex);
-  if (!s.ready)
+  if (!s.allocator)
     return;
   BD_MEM_FREE(host_ptr);
-  o1heapFree(s.handle, host_ptr);
+  s.allocator->Free(host_ptr);
   if (s.live_count)
     --s.live_count;
   EmitPlotsLocked(s);
@@ -200,13 +194,13 @@ u32 HostHeap::AllocGuest(std::size_t size, std::size_t alignment) {
   void *host = Alloc(size, alignment);
   if (!host)
     return 0;
-  return REX_KERNEL_MEMORY()->HostToGuestVirtual(host);
+  return bd::mem::view()->HostToGuestVirtual(host);
 }
 
 void HostHeap::FreeGuest(u32 guest_va) {
   if (!guest_va)
     return;
-  void *host = REX_KERNEL_MEMORY()->TranslateVirtual<void *>(guest_va);
+  void *host = bd::mem::view()->TranslateVirtual<void *>(guest_va);
   Free(host);
 }
 
@@ -214,10 +208,10 @@ HostHeap::Snapshot HostHeap::GetSnapshot() {
   HeapState &s = state();
   std::lock_guard<std::mutex> lock(s.mutex);
   Snapshot out{};
-  out.ready = s.ready;
+  out.ready = s.allocator != nullptr;
   out.live_count = s.live_count;
-  if (s.ready) {
-    const O1HeapDiagnostics d = o1heapGetDiagnostics(s.handle);
+  if (s.allocator) {
+    const auto d = s.allocator->GetDiagnostics();
     out.capacity = d.capacity;
     out.allocated = d.allocated;
     out.peak_allocated = d.peak_allocated;

@@ -1,6 +1,6 @@
 /**
  * @file    gpu/imgui_overlay_drawer.h
- * @brief   Plume/D3D12-backed ImmediateDrawer for detached overlay rendering.
+ * @brief   Plume/D3D12-backed IOverlayDrawer for detached overlay rendering.
  *
  * @copyright Copyright (c) 2026 Tom Clay <tomc@tctechstuff.com>
  *            All rights reserved.
@@ -10,10 +10,11 @@
 #pragma once
 
 #include <memory>
+#include <span>
+#include <rex/result.h>
 #include <rex/types.h>
 
-#include <rex/ui/immediate_drawer.h>
-#include <rex/ui/presenter.h>
+#include <rex/gpu/overlay.h>
 
 // Plume declares these as 'struct'. Match the tag or clang-cl flags a mismatch.
 namespace plume {
@@ -28,11 +29,11 @@ struct RenderShader;
 
 namespace bd::gpu {
 
-class ReblueUIDrawContext final : public rex::ui::AppUIDrawContext {
+class ReblueUIDrawContext final : public rex::gpu::OverlayDrawContext {
 public:
   ReblueUIDrawContext(u32 rt_w, u32 rt_h, plume::RenderCommandList *cmd,
                       plume::RenderFramebuffer *fb)
-      : rex::ui::AppUIDrawContext(rt_w, rt_h), cmd_(cmd), fb_(fb) {}
+      : rex::gpu::OverlayDrawContext(nullptr, rt_w, rt_h), cmd_(cmd), fb_(fb) {}
 
   plume::RenderCommandList *command_list() const { return cmd_; }
   plume::RenderFramebuffer *framebuffer() const { return fb_; }
@@ -42,7 +43,7 @@ private:
   plume::RenderFramebuffer *fb_;
 };
 
-class PlumeImmediateTexture final : public rex::ui::ImmediateTexture {
+class PlumeImmediateTexture final : public rex::gpu::OverlayTexture {
 public:
   PlumeImmediateTexture(u32 w, u32 h, u32 tex_slot, u32 sampler_slot,
                         std::unique_ptr<plume::RenderTexture> texture,
@@ -61,23 +62,27 @@ private:
 
 // Detached drawer (config.graphics == nullptr): binds the device lazily because
 // it exists before reblue's device.
-class ImGuiOverlayDrawer final : public rex::ui::ImmediateDrawer {
+class ImGuiOverlayDrawer final : public rex::gpu::IOverlayDrawer {
 public:
   ImGuiOverlayDrawer();
   ~ImGuiOverlayDrawer() override;
 
-  std::unique_ptr<rex::ui::ImmediateTexture>
-  CreateTexture(u32 width, u32 height, rex::ui::ImmediateTextureFilter filter,
-                bool is_repeated, const u8 *data) override;
-  void Begin(rex::ui::UIDrawContext &ctx, float coord_w,
-             float coord_h) override;
-  void BeginDrawBatch(const rex::ui::ImmediateDrawBatch &batch) override;
-  void Draw(const rex::ui::ImmediateDraw &draw) override;
-  void EndDrawBatch() override;
+  [[nodiscard]] rex::Result<std::unique_ptr<rex::gpu::OverlayTexture>>
+  CreateTexture(u32 width, u32 height, rex::gpu::OverlayTextureFilter filter,
+                bool repeat, std::span<const u8> rgba8) override;
+  void Begin(rex::gpu::OverlayDrawContext &context, float width,
+             float height) override;
+  void BeginBatch(const rex::gpu::OverlayBatch &batch) override;
+  void Draw(const rex::gpu::OverlayDraw &draw) override;
+  void EndBatch() override;
   void End() override;
 
 private:
   bool TryInitDeviceResources(); // lazy GPU init, false if device not ready
+
+  // Clamps the draw scissor to the render target. False when it is empty.
+  bool Scissor(const rex::gpu::OverlayDraw &draw, rex::u32 &l, rex::u32 &t,
+               rex::u32 &w, rex::u32 &h) const;
 
   // Requires an open Present command list.
   bool UploadRGBA8Texture(u32 w, u32 h, const u8 *rgba,
@@ -87,6 +92,10 @@ private:
 
   bool resources_ready_ = false;
   bool batch_open_ = false;
+  float coord_w_ = 0.0f;
+  float coord_h_ = 0.0f;
+  rex::u32 rt_w_ = 0;
+  rex::u32 rt_h_ = 0;
   plume::RenderCommandList *cmd_ = nullptr; // valid only between Begin/End
 
   std::unique_ptr<plume::RenderPipelineLayout> layout_;

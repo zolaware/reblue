@@ -10,6 +10,7 @@
 #include <cmath>
 
 #include <rex/hook.h>
+#include <rex/ppc/detour.h>
 #include <rex/types.h>
 
 #include "engine/d2anime/anime_hittest.h"
@@ -27,8 +28,6 @@ REX_IMPORT(__imp__AnimeMenu_setSelectedIndex, MenuSetSelectedIndex,
 REX_IMPORT(__imp__CommandSelectTask_SetSelection, CmdSelectSetSelection,
            u32(u32, u32, u32));
 REX_IMPORT(__imp__AnimeMenu_GetScrollPageCount, MenuScrollPageCount, u32(u32));
-REX_EXTERN(__imp__AnimeMenu_Update);
-REX_EXTERN(__imp__CommandSelectTask__Update);
 
 namespace bd::engine {
 
@@ -264,7 +263,10 @@ void MenuMouse::WheelScroll(u32 va, int detents) {
 
 void MenuMouse::ArmWheelGuard() {
   mouseHasCursor_ = false;
-  wheelGuard_ = platform::Mouse().Position(wheelGuardX_, wheelGuardY_);
+  const auto pointer = platform::HID().GetPointer();
+  wheelGuard_ = pointer.has_position;
+  wheelGuardX_ = pointer.x;
+  wheelGuardY_ = pointer.y;
 }
 
 int MenuMouse::SelectableNear(u32 va, int index, int lo, int hi) const {
@@ -287,7 +289,7 @@ int MenuMouse::SelectableNear(u32 va, int index, int lo, int hi) const {
 // click before the drag had claimed it.
 void MenuMouse::ScrollbarDrag(u32 va) {
   const bool down =
-      platform::Mouse().IsButtonDown(rex::ui::MouseEvent::Button::kLeft) &&
+      platform::HID().IsButtonDown(rex::hid::MouseButton::kLeft) &&
       !HostOverlayOwnsPointer();
   const bool pressed = down && !buttonWasDown_;
   buttonWasDown_ = down;
@@ -421,13 +423,14 @@ void MenuMouse::BeginFrame() {
   // motion and every menu after it saw a still mouse. Drained either way: a
   // reblue ImGui surface takes the pointer outright, and motion aimed at its
   // window is not aimed at whatever engine list sits behind it.
-  if (platform::Mouse().MovedSince() && !HostOverlayOwnsPointer()) {
+  if (platform::HID().TakePointerMoved() && !HostOverlayOwnsPointer()) {
     // While the wheel guard stands, only a deliberate move reclaims the
     // cursor for hover, the pixel of drift a wheel spin causes does not.
     constexpr f32 kWheelReclaimPx = 12.0f;
-    f32 x = 0.0f;
-    f32 y = 0.0f;
-    const bool parked = wheelGuard_ && platform::Mouse().Position(x, y) &&
+    const auto pointer = platform::HID().GetPointer();
+    const f32 x = pointer.x;
+    const f32 y = pointer.y;
+    const bool parked = wheelGuard_ && pointer.has_position &&
                         (x - wheelGuardX_) * (x - wheelGuardX_) +
                                 (y - wheelGuardY_) * (y - wheelGuardY_) <
                             kWheelReclaimPx * kWheelReclaimPx;
@@ -439,7 +442,7 @@ void MenuMouse::BeginFrame() {
 
   // Overwritten, not accumulated: a spin made while nothing reads the wheel
   // belongs to that frame, not to whatever screen opens next.
-  wheel_ = platform::Mouse().TakeWheelDetents();
+  wheel_ = platform::HID().TakeWheel();
 
   // A held bar owns the pointer outright. Hover, the edge bands and the wheel
   // all walk the cursor to where the pointer is, and a bar is dragged past
@@ -495,17 +498,13 @@ void MenuMouse::BeginFrame() {
 // Update calls AnimeMenu_BuildInputBitmask and AnimeMenu_CursorMoveUpdate, so
 // any menu the pad can move reaches here every frame, which is exactly the set
 // a pointer should move too. Running after the original leaves inputBits and
-// cursorIndex showing what the pad just did. r3 is the menu.
-REX_HOOK_RAW(AnimeMenu_Update) {
-  // Before the original, which leaves r3 holding the stack address it passed to
-  // AnimeMenu_CalcGridPosition rather than the menu it was called with.
-  const u32 menuVA = ctx.r3.u32;
-  __imp__AnimeMenu_Update(ctx, base);
-  bd::engine::MenuMouse::Get().Observe(menuVA);
+// cursorIndex showing what the pad just did.
+REX_DETOUR(AnimeMenu_Update, void, (u32 menu)) {
+  original(menu);
+  bd::engine::MenuMouse::Get().Observe(menu);
 }
 
-REX_HOOK_RAW(CommandSelectTask__Update) {
-  const u32 taskVA = ctx.r3.u32;
-  __imp__CommandSelectTask__Update(ctx, base);
-  bd::engine::MenuMouse::Get().ObserveCommandSelect(taskVA);
+REX_DETOUR(CommandSelectTask__Update, void, (u32 task)) {
+  original(task);
+  bd::engine::MenuMouse::Get().ObserveCommandSelect(task);
 }

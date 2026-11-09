@@ -3,15 +3,15 @@
 #include <chrono>
 
 #include <rex/hook.h>
+#include <rex/memory.h>
+#include <rex/ppc/midasm.h>
 #include <rex/runtime.h>
-#include <rex/system/xmemory.h>
+#include <rex/runtime/xmemory.h>
 
 #include "core/logging.h"
 #include "core/memory_helpers.h"
-#include "engine/input/binding_store.h"
+#include "engine/input/binding_registry.h"
 #include "gpu/gpu.h"
-
-REX_EXTERN(__imp__bdGetCurrentMapPath);
 
 namespace bd::engine {
 
@@ -80,14 +80,13 @@ const u32 *ShippedMechat() {
 }
 
 bool MakeWritable(u32 va, u32 size) {
-  auto *runtime = rex::Runtime::instance();
-  auto *memory = runtime ? runtime->memory() : nullptr;
+  auto *memory = bd::mem::memory();
   auto *heap = memory ? memory->LookupHeap(va) : nullptr;
   if (!heap)
     return false;
   return heap->Protect(va, size,
-                       rex::memory::kMemoryProtectRead |
-                           rex::memory::kMemoryProtectWrite);
+                       rex::runtime::kMemoryProtectRead |
+                           rex::runtime::kMemoryProtectWrite);
 }
 
 bool NeedsId(Action action) {
@@ -157,7 +156,7 @@ void Assign(int (&id)[kActionCount]) {
     }
     if (id[i] < 0 && !g_warnedNoFreeId) {
       g_warnedNoFreeId = true;
-      BD_WARN("[input] no free button id left for {}", ToString(action));
+      REXLOG_WARN(bd, "input no free button id left for {}", ToString(action));
     }
   }
 }
@@ -259,7 +258,7 @@ void ButtonMap::Install() {
     if (!rowVA_) {
       if (!g_warnedNoMemory) {
         g_warnedNoMemory = true;
-        BD_WARN("[input] no engine memory for the button map, the shipped "
+        REXLOG_WARN(bd, "input no engine memory for the button map, the shipped "
                 "rows stand");
       }
       return;
@@ -282,7 +281,7 @@ void ButtonMap::Install() {
   if (!g_imageWritable) {
     if (!g_warnedReadOnly) {
       g_warnedReadOnly = true;
-      BD_ERROR("[input] the mechat map stayed read-only, it keeps the "
+      REXLOG_ERROR(bd, "input the mechat map stayed read-only, it keeps the "
                "shipped buttons");
     }
     return;
@@ -308,11 +307,11 @@ void ButtonMap::Install() {
 
 } // namespace bd::engine
 
-REX_HOOK_RAW(bdGetCurrentMapPath) {
+REX_MIDASM_RETURN_IF(bdGetCurrentMapPathSkip, (PPCRegister & result)) {
   const u32 row = bd::engine::ButtonMap::Get().GeneralRowVA();
-  if (!row) {
-    __imp__bdGetCurrentMapPath(ctx, base);
-    return;
-  }
-  ctx.r3.u32 = row;
+  if (!row)
+    return false;
+  result.u32 = row;
+  return true;
 }
+REX_MIDASM_AT(bdGetCurrentMapPathSkip, 0x822D5090, before, r3);

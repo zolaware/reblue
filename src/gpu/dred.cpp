@@ -18,6 +18,7 @@ void LogDredReport(const char *) {}
 #else
 
 #include <algorithm>
+#include <format>
 #include <iterator>
 #include <rex/types.h>
 #include <string>
@@ -95,7 +96,7 @@ std::string OpName(D3D12_AUTO_BREADCRUMB_OP op) {
   const auto i = static_cast<size_t>(op);
   if (i < std::size(kOpNames))
     return kOpNames[i];
-  return fmt::format("op#{}", i);
+  return std::format("op#{}", i);
 }
 
 const char *AllocationTypeName(D3D12_DRED_ALLOCATION_TYPE type) {
@@ -147,7 +148,7 @@ void LogBreadcrumbs(const D3D12_AUTO_BREADCRUMB_NODE1 *head) {
   // Retired lists leave the node list, so an idle GPU and one that never
   // recorded look the same from here.
   if (!head) {
-    BD_CRITICAL("[dred] no breadcrumb nodes: nothing in flight at removal, or "
+    REXLOG_CRITICAL(bd, "dred no breadcrumb nodes: nothing in flight at removal, or "
                 "breadcrumbs never recorded");
     return;
   }
@@ -165,8 +166,8 @@ void LogBreadcrumbs(const D3D12_AUTO_BREADCRUMB_NODE1 *head) {
                         : done == 0  ? "not started"
                         : mid        ? "MID-EXECUTION"
                                      : "retired";
-    BD_CRITICAL(
-        "[dred] node {}: list '{}' queue '{}' {}/{} ops - {}", total,
+    REXLOG_CRITICAL(bd, 
+        "dred node {}: list '{}' queue '{}' {}/{} ops - {}", total,
         NodeName(node->pCommandListDebugNameA, node->pCommandListDebugNameW),
         NodeName(node->pCommandQueueDebugNameA, node->pCommandQueueDebugNameW),
         done, node->BreadcrumbCount, state);
@@ -174,22 +175,22 @@ void LogBreadcrumbs(const D3D12_AUTO_BREADCRUMB_NODE1 *head) {
       continue;
 
     ++stalled;
-    BD_CRITICAL("[dred]   stopped on {}", OpName(node->pCommandHistory[done]));
+    REXLOG_CRITICAL(bd, "dred   stopped on {}", OpName(node->pCommandHistory[done]));
 
     const u32 first = done > kOpsBefore ? done - kOpsBefore : 0;
     const u32 last = std::min(node->BreadcrumbCount, done + kOpsAfter + 1);
     for (u32 i = first; i < last; ++i) {
-      BD_CRITICAL("[dred]   [{:5}] {}{}", i, OpName(node->pCommandHistory[i]),
+      REXLOG_CRITICAL(bd, "dred   [{:5}] {}{}", i, OpName(node->pCommandHistory[i]),
                   i == done ? "  <-- did not complete" : "");
     }
     for (u32 c = 0; c < node->BreadcrumbContextsCount; ++c) {
       const auto &ctx = node->pBreadcrumbContexts[c];
-      BD_CRITICAL("[dred]   context @{}: {}", ctx.BreadcrumbIndex,
+      REXLOG_CRITICAL(bd, "dred   context @{}: {}", ctx.BreadcrumbIndex,
                   ctx.pContextString ? bd::WideToUtf8(ctx.pContextString) : "");
     }
   }
   if (stalled == 0)
-    BD_CRITICAL("[dred] {} node(s), none mid-execution: the removal did not "
+    REXLOG_CRITICAL(bd, "dred {} node(s), none mid-execution: the removal did not "
                 "interrupt an op",
                 total);
 }
@@ -197,12 +198,12 @@ void LogBreadcrumbs(const D3D12_AUTO_BREADCRUMB_NODE1 *head) {
 void LogAllocations(const char *what, const D3D12_DRED_ALLOCATION_NODE1 *head) {
   u32 n = 0;
   for (const auto *node = head; node; node = node->pNext, ++n) {
-    BD_CRITICAL("[dred]   {} [{}] {} '{}'", what, n,
+    REXLOG_CRITICAL(bd, "dred   {} [{}] {} '{}'", what, n,
                 AllocationTypeName(node->AllocationType),
                 NodeName(node->ObjectNameA, node->ObjectNameW));
   }
   if (n == 0)
-    BD_CRITICAL("[dred]   {}: none", what);
+    REXLOG_CRITICAL(bd, "dred   {}: none", what);
 }
 
 ID3D12Device *D3D12Device() {
@@ -218,7 +219,7 @@ bool EnableDred() {
   ID3D12DeviceRemovedExtendedDataSettings1 *settings = nullptr;
   const HRESULT hr = D3D12GetDebugInterface(IID_PPV_ARGS(&settings));
   if (FAILED(hr) || !settings) {
-    BD_WARN("[dred] settings interface unavailable ({:#010x})",
+    REXLOG_WARN(bd, "dred settings interface unavailable ({:#010x})",
             static_cast<u32>(hr));
     return false;
   }
@@ -267,33 +268,33 @@ void LogDredReport(const char *context) {
 
   ID3D12DeviceRemovedExtendedData1 *dred = nullptr;
   if (FAILED(d3d->QueryInterface(IID_PPV_ARGS(&dred))) || !dred) {
-    BD_CRITICAL("[dred] unavailable at {}", context);
+    REXLOG_CRITICAL(bd, "dred unavailable at {}", context);
     return;
   }
 
-  BD_CRITICAL("[dred] ==== device removed extended data ({}) ====", context);
+  REXLOG_CRITICAL(bd, "dred ==== device removed extended data ({}) ====", context);
 
   D3D12_DRED_AUTO_BREADCRUMBS_OUTPUT1 breadcrumbs = {};
   if (SUCCEEDED(dred->GetAutoBreadcrumbsOutput1(&breadcrumbs)))
     LogBreadcrumbs(breadcrumbs.pHeadAutoBreadcrumbNode);
   else
-    BD_CRITICAL("[dred] breadcrumb output unavailable");
+    REXLOG_CRITICAL(bd, "dred breadcrumb output unavailable");
 
   D3D12_DRED_PAGE_FAULT_OUTPUT1 fault = {};
   if (SUCCEEDED(dred->GetPageFaultAllocationOutput1(&fault))) {
     if (fault.PageFaultVA)
-      BD_CRITICAL("[dred] page fault at GPU VA {:#018x}", fault.PageFaultVA);
+      REXLOG_CRITICAL(bd, "dred page fault at GPU VA {:#018x}", fault.PageFaultVA);
     else
-      BD_CRITICAL("[dred] no page fault recorded (engine timeout)");
+      REXLOG_CRITICAL(bd, "dred no page fault recorded (engine timeout)");
     // A name under 'freed' answers what the GPU still referenced after we
     // destroyed it.
     LogAllocations("live", fault.pHeadExistingAllocationNode);
     LogAllocations("freed", fault.pHeadRecentFreedAllocationNode);
   } else {
-    BD_CRITICAL("[dred] page-fault output unavailable");
+    REXLOG_CRITICAL(bd, "dred page-fault output unavailable");
   }
 
-  BD_CRITICAL("[dred] ==== end ====");
+  REXLOG_CRITICAL(bd, "dred ==== end ====");
   dred->Release();
 }
 

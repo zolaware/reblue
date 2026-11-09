@@ -42,7 +42,7 @@ union GuestTextureX360 {
   D3DSurface as_surface;
   u8 raw[52];
 };
-static_assert(sizeof(GuestTextureX360) == 52);
+static_assert(sizeof(GuestTextureX360) == 0x34);
 
 struct GuestTexture {
   GuestTextureX360 x360;
@@ -92,7 +92,7 @@ union GuestBufferX360 {
   D3DIndexBuffer as_index_buffer;   // 32 bytes
   u8 raw[32];
 };
-static_assert(sizeof(GuestBufferX360) == 32);
+static_assert(sizeof(GuestBufferX360) == 0x20);
 
 struct GuestBuffer {
   GuestBufferX360 x360;
@@ -158,7 +158,7 @@ struct GuestVertexElement {
   u8 usageIndex;
   u8 padding;
 };
-static_assert(sizeof(GuestVertexElement) == 12);
+static_assert(sizeof(GuestVertexElement) == 0x0C);
 
 struct GuestVertexDeclaration {
   D3DVertexDeclaration x360;

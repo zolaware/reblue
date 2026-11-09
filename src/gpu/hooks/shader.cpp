@@ -46,7 +46,7 @@ bd::gpu::GuestVertexDeclaration *hcgCreateVertexDeclaration_hook(
       static_cast<bd::gpu::GuestVertexElement *>(elements));
 }
 
-bd::gpu::GuestShader *hcgCreateVertexShaderResource_hook(mapped_u32 function) {
+bd::gpu::GuestShader *hcgCreateVertexShaderResource_hook(MappedU32 function) {
   if (!function)
     return nullptr;
   auto *shader = bd::gpu::CreateShader(static_cast<const be_u32 *>(function),
@@ -54,7 +54,7 @@ bd::gpu::GuestShader *hcgCreateVertexShaderResource_hook(mapped_u32 function) {
   return shader;
 }
 
-bd::gpu::GuestShader *hcgCreatePixelShaderResource_hook(mapped_u32 function) {
+bd::gpu::GuestShader *hcgCreatePixelShaderResource_hook(MappedU32 function) {
   if (!function)
     return nullptr;
   auto *shader = bd::gpu::CreateShader(static_cast<const be_u32 *>(function),
@@ -76,7 +76,7 @@ std::mutex g_blitShaderMutex;
 u32 FindEmptyHcgSlot(u32 base, u32 end) {
   for (u32 va = base; va < end; va += 4) {
     const auto *slot = bd::mem::at<const be_u32>(va);
-    if (slot && slot->get() == 0)
+    if (slot && slot->Get() == 0)
       return va;
   }
   return 0;
@@ -90,14 +90,14 @@ GetOrCreateBlitShader(bd::gpu::ResourceType type, const void *blob,
     return *cache_slot;
   auto *device = bd::gpu::Video::HostDevice();
   if (!device) {
-    BD_ERROR("hcg*ShaderCreateByHlsl_hook: host device not ready");
+    REXLOG_ERROR(bd, "hcg*ShaderCreateByHlsl_hook: host device not ready");
     return nullptr;
   }
   auto *shader = bd::gpu::HostResourceHeap::Alloc<bd::gpu::GuestShader>(type);
   shader->shader =
       device->createShader(blob, blob_size, "main", bd::gpu::kHostShaderFormat);
   if (!shader->shader) {
-    BD_ERROR("hcg*ShaderCreateByHlsl_hook: createShader failed (type={})",
+    REXLOG_ERROR(bd, "hcg*ShaderCreateByHlsl_hook: createShader failed (type={})",
              static_cast<u32>(type));
     bd::gpu::HostResourceHeap::Free(shader);
     return nullptr;
@@ -116,7 +116,7 @@ u32 HcgCreateByHlslImpl(bd::gpu::ResourceType type, const void *blob,
     return 0;
   const u32 slot_va = FindEmptyHcgSlot(table_base, table_end);
   if (!slot_va) {
-    BD_ERROR("hcg*ShaderCreateByHlsl_hook: slot table full");
+    REXLOG_ERROR(bd, "hcg*ShaderCreateByHlsl_hook: slot table full");
     return 0;
   }
   bd::mem::store<u32>(slot_va, bd::gpu::HostResourceHeap::ToGuest(shader));

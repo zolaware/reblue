@@ -16,7 +16,7 @@
 #include "engine/d2anime/d2anime.h"
 #include "engine/sfx.h"
 #include "engine/game_options.h"
-#include "engine/input/binding_store.h"
+#include "engine/input/binding_registry.h"
 #include "engine/input/input_sources.h"
 #include "engine/menus/config_layout.h"
 #include "engine/menus/config_menu_data.h"
@@ -423,7 +423,7 @@ void ConfigMenu::HandleKeybinds() {
   }
 
   const bool delDown =
-      bd::platform::Keyboard().IsDown(rex::ui::VirtualKey::kDelete);
+      bd::platform::HID().IsKeyDown(rex::hid::VirtualKey::kDelete);
   if (delDown && !del_held_ && IsBind(hovered) && hoverChip >= 0) {
     const bool cleared = hovered.cell == BindCell::MouseInput
                              ? ClearBindEntry(hovered)
@@ -463,7 +463,7 @@ void ConfigMenu::HandleModlist() {
     const int cursor = modlist_menu_.CursorIndex();
     FlipMod(cursor);
     dirty_ = true;
-    BD_DEBUG("[config] toggled mod[{}]", cursor);
+    REXLOG_DEBUG(bd, "config toggled mod[{}]", cursor);
     return;
   }
 
@@ -495,7 +495,7 @@ void ConfigMenu::HandleDLCList() {
     const int cursor = dlclist_menu_.CursorIndex();
     ToggleDLC(cursor);
     RefreshDLCVisuals();
-    BD_DEBUG("[config] toggled dlc[{}]", cursor);
+    REXLOG_DEBUG(bd, "config toggled dlc[{}]", cursor);
     return;
   }
 
@@ -593,7 +593,7 @@ void ConfigMenu::HandleLangPick() {
 
   if (canceled) {
     ClearLanguageSources();
-    BD_DEBUG("[config] language add canceled at question {}", lang_pick_);
+    REXLOG_DEBUG(bd, "config language add canceled at question {}", lang_pick_);
     Transition(State::LANGLIST);
     return;
   }
@@ -677,7 +677,7 @@ void ConfigMenu::HandleKeybindCapture() {
     capture_slot_ = -1;
     capture_chip_ = -1;
     Transition(State::KEYBINDS);
-    BD_DEBUG("[config] rebind canceled");
+    REXLOG_DEBUG(bd, "config rebind canceled");
   }
 }
 
@@ -688,18 +688,18 @@ void ConfigMenu::HandleReorder() {
     ReorderMod(reorder_origin_, cursor);
     reorder_origin_ = cursor;
     dirty_ = true;
-    BD_DEBUG("[config] reorder: swapped to position {}", cursor);
+    REXLOG_DEBUG(bd, "config reorder: swapped to position {}", cursor);
   }
 
   if (CheckAction(Action::Confirm)) {
     Transition(State::MODLIST);
-    BD_DEBUG("[config] reorder confirmed at position {}", cursor);
+    REXLOG_DEBUG(bd, "config reorder confirmed at position {}", cursor);
     return;
   }
 
   if (CheckAction(Action::Cancel)) {
     Transition(State::MODLIST);
-    BD_DEBUG("[config] reorder canceled");
+    REXLOG_DEBUG(bd, "config reorder canceled");
   }
 }
 
@@ -713,7 +713,7 @@ void ConfigMenu::HandleConfirmDelete() {
 
   if (!confirm_popup_.Confirmed()) {
     confirm_popup_.Kill();
-    BD_DEBUG("[config] delete canceled");
+    REXLOG_DEBUG(bd, "config delete canceled");
     Transition(list);
     return;
   }
@@ -722,7 +722,7 @@ void ConfigMenu::HandleConfirmDelete() {
 
   if (delete_kind_ == DeleteKind::Language) {
     if (!RemoveLanguage(delete_index_)) {
-      BD_ERROR("[config] language remove failed for [{}]", delete_index_);
+      REXLOG_ERROR(bd, "config language remove failed for [{}]", delete_index_);
       Transition(State::LANGLIST);
       return;
     }
@@ -733,13 +733,13 @@ void ConfigMenu::HandleConfirmDelete() {
   const bool ok = delete_kind_ == DeleteKind::DLC ? DeleteDLC(delete_index_)
                                                   : RemoveMod(delete_index_);
   if (!ok) {
-    BD_ERROR("[config] {} delete failed for [{}]", DeleteKindName(delete_kind_),
+    REXLOG_ERROR(bd, "config {} delete failed for [{}]", DeleteKindName(delete_kind_),
              delete_index_);
     Transition(list);
     return;
   }
 
-  BD_DEBUG("[config] deleted {}[{}]", DeleteKindName(delete_kind_),
+  REXLOG_DEBUG(bd, "config deleted {}[{}]", DeleteKindName(delete_kind_),
            delete_index_);
   wants_restart_ = true;
   resume_state_ = list;
@@ -754,16 +754,16 @@ void ConfigMenu::HandleConfirmReboot() {
   confirm_popup_.Kill();
 
   if (confirmed) {
-    // Persist mod changes before the relaunch. PerformWarmReboot saves the
+    // Persist mod changes before the relaunch. RequestWarmReboot saves the
     // cvars, and DLC is already on disk.
     if (dirty_) {
       SaveAndReload();
       dirty_ = false;
     }
     bd::platform::RequestWarmReboot();
-    BD_DEBUG("[config] reboot confirmed");
+    REXLOG_DEBUG(bd, "config reboot confirmed");
   } else {
-    BD_DEBUG("[config] reboot declined");
+    REXLOG_DEBUG(bd, "config reboot declined");
   }
 
   // CLOSING is a no-op once the relaunch proceeds. It is the path taken when
@@ -781,9 +781,9 @@ void ConfigMenu::HandleConfirmResetBinds() {
   if (confirmed) {
     if (ResetAllKeybinds())
       settings_dirty_ = true;
-    BD_DEBUG("[config] binds reset to defaults");
+    REXLOG_DEBUG(bd, "config binds reset to defaults");
   } else {
-    BD_DEBUG("[config] bind reset declined");
+    REXLOG_DEBUG(bd, "config bind reset declined");
   }
 
   Transition(State::KEYBINDS);

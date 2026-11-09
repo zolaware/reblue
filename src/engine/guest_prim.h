@@ -19,7 +19,7 @@
 // includes this gets its own and nothing is shared across the link.
 REX_IMPORT(__imp__Visual__Prim__ctor, PrimState, u32());
 REX_IMPORT(__imp__Visual__SelectRenderTarget, PrimSelectTexture, u32(u32, u32));
-REX_IMPORT(__imp__bdPrimBegin, PrimBegin, void(u32, f64, u32, u32));
+REX_IMPORT(__imp__bdPrimBegin, PrimBegin, void(u32, f64));
 REX_IMPORT(__imp__bdPrimSetTexture, PrimSetTexture, u32(u32, u32));
 REX_IMPORT(__imp__bdPrimPushVertex2D, PrimPushVertex2D,
            u32(f64, f64, f64, f64, u32, u32, u32, u32, u32));

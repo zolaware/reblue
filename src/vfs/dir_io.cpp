@@ -8,15 +8,15 @@
  *              All rights reserved.
  * @license     BSD 3-Clause - see LICENSE
  */
-#include <algorithm>
-#include <cctype>
 #include <cstddef>
 #include <set>
 #include <string>
 #include <string_view>
 
 #include <rex/hook.h>
+#include <rex/ppc/detour.h>
 #include <rex/ppc/stack.h>
+#include <rex/string/utf8.h>
 #include <rex/types.h>
 
 #include "core/logging.h"
@@ -59,13 +59,6 @@ constexpr u32 kTypeFile = 2;
 // but merging archive records into one can.
 constexpr u32 kMaxEntries = 1024;
 
-std::string Lower(std::string_view text) {
-  std::string out(text);
-  std::transform(out.begin(), out.end(), out.begin(),
-                 [](unsigned char c) { return std::tolower(c); });
-  return out;
-}
-
 // PathExtensionEquals: what follows the last '.' of each side, compared
 // case-blind.
 bool MatchesFilter(const std::string &name, const std::string &filter) {
@@ -75,7 +68,7 @@ bool MatchesFilter(const std::string &name, const std::string &filter) {
     const auto dot = text.rfind('.');
     return dot == std::string::npos ? text : text.substr(dot + 1);
   };
-  return Lower(extension(name)) == Lower(extension(filter));
+  return rex::utf8_lower_ascii(extension(name)) == rex::utf8_lower_ascii(extension(filter));
 }
 
 u32 EntryCount(u32 list_va) {
@@ -97,22 +90,18 @@ std::set<std::string> ExistingNames(u32 list_va) {
 
   const u32 count = list->count;
   for (u32 i = 0; i < count; ++i)
-    names.insert(Lower(bd::mem::str(entries[i].name)));
+    names.insert(rex::utf8_lower_ascii(bd::mem::str(entries[i].name)));
   return names;
 }
 
-// Everything guest-facing runs on the hook's own context rather than the
-// thread's, so the scratch strings and the frame the guest call takes below
-// them are ordered against the stack the caller actually left us.
-void AddEntry(PPCContext &ctx, u8 *base, u32 list_va, const std::string &text,
-              u32 type) {
-  rex::ppc::stack_guard guard(ctx);
+void AddEntry(u32 list_va, const std::string &text, u32 type) {
+  rex::ppc::StackFrame frame;
   // Passed through a '%s' rather than as the format itself, so a '%' in a
   // record name cannot make the guest walk a va_list that is not there.
-  const u32 format = rex::ppc::stack_push_string(ctx, base, "%s");
-  const u32 value = rex::ppc::stack_push_string(ctx, base, text.c_str());
+  const u32 format = frame.PushString("%s").GetGuestAddress();
+  const u32 value = frame.PushString(text).GetGuestAddress();
 
-  const u32 count = StrListAdd(ctx, base, list_va, format, value);
+  const u32 count = StrListAdd(list_va, format, value);
   if (count == 0)
     return;
 
@@ -134,10 +123,10 @@ void PromoteToDirectory(u32 list_va, const std::string &text) {
   if (!entries)
     return;
 
-  const std::string wanted = Lower(text);
+  const std::string wanted = rex::utf8_lower_ascii(text);
   const u32 count = list->count;
   for (u32 i = 0; i < count; ++i) {
-    if (Lower(bd::mem::str(entries[i].name)) == wanted)
+    if (rex::utf8_lower_ascii(bd::mem::str(entries[i].name)) == wanted)
       entries[i].type = kTypeDir;
   }
 }
@@ -150,9 +139,8 @@ bd::vfs::Key DirKey(const std::string &dir) {
                                                 : key;
 }
 
-u32 MergeMounts(PPCContext &ctx, u8 *base, u32 list_va, const std::string &dir,
-                const std::string &filter, u32 flags,
-                std::set<std::string> &seen) {
+u32 MergeMounts(u32 list_va, const std::string &dir, const std::string &filter,
+                u32 flags, std::set<std::string> &seen) {
   u32 added = 0;
   for (const auto &entry : bd::vfs::VFS::Get().Files().List(DirKey(dir))) {
     // The scan composes its own paths as '%s%s', trailing separator and
@@ -160,26 +148,25 @@ u32 MergeMounts(PPCContext &ctx, u8 *base, u32 list_va, const std::string &dir,
     const std::string path = dir + entry.name;
 
     if (entry.is_dir && (flags & kScanRecurse)) {
-      added +=
-          MergeMounts(ctx, base, list_va, path + "\\", filter, flags, seen);
+      added += MergeMounts(list_va, path + "\\", filter, flags, seen);
       continue;
     }
     if (!entry.is_dir && !MatchesFilter(entry.name, filter))
       continue;
 
     const std::string text = (flags & kScanFullPath) ? path : entry.name;
-    if (!seen.insert(Lower(text)).second) {
+    if (!seen.insert(rex::utf8_lower_ascii(text)).second) {
       if (entry.is_dir)
         PromoteToDirectory(list_va, text);
       continue;
     }
 
     if (EntryCount(list_va) >= kMaxEntries) {
-      BD_WARN("[vfs] directory listing capped at {} entries: '{}'", kMaxEntries,
+      REXLOG_WARN(bd, "vfs directory listing capped at {} entries: '{}'", kMaxEntries,
               dir);
       return added;
     }
-    AddEntry(ctx, base, list_va, text, entry.is_dir ? kTypeDir : kTypeFile);
+    AddEntry(list_va, text, entry.is_dir ? kTypeDir : kTypeFile);
     ++added;
   }
   return added;
@@ -189,20 +176,16 @@ u32 MergeMounts(PPCContext &ctx, u8 *base, u32 list_va, const std::string &dir,
 
 // isk__StrList__ScanDirectory, the debug tools' recursive directory scan:
 // r3 = isk::StrList, r4 = directory, r5 = extension filter or 0, r6 = flags.
-// Returns how many entries it appended. Raw rather than marshaled: AddEntry
-// pushes its scratch strings onto this hook's own stack (see the note there).
-REX_EXTERN(__imp__isk__StrList__ScanDirectory);
-
-REX_HOOK_RAW(isk__StrList__ScanDirectory) {
-  const u32 list = ctx.r3.u32;
-  const std::string dir = bd::mem::str(ctx.r4.u32);
+// Returns how many entries it appended. AddEntry pushes its scratch strings
+// onto the stack (see the note there).
+REX_DETOUR(isk__StrList__ScanDirectory, u32,
+           (u32 list, u32 directory, u32 filterVA, u32 flags)) {
+  const std::string dir = bd::mem::str(directory);
   const std::string filter =
-      ctx.r5.u32 ? bd::mem::str(ctx.r5.u32) : std::string();
-  const u32 flags = ctx.r6.u32;
+      filterVA ? bd::mem::str(filterVA) : std::string();
 
-  __imp__isk__StrList__ScanDirectory(ctx, base);
-  const u32 found = ctx.r3.u32;
+  const u32 found = original(list, directory, filterVA, flags);
 
   auto seen = ExistingNames(list);
-  ctx.r3.u64 = found + MergeMounts(ctx, base, list, dir, filter, flags, seen);
+  return found + MergeMounts(list, dir, filter, flags, seen);
 }

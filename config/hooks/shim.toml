@@ -1,4 +1,4 @@
-[rexcrt]
+[shim]
 CreateFileA        = 0x8248B780
 ReadFile           = 0x8248CBF8
 WriteFile          = 0x8248B500

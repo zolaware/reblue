@@ -65,7 +65,7 @@ constexpr UVRect kUvWrpHatenaSmall = {0.0f, 0.5f, 0.5f, 1.0f};
         const u32 a = ((color >> 24) * alpha) / 255u;
         const u32 shaded = (a << 24) | (color & kRgbMask);
 
-        PrimBegin(kTexturedQuad2D, z, 0, 0);
+        PrimBegin(kTexturedQuad2D, z);
         PrimSetTexture(0, texture);
         for (int i = 0; i < 4; ++i)
             PrimPushVertex2D(cx + xs[i] * c - ys[i] * s, cy + xs[i] * s + ys[i] * c,
@@ -80,7 +80,7 @@ constexpr UVRect kUvWrpHatenaSmall = {0.0f, 0.5f, 0.5f, 1.0f};
         const u32 a = ((color >> 24) * alpha) / 255u;
         const u32 shaded = (a << 24) | (color & kRgbMask);
 
-        PrimBegin(kTexturedQuad2D, z, 0, 0);
+        PrimBegin(kTexturedQuad2D, z);
         PrimSetTexture(0, tex);
         PrimPushVertex2D(cx - halfW, cy - halfH, uv.u0, uv.v0, 0, 0, 0, 0, shaded);
         PrimPushVertex2D(cx - halfW, cy + halfH, uv.u0, uv.v1, 0, 0, 0, 0, shaded);
@@ -91,7 +91,7 @@ constexpr UVRect kUvWrpHatenaSmall = {0.0f, 0.5f, 0.5f, 1.0f};
             z -= kMarkerZStep;
     }
 
-    u32 DotColor(GimmickKind kind) {
+    rex::Color DotColor(GimmickKind kind) {
         switch (kind) {
         case GimmickKind::Item:
             return kDotItem;
@@ -136,7 +136,7 @@ constexpr UVRect kUvWrpHatenaSmall = {0.0f, 0.5f, 0.5f, 1.0f};
         float pulse, float halfSize) {
         const u32 flashAlpha = static_cast<u32>(pulse * 255.0f);
         const u32 baseAlpha = static_cast<u32>((1.0f - pulse) * 255.0f);
-        const u32 white = kOpaqueWhite & kRgbMask;
+        const u32 white = kOpaqueWhite.ToARGB8() & kRgbMask;
 
         if (kind == GimmickKind::Chest) {
             if (const u32 tex = g_targetSheet.list.Texture(0)) {
@@ -149,7 +149,7 @@ constexpr UVRect kUvWrpHatenaSmall = {0.0f, 0.5f, 0.5f, 1.0f};
                 return;
             }
   } else if (const u32 tex = g_target03Sheet.list.Texture(0)) {
-            const u32 baseColor = DotColor(kind) & kRgbMask;
+            const u32 baseColor = DotColor(kind).ToARGB8() & kRgbMask;
             if (baseAlpha > kFaintAlpha)
                 out.DrawIcon(tex, x, y, halfSize, halfSize, kUvWrpHatenaSmall,
                     (baseAlpha << 24) | baseColor);
@@ -160,7 +160,8 @@ constexpr UVRect kUvWrpHatenaSmall = {0.0f, 0.5f, 0.5f, 1.0f};
         }
 
         // Neither sheet has resolved yet, so the plain dot stands in for the badge.
-        const u32 color = kind == GimmickKind::Chest ? kChestLid : DotColor(kind);
+        const u32 color =
+            (kind == GimmickKind::Chest ? kChestLid : DotColor(kind)).ToARGB8();
         out.Draw(x, y, halfSize * 0.6f, halfSize * 0.6f, false, color);
         out.Draw(x, y, halfSize * 0.6f, halfSize * 0.6f, true, color);
     }

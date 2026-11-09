@@ -9,7 +9,7 @@
 
 #include <fstream>
 
-#include <rex/filesystem.h>
+#include <rex/platform/file.h>
 #include <rex/platform/env.h>
 
 #include "core/settings.h"
@@ -20,7 +20,7 @@ namespace {
 
 #if defined(__APPLE__)
 bool IsMacAppBundle() {
-  const auto executable_dir = rex::filesystem::GetExecutableFolder();
+  const auto executable_dir = rex::platform::GetExecutableFolder();
   if (executable_dir.filename() != "MacOS")
     return false;
   const auto contents_dir = executable_dir.parent_path();
@@ -84,7 +84,7 @@ std::filesystem::path AppRootFolder() {
   }
 #endif
 #endif
-  return rex::filesystem::GetExecutableFolder();
+  return rex::platform::GetExecutableFolder();
 }
 
 bool DirectoryWritable(const std::filesystem::path &dir) {

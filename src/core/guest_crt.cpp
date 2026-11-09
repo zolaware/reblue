@@ -18,13 +18,13 @@
 #include <string>
 
 #include <rex/hook.h>
+#include <rex/kernel/xboxkrnl/format.h>
 #include <rex/ppc.h>
 #include <rex/ppc/function.h>
 #include <rex/runtime.h>
-#include <rex/system/format.h>
-#include <rex/system/kernel_state.h>
-#include <rex/system/thread_state.h>
+#include <rex/runtime/thread_state.h>
 #include <rex/types.h>
+#include "core/memory_helpers.h"
 
 namespace {
 
@@ -39,31 +39,31 @@ REX_HOOK(rex_atof, GuestAtof);
 // The retail build stubs DbgPrint_v and also installs it as the default no-op
 // callback in vtables and data tables, so the format pointer is not always a
 // string.
-u32 bdDebugPrintHook(mapped_string fmt) {
+u32 bdDebugPrintHook(MappedString fmt) {
   if (!bd::Settings::Get().DbgPrint())
     return 1;
 
-  const u32 fmt_addr = fmt.guest_address();
+  const u32 fmt_addr = fmt.GetGuestAddress();
   if (fmt_addr < 0x82000000u || fmt_addr >= 0xC0000000u)
     return 1;
 
-  auto &ctx = *rex::runtime::current_ppc_context();
-  auto *base = REX_KERNEL_MEMORY()->virtual_membase();
+  auto &ctx = *rex::runtime::ThreadState::Get()->GetContext();
+  auto *base = bd::mem::view()->GetVirtualMembase();
 
-  rex::system::format::StackArgList args(ctx, base, 1);
-  rex::system::format::StringFormatData data(
-      reinterpret_cast<const u8 *>(fmt.host_address()));
+  rex::runtime::StackArgList args(ctx, base, 1);
+  rex::runtime::StringFormatData data(
+      reinterpret_cast<const u8 *>(fmt.GetHostAddress()));
 
-  if (rex::system::format::format_core(base, data, args, /*wide=*/false) <= 0)
+  if (rex::runtime::FormatCore(base, data, args, /*wide=*/false) <= 0)
     return 1;
 
-  auto str = data.str();
+  auto str = data.GetOutput();
   while (!str.empty() && std::isspace(static_cast<unsigned char>(str.back())))
     str.pop_back();
   if (str.empty())
     return 1;
 
-  BD_INFO("[dbg] {}", bd::SjisToUtf8(str));
+  REXLOG_INFO(bd, "dbg {}", bd::SjisToUtf8(str));
   return 1;
 }
 REX_HOOK(rex_DebugPrint, bdDebugPrintHook);

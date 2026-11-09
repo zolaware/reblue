@@ -1,32 +1,30 @@
 /**
- * @file        engine/save/save_store.cpp
- * @brief   Backed by the SDK HostPathDevice. The XContentCreate hook
+ * @file        engine/save/save_manager.cpp
+ * @brief   Backed by an SDK host directory mount. The XContentCreate hook
  *          re-points save: per slot.
  * @copyright Copyright (c) 2026 Tom Clay <tomc@tctechstuff.com>
  *            All rights reserved.
  * @license   BSD 3-Clause License
  *            See LICENSE file in the project root for full license text.
  */
-#include "engine/save/save_store.h"
+#include "engine/save/save_manager.h"
 
 #include "core/logging.h"
 
-#include <rex/filesystem/devices/host_path_device.h>
-#include <rex/filesystem/vfs.h>
+#include <rex/filesystem.h>
 
-#include <memory>
 #include <system_error>
 
 namespace bd::engine {
 
 namespace {
 
-// Private internal mount. "save:" is a symlink onto "\SaveStore\<slot>".
-constexpr std::string_view kSaveMountPath = "\\SaveStore";
+// Private internal mount. "save:" is a symlink onto "\Saves\<slot>".
+constexpr std::string_view kSaveMountPath = "\\Saves";
 constexpr std::string_view kSaveSymlink = "save:";
 constexpr std::string_view kSaveFileName = "savegame.dat";
 
-rex::filesystem::VirtualFileSystem *g_vfs = nullptr;
+rex::filesystem::IFileSystem *g_fs = nullptr;
 std::filesystem::path
     g_saves_root; // decoupled save root (default <install_root>/saves)
 
@@ -36,12 +34,12 @@ std::filesystem::path SlotDir(std::string_view slot) {
 
 } // namespace
 
-void MountSaveStore(rex::filesystem::VirtualFileSystem *vfs,
+void MountSaves(rex::filesystem::IFileSystem *fs,
                     const std::filesystem::path &saves_root) {
-  if (g_vfs)
+  if (g_fs)
     return;
-  if (!vfs) {
-    BD_ERROR("[savestore] no VFS to mount on");
+  if (!fs) {
+    REXLOG_ERROR(bd, "savestore no file system to mount on");
     return;
   }
 
@@ -49,41 +47,39 @@ void MountSaveStore(rex::filesystem::VirtualFileSystem *vfs,
   std::error_code ec;
   std::filesystem::create_directories(g_saves_root, ec);
   if (ec) {
-    BD_ERROR("[savestore] cannot create saves root '{}': {}",
+    REXLOG_ERROR(bd, "savestore cannot create saves root '{}': {}",
              g_saves_root.string(), ec.message());
     return;
   }
 
-  auto device = std::make_unique<rex::filesystem::HostPathDevice>(
-      kSaveMountPath, g_saves_root, /*read_only=*/false,
-      /*allow_share_delete=*/true);
-  if (!device->Initialize()) {
-    BD_ERROR("[savestore] device init failed");
+  using rex::filesystem::MountFlags;
+  auto mounted = fs->Mount({std::string(kSaveMountPath),
+                            rex::filesystem::ProviderKind::kHostDirectory,
+                            g_saves_root,
+                            MountFlags::kWritable});
+  if (!mounted) {
+    REXLOG_ERROR(bd, "savestore mount failed: {}", mounted.error().message);
     return;
   }
-  if (!vfs->RegisterDevice(std::move(device))) {
-    BD_ERROR("[savestore] device register failed");
-    return;
-  }
-  g_vfs = vfs;
-  BD_INFO("[savestore] mounted save: -> {}", g_saves_root.string());
+  g_fs = fs;
+  REXLOG_INFO(bd, "savestore mounted save: -> {}", g_saves_root.string());
 }
 
 void SetCurrentSaveSlot(std::string_view slot) {
-  if (!g_vfs)
+  if (!g_fs)
     return;
   std::string target = std::string(kSaveMountPath) + "\\" + std::string(slot);
-  // RegisterSymbolicLink uses map::insert (no overwrite), so drop the old one
-  // first.
-  g_vfs->UnregisterSymbolicLink(kSaveSymlink);
-  g_vfs->RegisterSymbolicLink(kSaveSymlink, target);
+  // Link keeps the first link with a name, so drop the old one first.
+  (void)g_fs->Unlink(kSaveSymlink);
+  if (auto linked = g_fs->Link(kSaveSymlink, target); !linked)
+    REXLOG_ERROR(bd, "savestore link failed: {}", linked.error().message);
 }
 
 bool CreateSaveSlotDir(std::string_view slot) {
   std::error_code ec;
   std::filesystem::create_directories(SlotDir(slot), ec);
   if (ec) {
-    BD_ERROR("[savestore] failed to create slot dir '{}': {}", slot,
+    REXLOG_ERROR(bd, "savestore failed to create slot dir '{}': {}", slot,
              ec.message());
     return false;
   }

@@ -62,7 +62,7 @@ GuestTexture *CreateSurface(u32 width, u32 height, u32 guest_format,
   auto *surface = HostResourceHeap::Alloc<GuestTexture>(
       is_depth ? ResourceType::DepthStencil : ResourceType::RenderTarget);
   if (!surface) {
-    BD_ERROR("CreateSurface: host resource heap exhausted");
+    REXLOG_ERROR(bd, "CreateSurface: host resource heap exhausted");
     return nullptr;
   }
   InitResourceHeader(surface->x360.as_surface.resource,
@@ -95,7 +95,7 @@ GuestTexture *CreateSurface(u32 width, u32 height, u32 guest_format,
       Video::BindTextureSRV(surface);
     }
   } else {
-    BD_ERROR("CreateSurface fired before Video host device exists");
+    REXLOG_ERROR(bd, "CreateSurface fired before Video host device exists");
   }
   surface->width = width;
   surface->height = height;

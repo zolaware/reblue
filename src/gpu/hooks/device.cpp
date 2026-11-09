@@ -14,12 +14,11 @@
 #include <cstring>
 
 #include <rex/hook.h>
+#include <rex/memory.h>
 #include <rex/ppc.h>
 #include <rex/runtime.h>
-#include <rex/system/kernel_state.h>
 #include <rex/types.h>
 
-#include "core/hooks.h"
 #include "core/logging.h"
 #include "core/memory_helpers.h"
 #include "engine/engine.h"
@@ -46,7 +45,7 @@ u32 D3DDevice_Clear_hook(u32 /*device*/, u32 /*count*/, u32 /*rects*/,
 // uploads it via SetGammaRamp. The defaults give x^0.5, which is how BD
 // gamma-encodes its linear front buffer. The host has no scanout LUT, so the
 // exponent is captured and applied in the present gamma pass instead.
-void bdBuildGammaRampLUT_hook(mapped_f32 sub, mapped_f32 mul) {
+void bdBuildGammaRampLUT_hook(MappedF32 sub, MappedF32 mul) {
   if (!sub || !mul)
     return;
   const be_f32 *s = sub;
@@ -145,8 +144,8 @@ void SeedDeviceRenderState(u32 device_guest) {
 
 u32 Direct3D_CreateDevice_hook(u32 /*adapter*/, u32 /*deviceType*/,
                                u32 /*focusWindow*/, u32 /*behaviorFlags*/,
-                               u32 /*presentParams*/, mapped_u32 outDevice) {
-  auto *memory = REX_KERNEL_MEMORY();
+                               u32 /*presentParams*/, MappedU32 outDevice) {
+  auto *memory = bd::mem::memory();
   const u32 device_guest = memory->SystemHeapAlloc(kGuestDeviceSize, 0x100);
   memory->Zero(device_guest, kGuestDeviceSize);
   CopyDispatchTable(device_guest, kRenderStateTableGuestAddr,
@@ -180,7 +179,7 @@ constexpr u32 kPresentParamsConfigDword = 17;
 // downstream code sees a populated device, but skip
 // the PM4 path + surface allocations (Plume owns the swapchain).
 u32 D3DDevice_SetResolution_hook(rex::MappedPtr<bd::gpu::D3DDevice> device,
-                                 mapped_u32 params) {
+                                 MappedU32 params) {
   if (!device || !params)
     return 0;
 
@@ -193,12 +192,16 @@ u32 D3DDevice_SetResolution_hook(rex::MappedPtr<bd::gpu::D3DDevice> device,
   device->resolutionWidthDup = width;
   device->resolutionConfig = cfg;
 
-  std::memcpy(device->presentParams, params.host_address(),
+  std::memcpy(device->presentParams, params.GetHostPtr(),
               sizeof(device->presentParams));
   device->resolutionApplied |= 0x10;
 
   return 0;
 }
+
+u32 D3DDevice_ReleaseThreadOwnership_hook() { return 0; }
+
+void D3DDevice_SetShaderGPRAllocation_hook() {}
 
 } // namespace
 
@@ -210,7 +213,8 @@ REX_HOOK(bdBuildGammaRampLUT, bdBuildGammaRampLUT_hook);
 REX_HOOK(D3DQuery_Issue, D3DQuery_Issue_hook);
 REX_HOOK(D3DQuery_GetData, D3DQuery_GetData_hook);
 
-BD_NOOP_RETURN(D3DDevice_ReleaseThreadOwnership, 0);
+REX_HOOK(D3DDevice_ReleaseThreadOwnership,
+         D3DDevice_ReleaseThreadOwnership_hook);
 
 REX_STUB(D3DDevice_SetGammaRamp_1);
 REX_STUB(D3DDevice_SetGammaRamp_0);
@@ -222,7 +226,8 @@ REX_STUB_RETURN(D3DDevice_RingBufferFlush, 0);
 REX_STUB_RETURN(D3DDevice_RingBufferSubmitBatch, 0);
 REX_STUB_RETURN(D3DDevice_RingBufferWaitForSpace, 0);
 REX_STUB_RETURN(D3DDevice_RingBufferPollReady, 1);
-BD_NOOP(D3DDevice_SetShaderGPRAllocation);
+REX_HOOK(D3DDevice_SetShaderGPRAllocation,
+         D3DDevice_SetShaderGPRAllocation_hook);
 REX_STUB(D3DDevice_BlockUntilIdle);
 REX_STUB(D3D__ResetAllState);
 REX_STUB(D3D__SetSurfaceInfo);

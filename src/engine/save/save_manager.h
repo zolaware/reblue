@@ -1,5 +1,5 @@
 /**
- * @file        engine/save/save_store.h
+ * @file        engine/save/save_manager.h
  *
  * @brief       Host-backed engine "save:" store replacing the XAM content
  *              manager.
@@ -17,14 +17,14 @@
 #include <vector>
 
 namespace rex::filesystem {
-class VirtualFileSystem;
+class IFileSystem;
 }
 
 namespace bd::engine {
 
-// Mount <saves_root> as the save store on the given VFS. Safe to call once,
-// and subsequent calls no-op.
-void MountSaveStore(rex::filesystem::VirtualFileSystem *vfs,
+// Mount <saves_root> as the save store on the given file system. Safe to call
+// once, and subsequent calls no-op.
+void MountSaves(rex::filesystem::IFileSystem *fs,
                     const std::filesystem::path &saves_root);
 
 // Re-point the engine "save:" symlink at <saves>/<slot>. No-op if not mounted.

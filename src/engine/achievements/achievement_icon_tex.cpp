@@ -13,14 +13,16 @@
 #include <unordered_map>
 
 #include <rex/embedded_metadata.h>
-#include <rex/system/achievement_manager.h>
-#include <rex/system/kernel_state.h>
+#include <rex/runtime.h>
+#include <rex/runtime/achievement_manager.h>
+#include <rex/runtime/content_manager.h>
 
 #include <stb_image.h>
 
 #include "core/logging.h"
 #include "engine/guest_texture.h"
 #include "engine/live_texture_stamp.h"
+#include "core/memory_helpers.h"
 
 namespace bd::engine {
 
@@ -56,7 +58,7 @@ u32 RoundUpPow2(u32 v) {
   return p;
 }
 
-std::vector<u8> LoadIconPng(const rex::system::AchievementInfo &info) {
+std::vector<u8> LoadIconPng(const rex::runtime::Achievement &info) {
   // Ours are baked into the executable and registered as metadata assets at
   // catalog time. The title's live in its own XDBF image table.
   if (!info.icon_path.empty()) {
@@ -64,11 +66,12 @@ std::vector<u8> LoadIconPng(const rex::system::AchievementInfo &info) {
       return {asset->bytes.begin(), asset->bytes.end()};
   }
   if (info.image_id) {
-    auto *ks = rex::system::kernel_state();
-    const auto xdbf = ks->title_xdbf();
-    if (xdbf.is_valid()) {
+    auto *rt = bd::mem::runtime();
+    const auto xdbf =
+        rt ? rt->GetContentManager().GetTitleXDBF() : rex::runtime::XDBFTitleData(nullptr, 0);
+    if (xdbf.IsValid()) {
       const auto block =
-          xdbf.GetEntry(rex::system::util::XdbfSection::kImage, info.image_id);
+          xdbf.GetEntry(rex::runtime::XDBFSection::kImage, info.image_id);
       if (block)
         return {block.buffer, block.buffer + block.size};
     }
@@ -102,15 +105,15 @@ void BlitCell(std::vector<u8> &rgba, u32 atlasHeight, u32 cell,
 }
 
 void BuildAtlas() {
-  auto *ks = rex::system::kernel_state();
+  auto *rt = bd::mem::runtime();
   // Registration order, not the viewer's display order: this is cached for the
   // life of the process, and the viewer re-sorts its rows on every visit.
-  const auto catalog = ks ? ks->achievements().ListAchievements()
-                          : std::vector<rex::system::AchievementInfo>();
+  const auto catalog = rt ? rt->GetAchievementManager().ListAchievements()
+                          : std::vector<rex::runtime::Achievement>();
   // Left unbuilt rather than cached empty, so a read once the runtime is up
   // still gets an atlas.
   if (catalog.empty()) {
-    BD_WARN("[achv] no catalog to build an icon atlas from");
+    REXLOG_WARN(bd, "achv no catalog to build an icon atlas from");
     return;
   }
 
@@ -119,7 +122,7 @@ void BuildAtlas() {
   s_atlasRows = RoundUpPow2((cells + kAtlasCols - 1u) / kAtlasCols);
   if (s_atlasRows > kMaxAtlasRows) {
     s_atlasRows = kMaxAtlasRows;
-    BD_WARN("[achv] {} achievements exceed the {} the icon atlas holds, the "
+    REXLOG_WARN(bd, "achv {} achievements exceed the {} the icon atlas holds, the "
             "rest draw without one",
             catalog.size(), kMaxAtlasRows * kAtlasCols - kFirstIconCell);
   }
@@ -142,7 +145,7 @@ void BuildAtlas() {
     if (!pixels || w <= 0 || h <= 0) {
       if (pixels)
         stbi_image_free(pixels);
-      BD_WARN("[achv] icon for 0x{:X} is not a decodable image", catalog[i].id);
+      REXLOG_WARN(bd, "achv icon for 0x{:X} is not a decodable image", catalog[i].id);
       continue;
     }
     BlitCell(rgba, height, cell, pixels, w, h);
@@ -151,7 +154,7 @@ void BuildAtlas() {
   }
 
   s_atlas = BuildGuestTexture(rgba, kAtlasWidth, height);
-  BD_DEBUG("[achv] icon atlas {}x{} holds {} of {} icons", kAtlasWidth, height,
+  REXLOG_DEBUG(bd, "achv icon atlas {}x{} holds {} of {} icons", kAtlasWidth, height,
            s_cells.size(), catalog.size());
 }
 
@@ -165,8 +168,8 @@ const std::vector<u8> *GetAchievementIconAtlas() {
 }
 
 void SyncAchievementIconAtlas() {
-  auto *ks = rex::system::kernel_state();
-  const size_t count = ks ? ks->achievements().ListAchievements().size() : 0;
+  auto *rt = bd::mem::runtime();
+  const size_t count = rt ? rt->GetAchievementManager().ListAchievements().size() : 0;
 
   std::lock_guard lock(s_mutex);
   if (count != 0 && (!s_atlas || count != s_builtCount))

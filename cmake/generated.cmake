@@ -58,7 +58,7 @@ function(reblue_generated_object_library name)
     target_compile_definitions(${name} PRIVATE
         $<${REBLUE_PROFILING_ON}:REXGLUE_ENABLE_PROFILING>)
     target_link_libraries(${name} PRIVATE
-        rex::runtime
+        rex::sdk
         # reblue_init.h reaches for tracy/Tracy.hpp when zones are on, and these
         # objects have to see the same headers the exes compile against.
         $<${REBLUE_PROFILING_ON}:rex::TracyClient>)

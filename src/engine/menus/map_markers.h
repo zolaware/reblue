@@ -9,6 +9,7 @@
  */
 #pragma once
 
+#include <rex/color.h>
 #include <rex/types.h>
 
 #include "engine/d2anime/anime_layout.h"
@@ -40,18 +41,17 @@ constexpr float kMarkerZStep = 0.0001f;
 constexpr float kMarkerZFloor = kPlayerZ + 0.01f;
 constexpr float kSqrtHalf = 0.70710678f; // cos and sin of the turned quad
 
-// D3DCOLOR is ARGB.
-constexpr u32 kDotItem = 0xFFFFD24Au;
-constexpr u32 kDotGold = 0xFFFFA02Au;
-constexpr u32 kDotMedal = 0xFF6FE0FFu;
-constexpr u32 kDotParam = 0xFF7CE07Cu;
-constexpr u32 kDotHeal = 0xFFFF8CC0u;
-constexpr u32 kDotGrass = 0xFF9CD86Cu;
-constexpr u32 kDotPlain = 0xFFB0B0B0u;
-constexpr u32 kChestLid = 0xFFD8B44Au;
-constexpr u32 kDotBarrier = 0xFFC08CFFu;
+constexpr rex::Color kDotItem = rex::Color::FromARGB8(0xFFFFD24Au);
+constexpr rex::Color kDotGold = rex::Color::FromARGB8(0xFFFFA02Au);
+constexpr rex::Color kDotMedal = rex::Color::FromARGB8(0xFF6FE0FFu);
+constexpr rex::Color kDotParam = rex::Color::FromARGB8(0xFF7CE07Cu);
+constexpr rex::Color kDotHeal = rex::Color::FromARGB8(0xFFFF8CC0u);
+constexpr rex::Color kDotGrass = rex::Color::FromARGB8(0xFF9CD86Cu);
+constexpr rex::Color kDotPlain = rex::Color::FromARGB8(0xFFB0B0B0u);
+constexpr rex::Color kChestLid = rex::Color::FromARGB8(0xFFD8B44Au);
+constexpr rex::Color kDotBarrier = rex::Color::FromARGB8(0xFFC08CFFu);
 
-constexpr u32 kOpaqueWhite = 0xFFFFFFFFu;
+constexpr rex::Color kOpaqueWhite = rex::colors::kWhite;
 
 constexpr float kDegToRad = 0.017453292f;
 constexpr float kHalfPi = 1.5707964f;
@@ -71,7 +71,7 @@ extern IconSheet *const kIconSheets[2];
 constexpr float kMarkerHalf = 8.0f;        // 16x16 on the map
 constexpr float kLegendMarkerHalf = 10.5f; // ~21x21 in the legend
 
-u32 DotColor(GimmickKind kind);
+rex::Color DotColor(GimmickKind kind);
 
 // A run of quads at descending z, drawn through the engine's own 2D prim path.
 // Caller must have bound the sheet with PrimSelectTexture.
@@ -90,7 +90,7 @@ struct QuadWriter {
   // One rect of an icon sheet, which brings a texture of its own rather than
   // the one the markers are pinned to, tinted by vertex color and alpha.
   void DrawIcon(u32 tex, float cx, float cy, float halfW, float halfH,
-                const UVRect &uv, u32 color = kOpaqueWhite);
+                const UVRect &uv, u32 color = kOpaqueWhite.ToARGB8());
 };
 
 // A fast flash with a long rest: swell to 1.0 by 0.18, snap back by 0.28, then

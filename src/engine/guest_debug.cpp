@@ -16,6 +16,7 @@
 
 #include <rex/hook.h>
 #include <rex/ppc.h>
+#include <rex/ppc/midasm.h>
 #include <rex/types.h>
 
 namespace bd::engine {
@@ -60,38 +61,41 @@ void Game::ToggleMindows() {
 
   const bool hidden = MindowsHidden();
   SetMindowsHidden(!hidden);
-  BD_INFO("Mindows overlay {}", hidden ? "shown" : "hidden");
+  REXLOG_INFO(bd, "Mindows overlay {}", hidden ? "shown" : "hidden");
 }
 
 } // namespace bd::engine
 
 // Fires after bdGameSettingsInit writes defaults.
-void bdPostConfigInitHook() {
+REX_MIDASM_HOOK(bdPostConfigInitHook, ()) {
   bd::Settings::Get().SetDevmodeApplier(bd::engine::ApplyDebugConfig);
   bd::engine::Settings::Get().ApplyCameraSpeed();
-  BD_INFO("engine debug config applied (devmode={})",
+  REXLOG_INFO(bd, "engine debug config applied (devmode={})",
           bd::Settings::Get().Devmode());
 }
+REX_MIDASM_AT(bdPostConfigInitHook, 0x820CE730, after);
 
 // The engine key buffer only feeds debug systems, so the poll is skipped outside
 // devmode to keep stray keystrokes out of the engine. Ctrl+Alt+M toggles the
 // Mindows overlay, and while it is hidden the bridge forwards nothing.
-void bdKeyboardPollHook() {
+REX_MIDASM_HOOK(bdKeyboardPollHook, ()) {
   bd::audio::ApplyAudioDebugPokes();
-  if (!bd::Settings::Get().Devmode())
-    return;
-  if (bd::platform::PollMindowsHotkey())
+  const bool devmode = bd::Settings::Get().Devmode();
+  if (devmode && bd::platform::PollMindowsHotkey())
     bd::engine::Game::Get().ToggleMindows();
-  bd::platform::PollKeyboardToGuest();
+  const auto &game = bd::engine::Game::Get();
+  bd::platform::HoldPadsForMindows(devmode && game.IsReady() &&
+                                   !game.MindowsHidden());
+  if (devmode)
+    bd::platform::PollKeyboardToGuest();
 }
+REX_MIDASM_AT(bdKeyboardPollHook, 0x82126B04, before);
 
 // MapManTask's sound trigger debug draw walks trigger polygon lists borrowed
 // from the field scene with no liveness guard of its own, so it takes the same
 // guard the matching update has.
-REX_EXTERN(__imp__MapManTask__DebugDrawTriggers);
-REX_HOOK_RAW(MapManTask__DebugDrawTriggers) {
+REX_MIDASM_RETURN_IF(MapManTask__DebugDrawTriggersSkip, ()) {
   const auto &game = bd::engine::Game::Get();
-  if (!game.ScriptManTask() || !game.FieldPlayerEntity())
-    return;
-  __imp__MapManTask__DebugDrawTriggers(ctx, base);
+  return !game.ScriptManTask() || !game.FieldPlayerEntity();
 }
+REX_MIDASM_AT(MapManTask__DebugDrawTriggersSkip, 0x823A4000, before);

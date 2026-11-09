@@ -81,7 +81,7 @@ void Prefetch::Walk(const std::filesystem::path &game_root) {
   const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
                            std::chrono::steady_clock::now() - started)
                            .count();
-  BD_INFO("[prefetch] warmed {} file(s) in {} ms", warmed, elapsed);
+  REXLOG_INFO(bd, "prefetch warmed {} file(s) in {} ms", warmed, elapsed);
 }
 
 } // namespace bd::vfs

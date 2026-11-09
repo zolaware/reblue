@@ -70,11 +70,11 @@ std::vector<D2AnimeTask> g_pendingReveals;
 
 D2AnimeTask D2AnimeTask::Load(const Task &parent, const char *csvPath,
                               Reveal reveal) {
-  rex::ppc::stack_guard guard;
-  u32 csvAddr = rex::ppc::stack_push_string(csvPath);
+  rex::ppc::StackFrame frame;
+  u32 csvAddr = frame.PushString(csvPath).GetGuestAddress();
   u32 taskAddr = LoadAsync_Task(parent.Address(), csvAddr, 0);
   if (!taskAddr) {
-    BD_ERROR("[d2anime] D2AnimeTask::Load failed for '{}'", csvPath);
+    REXLOG_ERROR(bd, "d2anime D2AnimeTask::Load failed for '{}'", csvPath);
     return D2AnimeTask();
   }
 
@@ -86,7 +86,7 @@ D2AnimeTask D2AnimeTask::Load(const Task &parent, const char *csvPath,
   if (reveal == Reveal::WhenReady)
     g_pendingReveals.push_back(task);
 
-  BD_INFO("[d2anime] D2AnimeTask::Load '{}' at 0x{:08X}", csvPath, taskAddr);
+  REXLOG_INFO(bd, "d2anime D2AnimeTask::Load '{}' at 0x{:08X}", csvPath, taskAddr);
   return task;
 }
 
@@ -180,7 +180,7 @@ void D2AnimeTask::Kill() {
   std::erase_if(g_pendingReveals,
                 [addr](const D2AnimeTask &r) { return r.Address() == addr; });
   Task::Kill();
-  BD_INFO("[d2anime] task 0x{:08X} killed", addr);
+  REXLOG_INFO(bd, "d2anime task 0x{:08X} killed", addr);
   Reset();
 }
 
@@ -219,8 +219,8 @@ AnimeMenu D2AnimeTask::FindMenu(const char *name) const {
   const u32 addr = Address();
   if (!addr)
     return AnimeMenu();
-  rex::ppc::stack_guard guard;
-  u32 nameAddr = rex::ppc::stack_push_string(name);
+  rex::ppc::StackFrame frame;
+  u32 nameAddr = frame.PushString(name).GetGuestAddress();
   return AnimeMenu(FindChildByName_Task(addr, nameAddr));
 }
 

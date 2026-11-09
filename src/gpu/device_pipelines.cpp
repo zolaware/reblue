@@ -90,12 +90,12 @@ bool BuildNullTextureDescriptors(VideoState &s) {
 
     auto texture = CreateHostTexture(s.device.get(), desc, "null-descriptor");
     if (!texture) {
-      BD_ERROR("Create null texture descriptor {} failed", i);
+      REXLOG_ERROR(bd, "Create null texture descriptor {} failed", i);
       return false;
     }
     auto view = texture->createTextureView(view_desc);
     if (!view) {
-      BD_ERROR("Create null texture view descriptor {} failed", i);
+      REXLOG_ERROR(bd, "Create null texture view descriptor {} failed", i);
       return false;
     }
     s.texture_descriptor_set->setTexture(
@@ -119,7 +119,7 @@ bool BuildPipelineLayout(VideoState &s) {
 
   s.texture_descriptor_set = tex_set_builder.create(s.device.get());
   if (!s.texture_descriptor_set) {
-    BD_ERROR("Plume createDescriptorSet for bindless textures failed");
+    REXLOG_ERROR(bd, "Plume createDescriptorSet for bindless textures failed");
     return false;
   }
   s.descriptor_slot_used.assign(kBindlessTextureCount, false);
@@ -143,7 +143,7 @@ bool BuildPipelineLayout(VideoState &s) {
 
   s.sampler_descriptor_set = sampler_set_builder.create(s.device.get());
   if (!s.sampler_descriptor_set) {
-    BD_ERROR("Plume createDescriptorSet for bindless samplers failed");
+    REXLOG_ERROR(bd, "Plume createDescriptorSet for bindless samplers failed");
     return false;
   }
   s.sampler_descriptor_used.assign(kBindlessSamplerCount, false);
@@ -159,7 +159,7 @@ bool BuildPipelineLayout(VideoState &s) {
   default_desc.addressW = plume::RenderTextureAddressMode::CLAMP;
   s.default_sampler = s.device->createSampler(default_desc);
   if (!s.default_sampler) {
-    BD_ERROR("Plume createSampler for default sampler failed");
+    REXLOG_ERROR(bd, "Plume createSampler for default sampler failed");
     return false;
   }
   s.sampler_descriptor_set->setSampler(0, s.default_sampler.get());
@@ -176,7 +176,7 @@ bool BuildPipelineLayout(VideoState &s) {
   point_desc.addressW = plume::RenderTextureAddressMode::CLAMP;
   s.point_sampler = s.device->createSampler(point_desc);
   if (!s.point_sampler) {
-    BD_ERROR("Plume createSampler for point sampler failed");
+    REXLOG_ERROR(bd, "Plume createSampler for point sampler failed");
     return false;
   }
   s.sampler_descriptor_set->setSampler(1, s.point_sampler.get());
@@ -219,7 +219,7 @@ bool BuildPipelineLayout(VideoState &s) {
     s.occlusion_descriptor_set[i] =
         occlusion_set_builder.create(s.device.get());
     if (!s.occlusion_descriptor_set[i]) {
-      BD_ERROR("Plume createDescriptorSet for occlusion counter failed");
+      REXLOG_ERROR(bd, "Plume createDescriptorSet for occlusion counter failed");
       return false;
     }
   }
@@ -229,7 +229,7 @@ bool BuildPipelineLayout(VideoState &s) {
   layout_builder.end();
   s.pipeline_layout = layout_builder.create(s.device.get());
   if (!s.pipeline_layout) {
-    BD_ERROR("Plume createPipelineLayout for main pipeline failed");
+    REXLOG_ERROR(bd, "Plume createPipelineLayout for main pipeline failed");
     return false;
   }
   return true;
@@ -248,7 +248,7 @@ bool BuildCopyPipeline(VideoState &s) {
       REBLUE_SHADER_BLOB(pfx_occlusion_count_ps), "main", kHostShaderFormat);
   if (!s.copy_vs || !s.copy_color_ps || !s.copy_depth_ps ||
       !s.gamma_correction_ps || !s.occlusion_count_ps) {
-    BD_ERROR("Plume createShader for copy helpers failed");
+    REXLOG_ERROR(bd, "Plume createShader for copy helpers failed");
     return false;
   }
 
@@ -266,7 +266,7 @@ bool BuildCopyPipeline(VideoState &s) {
       REBLUE_SHADER_BLOB(resolve_msaa_depth_8x), "main", kHostShaderFormat);
   for (int i = 0; i < 3; i++) {
     if (!s.resolve_msaa_color_ps[i] || !s.resolve_msaa_depth_ps[i]) {
-      BD_ERROR("Plume createShader for MSAA resolve helpers failed");
+      REXLOG_ERROR(bd, "Plume createShader for MSAA resolve helpers failed");
       return false;
     }
   }
@@ -287,7 +287,7 @@ bool BuildCopyPipeline(VideoState &s) {
   s.copy_color_pipeline =
       CreateHostGraphicsPipeline(s.device.get(), pipe_desc, "copy-color");
   if (!s.copy_color_pipeline) {
-    BD_ERROR("Plume createGraphicsPipeline for copy_color failed");
+    REXLOG_ERROR(bd, "Plume createGraphicsPipeline for copy_color failed");
     return false;
   }
 
@@ -296,7 +296,7 @@ bool BuildCopyPipeline(VideoState &s) {
   s.gamma_correction_pipeline =
       CreateHostGraphicsPipeline(s.device.get(), pipe_desc, "gamma-correction");
   if (!s.gamma_correction_pipeline) {
-    BD_ERROR("Plume createGraphicsPipeline for gamma_correction failed");
+    REXLOG_ERROR(bd, "Plume createGraphicsPipeline for gamma_correction failed");
     return false;
   }
 
@@ -326,7 +326,7 @@ plume::RenderPipeline *GetOrCreateCopyDepthPipeline(VideoState &s,
   desc.depthTargetFormat = fmt;
   auto pso = CreateHostGraphicsPipeline(s.device.get(), desc, "copy-depth");
   if (!pso) {
-    BD_ERROR("Plume createGraphicsPipeline for copy_depth (fmt={}) failed",
+    REXLOG_ERROR(bd, "Plume createGraphicsPipeline for copy_depth (fmt={}) failed",
              static_cast<int>(fmt));
     return nullptr;
   }

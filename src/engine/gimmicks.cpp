@@ -410,7 +410,7 @@ void Gimmicks::Build(const Script &script) {
 
   std::erase_if(stages_,
                 [&stem](const Stage &held) { return held.stem == stem; });
-  BD_INFO("[gimmicks] {}: {} points, {} chests, {} barriers", stem,
+  REXLOG_INFO(bd, "gimmicks {}: {} points, {} chests, {} barriers", stem,
           stage.points.size(), stage.chests.size(), stage.barriers.size());
   stages_.push_back(std::move(stage));
 }

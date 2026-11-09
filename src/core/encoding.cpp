@@ -47,18 +47,6 @@ std::string Utf8ToSjis(std::string_view s) {
                       nullptr);
   return o;
 }
-std::string U16ToUtf8(std::u16string_view s) {
-  if (s.empty())
-    return {};
-  static_assert(sizeof(wchar_t) == sizeof(char16_t));
-  return WideToUtf8(
-      std::wstring_view(reinterpret_cast<const wchar_t *>(s.data()), s.size()));
-}
-std::u16string Utf8ToU16(std::string_view s) {
-  static_assert(sizeof(wchar_t) == sizeof(char16_t));
-  std::wstring w = Utf8ToWide(s);
-  return std::u16string(reinterpret_cast<const char16_t *>(w.data()), w.size());
-}
 } // namespace bd
 
 #else // !defined(_WIN32)
@@ -150,36 +138,6 @@ std::string SjisToUtf8(std::string_view s) {
 
 std::string Utf8ToSjis(std::string_view s) {
   return Convert(s, "CP932", "UTF-8");
-}
-
-std::u16string Utf8ToU16(std::string_view s) {
-  std::u16string o;
-  o.reserve(s.size());
-  for (size_t i = 0; i < s.size();) {
-    u32 cp = NextUtf8(s, i);
-    if (cp >= 0x10000) {
-      cp -= 0x10000;
-      o.push_back(static_cast<char16_t>(0xD800 + (cp >> 10)));
-      o.push_back(static_cast<char16_t>(0xDC00 + (cp & 0x3FF)));
-    } else {
-      o.push_back(static_cast<char16_t>(cp));
-    }
-  }
-  return o;
-}
-
-std::string U16ToUtf8(std::u16string_view s) {
-  std::string o;
-  o.reserve(s.size());
-  for (size_t i = 0; i < s.size();) {
-    u32 cp = static_cast<u16>(s[i++]);
-    if (cp >= 0xD800 && cp <= 0xDBFF && i < s.size()) {
-      u32 lo = static_cast<u16>(s[i++]);
-      cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
-    }
-    AppendUtf8(o, cp);
-  }
-  return o;
 }
 
 } // namespace bd
