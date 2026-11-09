@@ -125,113 +125,19 @@ constexpr const char *ToString(QualityPreset preset) {
   return "";
 }
 
-class Settings {
-public:
-  static Settings &Get();
+bool IsVsyncEnabled();
+bool SetVsync(bool on);
 
-  // Adopts the current cvar values, then registers a change callback per
-  // setting so console, config file and launch argument writes reach here.
-  // Called once from ReblueApp::OnInit, the first consumer hook
-  // after rex::Init has applied the config file.
-  void Init();
+f64 GetFOVTanScale();
 
-  // Re-reads every setting from the registry.
-  void AdoptCvars();
+PostQuality GetPostQuality();
+ReflectionQuality GetReflectionQuality();
 
-  i32 Anisotropy() const { return anisotropy_; }
-  bool SetAnisotropy(i32 v);
+QualityPreset GetPreset();
+bool SetPreset(QualityPreset preset);
 
-  bool NTSCFilter() const { return ntscFilter_; }
+bool SetShadowQuality(f64 distance, i32 dimension);
 
-  // Fraction of BD's own depth-of-field blur to keep, 1 being all of it.
-  f64 DOFStrength() const { return dofStrength_; }
-  bool SetDOFStrength(f64 v);
-
-  f64 ShadowDistance() const { return shadowDistance_; }
-  bool SetShadowDistance(f64 v);
-
-  // Coverage and map dimension are one setting between them: coverage is live
-  // and the dimension restart-bound, but a step that moved only one would
-  // leave texel density wrong for as long as the coverage change is visible.
-  bool SetShadowQuality(f64 distance, i32 dimension);
-
-  bool Vsync() const { return vsync_; }
-  bool SetVsync(bool v);
-
-  // The raw cvar value, for the menu row that cycles it.
-  // Output::ConfiguredAspect turns it into a ratio.
-  i32 AspectRatio() const { return aspectRatio_; }
-  bool SetAspectRatio(i32 v);
-
-  // Horizontal degrees added to the game's own framing at 16:9, which the menu
-  // counts off 45. An offset rather than an absolute, so 0 is the authored view
-  // whatever a scene frames itself at.
-  i32 FOVOffset() const { return fovOffset_; }
-  bool SetFOVOffset(i32 v);
-
-  // What a camera's half-angle tangent is multiplied by to reach that field of
-  // view. Exactly 1 at the default, so the projection is left alone rather than
-  // rebuilt and moved by the float residue, and a scene framed tighter or wider
-  // than the default keeps its relationship to it.
-  f64 FOVTanScale() const;
-
-  // Restart-bound: read once when the device and its targets are built.
-  i32 ShadowDimension() const { return shadowDimension_; }
-  i32 SuperSampling() const { return superSampling_; }
-  bool SetSuperSampling(i32 v);
-  i32 MSAA() const { return msaa_; }
-  bool SetMSAA(i32 v);
-
-  gpu::PostQuality PostQuality() const {
-    return static_cast<gpu::PostQuality>(postQuality_);
-  }
-  bool SetPostQuality(i32 v);
-
-  gpu::ReflectionQuality ReflectionQuality() const {
-    return static_cast<gpu::ReflectionQuality>(reflectionQuality_);
-  }
-  bool SetReflectionQuality(i32 v);
-
-  // The preset the five quality settings currently match, or Custom.
-  gpu::QualityPreset QualityPreset() const;
-  bool SetQualityPreset(gpu::QualityPreset preset);
-
-private:
-  Settings() = default;
-  Settings(const Settings &) = delete;
-  Settings &operator=(const Settings &) = delete;
-
-  // Each pulls its own setting from cvar storage and nothing else. AdoptCvars
-  // calls every one. Each setting's registered change callback calls only its
-  // own, so one setting changing never re-reads the others.
-  void AdoptAnisotropy();
-  void AdoptNTSCFilter();
-  void AdoptDOFStrength();
-  void AdoptShadowDistance();
-  void AdoptVsync();
-  void AdoptAspectRatio();
-  void AdoptFOVOffset();
-  void AdoptShadowDimension();
-  void AdoptSuperSampling();
-  void AdoptMSAA();
-  void AdoptPostQuality();
-  void AdoptReflectionQuality();
-
-  // Seeded from the same bundle the cvar defaults come from, so a reader that
-  // runs before Init, the installer wizard among them, sees the default preset
-  // rather than a second set of values.
-  i32 anisotropy_ = kDefaultSettings.anisotropy;
-  i32 superSampling_ = kDefaultSettings.superSampling;
-  i32 msaa_ = kDefaultSettings.msaa;
-  i32 postQuality_ = static_cast<i32>(kDefaultSettings.postQuality);
-  i32 reflectionQuality_ = static_cast<i32>(kDefaultSettings.reflectionQuality);
-  bool ntscFilter_ = false;
-  f64 dofStrength_ = 1.0;
-  i32 shadowDimension_ = kDefaultSettings.shadowDimension;
-  f64 shadowDistance_ = kDefaultSettings.shadowDistance;
-  i32 aspectRatio_ = static_cast<i32>(AspectMode::Auto);
-  i32 fovOffset_ = 0;
-  bool vsync_ = true;
-};
+void WatchSettings();
 
 } // namespace bd::gpu

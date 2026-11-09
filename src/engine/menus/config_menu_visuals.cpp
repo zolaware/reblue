@@ -21,6 +21,7 @@
 #include "engine/menus/achievements_layout.h"
 #include "engine/menus/config_layout.h"
 #include "engine/menus/config_menu_data.h"
+#include "core/cvar_table.h"
 #include "engine/settings.h"
 #include "platform/hid.h"
 
@@ -474,7 +475,7 @@ void ConfigMenu::RefreshKeybindVisuals() {
       }
       if (mouseInput) {
         vb.SetText(vars.textVar,
-                   i18n::Text(Settings::Get().MouseInput() ? "opt.on"
+                   i18n::Text(bd::cvars::Get().mouse_input.Get() ? "opt.on"
                                                             : "opt.off"));
         continue;
       }

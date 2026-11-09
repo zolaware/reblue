@@ -362,7 +362,7 @@ const char *LocaleKey(u32 locale) {
 
 const LangList &Langs() {
   static LangList list;
-  const std::string cur = Settings::Get().Language();
+  const std::string cur = bd::cvars::Get().language.Get();
   const u32 uiLocale = i18n::CurrentLocale();
   if (list.builtValid && list.builtCode == cur && list.builtLocale == uiLocale)
     return list;
@@ -536,7 +536,7 @@ int IndexForValue(const SettingRow &s, double cur) {
 
 int CurrentIndex(const SettingRow &s) {
   if (s.special == SettingSpecial::Language) {
-    const u32 locale = LocaleOfCode(Settings::Get().Language());
+    const u32 locale = LocaleOfCode(bd::cvars::Get().language.Get());
     if (locale == kNoLocale)
       return 0; // 'auto', empty, or a code nothing recognizes
     const RowOpts o = OptsOf(s);
@@ -976,8 +976,8 @@ bool ClearBindChip(const BindEntry &entry, int chip) {
 
 bool ClearBindEntry(const BindEntry &entry) {
   if (entry.cell == BindCell::MouseInput)
-    return engine::Settings::Get().MouseInput() &&
-           engine::Settings::Get().SetMouseInput(false);
+    return bd::cvars::Get().mouse_input.Get() &&
+           bd::cvars::Get().mouse_input.Set(false).has_value();
   engine::Bindings &binds = engine::Bindings::Get();
   const auto held = binds.Sources(entry.action);
   std::vector<engine::Source> kept(held.begin(), held.end());
@@ -1001,13 +1001,13 @@ bool ClearBindEntry(const BindEntry &entry) {
 }
 
 bool ToggleMouseInput() {
-  engine::Settings &settings = engine::Settings::Get();
-  return settings.SetMouseInput(!settings.MouseInput());
+  auto &mouse = bd::cvars::Get().mouse_input;
+  return mouse.Set(!mouse.Get()).has_value();
 }
 
 bool ResetAllKeybinds() {
-  bool any = !engine::Settings::Get().MouseInput() &&
-             engine::Settings::Get().SetMouseInput(true);
+  bool any = !bd::cvars::Get().mouse_input.Get() &&
+             bd::cvars::Get().mouse_input.Set(true).has_value();
   for (int c = 0; c < kBindColumns; ++c)
     for (int k = 0; k < kBindColumnSectionCounts[c]; ++k)
       any = engine::Bindings::Get().ResetContext(kBindColumnSections[c][k]) ||

@@ -20,6 +20,7 @@
 #include <rex/settings_registry.h>
 #include <rex/setting.h>
 #include "core/build_info.h"
+#include "engine/settings.h"
 #include "gpu/settings.h"
 
 namespace bd {
@@ -246,9 +247,11 @@ public:
               "the current map still has untouched.");
   REX_SETTING(i32, hud_mode, 0,
               "Field HUD: 0 always on, 1 fades out while idle and returns on "
-              "any face or shoulder button, 2 never drawn.");
+              "any face or shoulder button, 2 never drawn.",
+              rex::Range{0, static_cast<f64>(bd::engine::HudMode::Hidden)});
   REX_SETTING(f64, hud_fade_delay, 5.0,
-              "Seconds of no button before the idle field HUD starts fading.");
+              "Seconds of no button before the idle field HUD starts fading.",
+              rex::Range{0.0, 600.0});
   REX_SETTING(bool, mouse_input, true,
               "Mouse input: raw mouse look in the field with the pointer "
               "locked, and the drawn cursor in menus.");
@@ -256,17 +259,21 @@ public:
               "Play the cursor-move sound effect on a mouse-driven row "
               "change.");
   REX_SETTING(i32, mouse_cursor_opacity, 80,
-              "Opacity of the drawn mouse pointer, in percent.");
+              "Opacity of the drawn mouse pointer, in percent.",
+              rex::Range{static_cast<f64>(bd::engine::kMouseCursorOpacityMin),
+                         static_cast<f64>(bd::engine::kMouseCursorOpacityMax)});
   REX_SETTING(i32, glyph_set, 0,
               "Button prompt glyphs: 0 = follow the input device, 1 = "
-              "controller, 2 = keyboard.");
+              "controller, 2 = keyboard.", rex::Range{0, 2});
   REX_SETTING(i32, glyph_pad, -1,
               "Controller the prompt glyphs draw: -1 = follow the connected "
               "pad, 0 = Xbox 360, 1 = Xbox, 2 = PlayStation, 3 = Switch, 4 = "
-              "Steam Deck.");
+              "Steam Deck.", rex::Range{-1, 4});
   REX_SETTING(f64, camera_speed, 1.2,
               "Field camera stick speed, scaling both axes. 1.2 is the value "
-              "the disc ships.");
+              "the disc ships.",
+              rex::Range{bd::engine::kCameraSpeedMin,
+                         bd::engine::kCameraSpeedMax});
 
   REX_SETTING(i32, opt_msg_speed, 2,
               "Text display speed: 0 slow, 1 normal, 2 fast, 3 very fast.");

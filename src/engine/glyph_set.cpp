@@ -32,6 +32,7 @@
 #include "engine/input/actions.h"
 #include "engine/input/binding_registry.h"
 #include "engine/prompt_textures.h"
+#include "core/cvar_table.h"
 #include "engine/settings.h"
 #include "engine/virtual_buttons.h"
 #include "embedded.h"
@@ -504,12 +505,12 @@ std::vector<u8> Glyphs::ComposeSheet() const {
 }
 
 GlyphSet Glyphs::Wanted() const {
-  const auto chosen = static_cast<GlyphSet>(Settings::Get().GlyphSetMode());
+  const auto chosen = static_cast<GlyphSet>(bd::cvars::Get().glyph_set.Get());
   return chosen == GlyphSet::Auto ? lastDevice_ : chosen;
 }
 
 PadSet Glyphs::WantedPad() const {
-  const auto chosen = static_cast<PadSet>(Settings::Get().PadGlyphSet());
+  const auto chosen = static_cast<PadSet>(bd::cvars::Get().glyph_pad.Get());
   return chosen == PadSet::Auto ? autoPad_ : chosen;
 }
 

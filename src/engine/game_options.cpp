@@ -93,9 +93,9 @@ bool StoreFloat(rex::kernel::GuestGlobal<be_f32, Address> global, f64 value) {
 // the value back into the engine before the setter has compared against it.
 bool s_selfWrite = false;
 
-template <typename T> bool WriteCvar(const char *name, T v) {
+template <typename T> bool WriteCvar(rex::Setting<T> &setting, T value) {
   s_selfWrite = true;
-  const bool ok = bd::CvarSet(name, FormatCvar(v));
+  const bool ok = setting.Set(value).has_value();
   s_selfWrite = false;
   return ok;
 }
@@ -147,7 +147,7 @@ void ApplyMirrors() {
 
 // Pushes the global set into the engine globals. A no-op before the address
 // space exists.
-void AdoptCvars() {
+void PushToEngine() {
   StoreInt(addr::kMsgSpeed, bd::cvars::Get().opt_msg_speed.Get());
   StoreInt(addr::kMsgSize, bd::cvars::Get().opt_msg_size.Get());
   StoreInt(globals::kVoiceType, bd::cvars::Get().opt_voice_type.Get());
@@ -224,10 +224,10 @@ void GameOptions::WriteBlock() {
   block->fltVoice = bd::cvars::Get().opt_audio_hints.Get();
 }
 
-void GameOptions::AdoptVoiceType() {
+void GameOptions::SyncVoiceType() {
   const i32 voice = VoiceType();
   if (voice != bd::cvars::Get().opt_voice_type.Get())
-    dirty_ |= WriteCvar("bd.opt_voice_type", voice);
+    dirty_ |= WriteCvar(bd::cvars::Get().opt_voice_type, voice);
 }
 
 void GameOptions::Init() {
@@ -238,12 +238,12 @@ void GameOptions::Init() {
     bd::CvarWatch(g_callbacks, name,
                   [](std::string_view, std::string_view) {
           if (!s_selfWrite)
-            AdoptCvars();
+            PushToEngine();
         });
 }
 
 void GameOptions::Apply() {
-  AdoptCvars();
+  PushToEngine();
   ApplyMixer();
   ApplyMirrors();
 }
@@ -258,19 +258,19 @@ void GameOptions::Flush() {
 
 i32 GameOptions::MsgSpeed() const { return LoadInt(addr::kMsgSpeed); }
 bool GameOptions::SetMsgSpeed(i32 v) {
-  dirty_ |= WriteCvar("bd.opt_msg_speed", v);
+  dirty_ |= WriteCvar(bd::cvars::Get().opt_msg_speed, v);
   return StoreInt(addr::kMsgSpeed, v);
 }
 
 i32 GameOptions::MsgSize() const { return LoadInt(addr::kMsgSize); }
 bool GameOptions::SetMsgSize(i32 v) {
-  dirty_ |= WriteCvar("bd.opt_msg_size", v);
+  dirty_ |= WriteCvar(bd::cvars::Get().opt_msg_size, v);
   return StoreInt(addr::kMsgSize, v);
 }
 
 i32 GameOptions::VoiceType() const { return LoadInt(globals::kVoiceType); }
 bool GameOptions::SetVoiceType(i32 v) {
-  dirty_ |= WriteCvar("bd.opt_voice_type", v);
+  dirty_ |= WriteCvar(bd::cvars::Get().opt_voice_type, v);
   return StoreInt(globals::kVoiceType, v);
 }
 bool GameOptions::SetEngineVoiceType(i32 v) {
@@ -279,37 +279,37 @@ bool GameOptions::SetEngineVoiceType(i32 v) {
 
 i32 GameOptions::Ruby() const { return LoadInt(addr::kRuby); }
 bool GameOptions::SetRuby(i32 v) {
-  dirty_ |= WriteCvar("bd.opt_ruby", v);
+  dirty_ |= WriteCvar(bd::cvars::Get().opt_ruby, v);
   return StoreInt(addr::kRuby, v);
 }
 
 i32 GameOptions::Subtitles() const { return LoadInt(addr::kSubtitles); }
 bool GameOptions::SetSubtitles(i32 v) {
-  dirty_ |= WriteCvar("bd.opt_subtitles", v);
+  dirty_ |= WriteCvar(bd::cvars::Get().opt_subtitles, v);
   return StoreInt(addr::kSubtitles, v);
 }
 
 i32 GameOptions::AudioHints() const { return LoadInt(addr::kAudioHints); }
 bool GameOptions::SetAudioHints(i32 v) {
-  dirty_ |= WriteCvar("bd.opt_audio_hints", v);
+  dirty_ |= WriteCvar(bd::cvars::Get().opt_audio_hints, v);
   return StoreInt(addr::kAudioHints, v);
 }
 
 i32 GameOptions::BattleHints() const { return LoadInt(addr::kBattleHints); }
 bool GameOptions::SetBattleHints(i32 v) {
-  dirty_ |= WriteCvar("bd.opt_battle_hints", v);
+  dirty_ |= WriteCvar(bd::cvars::Get().opt_battle_hints, v);
   return StoreInt(addr::kBattleHints, v);
 }
 
 i32 GameOptions::SkipEvents() const { return LoadInt(addr::kSkipEvents); }
 bool GameOptions::SetSkipEvents(i32 v) {
-  dirty_ |= WriteCvar("bd.opt_skip_events", v);
+  dirty_ |= WriteCvar(bd::cvars::Get().opt_skip_events, v);
   return StoreInt(addr::kSkipEvents, v);
 }
 
 i32 GameOptions::Camera() const { return LoadInt(addr::kCamera); }
 bool GameOptions::SetCamera(i32 v) {
-  dirty_ |= WriteCvar("bd.opt_camera", v);
+  dirty_ |= WriteCvar(bd::cvars::Get().opt_camera, v);
   const bool changed = StoreInt(addr::kCamera, v);
   ApplyMirrors();
   return changed;
@@ -317,13 +317,13 @@ bool GameOptions::SetCamera(i32 v) {
 
 i32 GameOptions::TargetFirst() const { return LoadInt(addr::kTargetFirst); }
 bool GameOptions::SetTargetFirst(i32 v) {
-  dirty_ |= WriteCvar("bd.opt_target_first", v);
+  dirty_ |= WriteCvar(bd::cvars::Get().opt_target_first, v);
   return StoreInt(addr::kTargetFirst, v);
 }
 
 f64 GameOptions::MusicVolume() const { return LoadFloat(addr::kMusicVolume); }
 bool GameOptions::SetMusicVolume(f64 v) {
-  dirty_ |= WriteCvar("bd.opt_music_volume", v);
+  dirty_ |= WriteCvar(bd::cvars::Get().opt_music_volume, v);
   const bool changed = StoreFloat(addr::kMusicVolume, v);
   ApplyMixer();
   return changed;
@@ -331,7 +331,7 @@ bool GameOptions::SetMusicVolume(f64 v) {
 
 f64 GameOptions::SeVolume() const { return LoadFloat(addr::kSeVolume); }
 bool GameOptions::SetSeVolume(f64 v) {
-  dirty_ |= WriteCvar("bd.opt_se_volume", v);
+  dirty_ |= WriteCvar(bd::cvars::Get().opt_se_volume, v);
   const bool se = StoreFloat(addr::kSeVolume, v);
   const bool voice = StoreFloat(addr::kVoiceVolume, v);
   ApplyMixer();
@@ -340,7 +340,7 @@ bool GameOptions::SetSeVolume(f64 v) {
 
 f64 GameOptions::Brightness() const { return LoadFloat(addr::kBrightness); }
 bool GameOptions::SetBrightness(f64 v) {
-  dirty_ |= WriteCvar("bd.opt_brightness", v);
+  dirty_ |= WriteCvar(bd::cvars::Get().opt_brightness, v);
   const bool changed = StoreFloat(addr::kBrightness, v);
   ApplyMirrors();
   return changed;
@@ -348,7 +348,7 @@ bool GameOptions::SetBrightness(f64 v) {
 
 f64 GameOptions::ScreenPosX() const { return LoadFloat(addr::kScreenPosX); }
 bool GameOptions::SetScreenPosX(f64 v) {
-  dirty_ |= WriteCvar("bd.opt_screen_pos_x", v);
+  dirty_ |= WriteCvar(bd::cvars::Get().opt_screen_pos_x, v);
   const bool changed = StoreFloat(addr::kScreenPosX, v);
   ApplyMirrors();
   return changed;
@@ -356,7 +356,7 @@ bool GameOptions::SetScreenPosX(f64 v) {
 
 f64 GameOptions::ScreenPosY() const { return LoadFloat(addr::kScreenPosY); }
 bool GameOptions::SetScreenPosY(f64 v) {
-  dirty_ |= WriteCvar("bd.opt_screen_pos_y", v);
+  dirty_ |= WriteCvar(bd::cvars::Get().opt_screen_pos_y, v);
   const bool changed = StoreFloat(addr::kScreenPosY, v);
   ApplyMirrors();
   return changed;
@@ -367,7 +367,7 @@ bool GameOptions::SetScreenPosY(f64 v) {
 REX_DETOUR(bdSaveBlockRestoreConfig, void, ()) {
   bd::engine::GameOptions::Get().WriteBlock();
   original();
-  bd::engine::GameOptions::Get().AdoptVoiceType();
+  bd::engine::GameOptions::Get().SyncVoiceType();
 }
 
 // The original writes the engine's defaults over the whole set, on every

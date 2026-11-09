@@ -71,7 +71,7 @@ bool InterpolationActive() {
 }
 
 void Advance() {
-  const i32 fps = Settings::Get().FPSLimit();
+  const i32 fps = bd::engine::GetFPSLimit();
   g_interpActive.store((fps == 0 || fps > 30) && !SofdecPlayer::Playing(),
                        std::memory_order_relaxed);
   const double now = NowSeconds();

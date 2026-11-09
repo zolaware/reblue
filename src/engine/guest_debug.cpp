@@ -52,7 +52,7 @@ void ApplyDebugConfig() {
   cfg.SetDebugInputKey(0u);
   cfg.SetDebugInputPad(0u);
 
-  const bool dev = bd::Settings::Get().Devmode();
+  const bool dev = bd::cvars::Get().devmode.Get();
   const u32 v = dev ? 1u : 0u;
 
   cfg.SetDebugMenuBoot(v);
@@ -71,7 +71,7 @@ void ApplyDebugConfig() {
 } // namespace
 
 void Game::ToggleMindows() {
-  if (!bd::Settings::Get().Devmode())
+  if (!bd::cvars::Get().devmode.Get())
     return;
 
   const bool hidden = MindowsHidden();
@@ -87,7 +87,7 @@ namespace {
 std::atomic<u32> g_padLogRequest{0};
 
 void RequestPadLog(u16 key, std::string_view args = {}) {
-  if (!bd::Settings::Get().Devmode()) {
+  if (!bd::cvars::Get().devmode.Get()) {
     REXBD_WARN("pad log commands need devmode");
     return;
   }
@@ -155,12 +155,17 @@ REX_DETOUR(bdPadLogDebugHandler, void, ()) {
   original();
 }
 
+static bd::SettingWatches g_devmodeWatch;
+
 // Fires after bdGameSettingsInit writes defaults.
 REX_MIDASM_HOOK(bdPostConfigInitHook, ()) {
-  bd::Settings::Get().SetDevmodeApplier(bd::engine::ApplyDebugConfig);
-  bd::engine::Settings::Get().ApplyCameraSpeed();
+  g_devmodeWatch.clear();
+  g_devmodeWatch.push_back(bd::cvars::Get().devmode.OnChange(
+      [](const bool &) { bd::engine::ApplyDebugConfig(); }));
+  bd::engine::ApplyDebugConfig();
+  bd::engine::ApplyCameraSpeed();
   REXBD_INFO("engine debug config applied (devmode={})",
-          bd::Settings::Get().Devmode());
+          bd::cvars::Get().devmode.Get());
 }
 REX_MIDASM_AT(bdPostConfigInitHook, 0x820CE730, after);
 
@@ -169,7 +174,7 @@ REX_MIDASM_AT(bdPostConfigInitHook, 0x820CE730, after);
 // Mindows overlay, and while it is hidden the bridge forwards nothing.
 REX_MIDASM_HOOK(bdKeyboardPollHook, ()) {
   bd::audio::ApplyAudioDebugPokes();
-  const bool devmode = bd::Settings::Get().Devmode();
+  const bool devmode = bd::cvars::Get().devmode.Get();
   if (devmode && bd::platform::PollMindowsHotkey())
     bd::engine::Game::Get().ToggleMindows();
   const auto &game = bd::engine::Game::Get();

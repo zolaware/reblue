@@ -63,7 +63,7 @@ namespace {
 // achievements/ and any XAM content, so there is no content manager contention.
 std::filesystem::path
 ResolveSavesRoot(const std::filesystem::path &profile_root) {
-  const auto &override_path = bd::Settings::Get().SavesPath();
+  const auto &override_path = bd::cvars::Get().saves_path.Get();
   if (!override_path.empty())
     return std::filesystem::path(override_path);
   return profile_root / "saves";
@@ -185,12 +185,8 @@ rex::Result<void> ReblueApp::OnInit() {
   bd::engine::Bindings::Get().Init(GetInput());
   bd::engine::Bindings::Get().Register();
   bd::SettingsMigration::Apply();
-  // Every Settings object adopts the config file and the command line here, so
-  // every later hook can read a setting through its object.
-  bd::Settings::Get().Init();
-  bd::gpu::Settings::Get().Init();
-  bd::vfs::Settings::Get().Init();
-  bd::engine::Settings::Get().Init();
+  bd::gpu::WatchSettings();
+  bd::engine::WatchSettings();
   bd::engine::Bindings::Get().ReportParseErrors();
   bd::engine::GameOptions::Get().Init();
 
@@ -216,7 +212,7 @@ rex::Result<void> ReblueApp::OnInit() {
     REXBD_WARN("{}", set.error().message);
 
   // The SDK settings and achievements overlays are developer tools here.
-  if (!bd::Settings::Get().Devmode()) {
+  if (!bd::cvars::Get().devmode.Get()) {
     for (const char *name : {"ui.bind.settings", "ui.bind.achievements"})
       (void)rex::GetSettingsRegistry().SetText(rex::SettingLayer::kTitle, name, "");
   }
@@ -647,7 +643,7 @@ void ReblueApp::FinishInstaller(bool completed,
         bd::SetSelectedOption(pick.page, row, pick.option);
     }
     if (choices.update_check.has_value())
-      bd::Settings::Get().SetUpdateCheck(*choices.update_check);
+      bd::cvars::Get().update_check.Set(*choices.update_check).has_value();
     if (auto written = bd::SaveConfig(profile_cfg); !written)
       REXBD_WARN("config save failed: {}", written.error().message);
   }
@@ -708,7 +704,7 @@ rex::Result<void> ReblueApp::OnTitleLaunch(rex::kernel::TitleRuntime &title) {
   bd::engine::MountSaves(&title.GetFileSystem(),
                          ResolveSavesRoot(profile_root));
 
-  if (bd::Settings::Get().Devmode())
+  if (bd::cvars::Get().devmode.Get())
     bd::vfs::VFS::Get().PrepareDevWriteDirs();
 
   // Enabled packs are published into the profile's XAM content tree so the SDK

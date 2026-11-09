@@ -29,6 +29,7 @@
 #include "gpu/constant_buffers.h"
 #include "gpu/frame_gpu_timer.h"
 #include "gpu/output.h"
+#include "core/cvar_table.h"
 #include "gpu/settings.h"
 #include "platform/host_ui.h"
 
@@ -38,7 +39,7 @@ namespace {
 
 void ApplyVsync(VideoState &s) {
   if (s.swap_chain) {
-    s.swap_chain->setVsyncEnabled(Settings::Get().Vsync());
+    s.swap_chain->setVsyncEnabled(bd::gpu::IsVsyncEnabled());
   }
 }
 
@@ -47,7 +48,7 @@ constexpr i32 kIdleFPS = 30;
 void PaceFrame(bool idle = false) {
   using Clock = std::chrono::steady_clock;
   static Clock::time_point next{};
-  i32 fps = bd::engine::Settings::Get().FPSLimit();
+  i32 fps = bd::engine::GetFPSLimit();
   if (bd::engine::SofdecPlayer::Playing())
     fps = 30;
   if (idle && (fps <= 0 || fps > kIdleFPS))
@@ -93,7 +94,7 @@ void RebuildSwapChain(VideoState &s) {
       REXBD_ERROR("Swap chain resize failed");
     return;
   }
-  if (static_cast<AspectMode>(Settings::Get().AspectRatio()) ==
+  if (static_cast<AspectMode>(bd::cvars::Get().aspect_ratio.Get()) ==
       AspectMode::Auto)
     Output::Recompute();
 }

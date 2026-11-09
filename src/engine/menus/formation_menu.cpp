@@ -18,6 +18,7 @@
 #include "engine/game.h"
 #include "engine/menus/camp_rank_main_task.h"
 #include "engine/sfx.h"
+#include "core/cvar_table.h"
 #include "engine/settings.h"
 #include "reblue_init.h"
 
@@ -119,7 +120,7 @@ void MoveCursor(CampRankMainTask task, int row, int col) {
     task.SetCurrentMember(member);
     RankUpdateCursorPosName(task.Address());
   }
-  if (Settings::Get().MouseCursorSFX())
+  if (bd::cvars::Get().mouse_cursor_sfx.Get())
     sfx::Play(sfx::kCursor);
 }
 

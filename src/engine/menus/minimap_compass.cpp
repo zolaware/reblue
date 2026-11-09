@@ -20,6 +20,7 @@
 #include "engine/hud_fade.h"
 #include "engine/menus/map_markers.h"
 #include "engine/mini_map_task.h"
+#include "core/cvar_table.h"
 #include "engine/settings.h"
 #include "gpu/gpu.h"
 
@@ -70,7 +71,7 @@ private:
 };
 
 void MiniMapMarkers::Draw(const MiniMapTask &miniMap) {
-  if (!Settings::Get().MapGimmickMarkers())
+  if (!bd::cvars::Get().map_gimmick_markers.Get())
     return;
   // The widget under these already faded through its own hooks.
   const float fade = HudFade::Get().Alpha();

@@ -26,6 +26,7 @@
 #include "gpu/frame.h"
 #include "gpu/hooks/tweaks.h"
 #include "gpu/sampler_cache.h"
+#include "core/cvar_table.h"
 #include "gpu/settings.h"
 #include "gpu/shaders/shader_cache.h"
 
@@ -101,7 +102,7 @@ UploadState &upload_state() {
 
 void RecomputeShadowPcfScale(UploadState &s) {
   const f64 dist = std::clamp(ShadowCoverageScale(), 1.0, 4.0);
-  const f64 dim = std::max(512, Settings::Get().ShadowDimension());
+  const f64 dim = std::max(512, bd::cvars::Get().shadow_dimension.Get());
   s.shadowPcfScale = static_cast<float>(std::max(1.0 / dist, 1024.0 / dim));
 }
 
@@ -329,7 +330,7 @@ ConstantAllocation UploadSharedConstants(u32 device_guest) {
     return {};
   // bd_anisotropy participates in DecodeFromFetch's output, so a live change
   // must miss the per-slot cache so stale sampler indices are re-resolved.
-  const i32 aniso_now = Settings::Get().Anisotropy();
+  const i32 aniso_now = bd::cvars::Get().anisotropy.Get();
 
   // vs.textures is authoritative: our SetTexture hook replaces BD's recompiled
   // body, so the engine's per-slot bound-texture shadow (device+0x2FF0+slot*4)

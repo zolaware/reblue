@@ -3386,7 +3386,7 @@ REX_MIDASM_AT(bdInputSystemUpdateSkip, 0x82131D90, before);
 REX_MIDASM_RETURN_IF(PadVibrationCore__DrawSkip, (u32 core)) {
   if (!bd::engine::TickDue())
     return true;
-  if (!bd::engine::Settings::Get().Vibration()) {
+  if (!bd::engine::IsVibrationEnabled()) {
     if (auto *amp = bd::mem::at<be_f32>(core + 0x6C)) {
       amp[0] = 0.0f;
       amp[1] = 0.0f;

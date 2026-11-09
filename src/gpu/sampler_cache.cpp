@@ -20,6 +20,7 @@
 #include "core/logging.h"
 #include "gpu/bindless_allocator.h"
 #include "gpu/device.h"
+#include "core/cvar_table.h"
 #include "gpu/settings.h"
 
 namespace bd::gpu {
@@ -130,7 +131,7 @@ plume::RenderSamplerDesc DecodeFromFetch(const u32 fc[6]) {
   // 0. bd_anisotropy opts in, and only when every filter is already LINEAR:
   // D3D12_FILTER_ANISOTROPIC hardcodes LINEAR min/mag, so enabling aniso on a
   // POINT sampler silently upgrades it to bilinear on D3D12 but not on Vulkan.
-  const i32 aniso = Settings::Get().Anisotropy();
+  const i32 aniso = bd::cvars::Get().anisotropy.Get();
   const bool aniso_on = aniso > 0 &&
                         d.mipmapMode == plume::RenderMipmapMode::LINEAR &&
                         d.minFilter == plume::RenderFilter::LINEAR &&

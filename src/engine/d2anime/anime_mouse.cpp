@@ -17,6 +17,7 @@
 #include "engine/d2anime/command_select_task.h"
 #include "engine/input/action_state.h"
 #include "engine/sfx.h"
+#include "core/cvar_table.h"
 #include "engine/settings.h"
 #include "engine/virtual_buttons.h"
 #include "platform/platform.h"
@@ -89,7 +90,7 @@ MenuMouse &MenuMouse::Get() {
 }
 
 bool MenuMouse::PointerActive() const {
-  return mouseHasCursor_ && Settings::Get().MouseInput();
+  return mouseHasCursor_ && bd::cvars::Get().mouse_input.Get();
 }
 
 int MenuMouse::TakeWheelDetents() {
@@ -387,7 +388,7 @@ void MenuMouse::ApplyScroll(u32 va, int offset) {
   // put it rather than scrolling the least it can to reach the row.
   menu.SetScrollOffset(u16(offset));
   MenuSetSelectedIndex(va, u32(index), kScrollToShow);
-  if (Settings::Get().MouseCursorSFX())
+  if (bd::cvars::Get().mouse_cursor_sfx.Get())
     sfx::Play(sfx::kCursor);
 }
 
@@ -404,7 +405,7 @@ void MenuMouse::Apply(u32 va, int index, bool commandSelect) {
     CmdSelectSetSelection(va, u32(index), kCursorSlide);
   else
     MenuSetSelectedIndex(va, u32(index), kScrollToShow);
-  if (Settings::Get().MouseCursorSFX())
+  if (bd::cvars::Get().mouse_cursor_sfx.Get())
     sfx::Play(sfx::kCursor);
 }
 
@@ -467,7 +468,7 @@ void MenuMouse::BeginFrame() {
   // their hover bands, and with no focused menu the detents stay banked for
   // the area map's zoom.
   if (wheel_ != 0 && !focusedSelect && focusedMenu &&
-      Settings::Get().MouseInput()) {
+      bd::cvars::Get().mouse_input.Get()) {
     WheelScroll(focusedMenu.Address(), TakeWheelDetents());
     pendingMenu_.Reset();
     pendingIndex_ = -1;

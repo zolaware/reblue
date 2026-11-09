@@ -16,7 +16,6 @@
 #include "vfs/mod_catalog.h"
 #include "vfs/mounts.h"
 #include "vfs/prefetch.h"
-#include "vfs/settings.h"
 
 namespace bd::vfs {
 

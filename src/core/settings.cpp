@@ -26,7 +26,6 @@
 namespace bd {
 namespace {
 
-SettingWatches g_callbacks;
 std::vector<SettingWatches *> g_watch_lists;
 
 template <typename T>
@@ -149,15 +148,6 @@ Table &Table::Get() {
 
 } // namespace cvars
 
-std::string FormatCvar(i32 v) { return std::to_string(v); }
-std::string FormatCvar(bool v) { return v ? "true" : "false"; }
-
-std::string FormatCvar(f64 v) {
-  char buf[32];
-  auto [end, ec] = std::to_chars(buf, buf + sizeof(buf), v);
-  return ec == std::errc() ? std::string(buf, end) : std::string("0");
-}
-
 const char *ToString(UpdateChannel channel) {
   switch (channel) {
   case UpdateChannel::Nightly:
@@ -168,109 +158,15 @@ const char *ToString(UpdateChannel channel) {
   return "stable";
 }
 
-Settings &Settings::Get() {
-  static Settings s;
-  return s;
+UpdateChannel GetUpdateChannel() {
+  return ChannelOfName(bd::cvars::Get().update_channel.Get());
 }
 
-void Settings::AdoptDevmode() {
-  devmode_ = bd::cvars::Get().devmode.Get();
-  if (devmodeApplier_)
-    devmodeApplier_();
-}
-void Settings::AdoptLanguage() { language_ = bd::cvars::Get().language.Get(); }
-void Settings::AdoptI18nKeys() { i18nKeys_ = bd::cvars::Get().i18n_keys.Get(); }
-void Settings::AdoptLanguagePath() {
-  languagePath_ = bd::cvars::Get().lang_path.Get();
-}
-void Settings::AdoptPerfOverlay() {
-  perfOverlay_ = bd::cvars::Get().perf_overlay.Get();
-}
-void Settings::AdoptUpdateCheck() {
-  updateCheck_ = bd::cvars::Get().update_check.Get();
-}
-void Settings::AdoptUpdateBase() {
-  updateBase_ = bd::cvars::Get().update_base.Get();
-  ComposeUpdateUrl();
-}
-void Settings::AdoptUpdateChannel() {
-  updateChannel_ = ChannelOfName(bd::cvars::Get().update_channel.Get());
-  ComposeUpdateUrl();
-}
-
-void Settings::ComposeUpdateUrl() {
-  updateUrl_ = updateBase_.empty()
-                   ? std::string()
-                   : updateBase_ + "/manifest/" + ToString(updateChannel_) +
-                         ".toml";
-}
-
-void Settings::AdoptSavesPath() { savesPath_ = bd::cvars::Get().saves_path.Get(); }
-void Settings::AdoptCachePath() { cachePath_ = bd::cvars::Get().cache_path.Get(); }
-
-// Each hands the value to the cvar layer and lets the registered change
-// callback adopt it back. The registry keeps the range check, the restart
-// bookkeeping and any callback another subsystem registered on the same
-// setting, and its return says whether the write was accepted. It cannot
-// recurse: the callback adopts and never calls a setter.
-bool Settings::SetDevmode(bool v) {
-  return bd::CvarSet("bd.devmode", FormatCvar(v));
-}
-
-void Settings::SetDevmodeApplier(std::function<void()> applier) {
-  devmodeApplier_ = std::move(applier);
-  if (devmodeApplier_)
-    devmodeApplier_();
-}
-
-bool Settings::SetLanguage(const std::string &v) {
-  return bd::CvarSet("bd.language", v);
-}
-
-bool Settings::SetPerfOverlay(bool v) {
-  return bd::CvarSet("bd.perf_overlay", FormatCvar(v));
-}
-
-bool Settings::SetUpdateCheck(bool v) {
-  return bd::CvarSet("bd.update_check", FormatCvar(v));
-}
-
-bool Settings::SetUpdateChannel(bd::UpdateChannel v) {
-  return bd::CvarSet("bd.update_channel", ToString(v));
-}
-
-void Settings::AdoptCvars() {
-  AdoptDevmode();
-  AdoptLanguage();
-  AdoptI18nKeys();
-  AdoptLanguagePath();
-  AdoptPerfOverlay();
-  AdoptUpdateCheck();
-  AdoptUpdateBase();
-  AdoptUpdateChannel();
-  AdoptSavesPath();
-  AdoptCachePath();
-}
-
-void Settings::Init() {
-  AdoptCvars();
-
-  auto reg = [](const char *name, void (Settings::*adopt)()) {
-    bd::CvarWatch(g_callbacks, name,
-                  [adopt](std::string_view, std::string_view) {
-                    (Settings::Get().*adopt)();
-                  });
-  };
-  reg("bd.devmode", &Settings::AdoptDevmode);
-  reg("bd.language", &Settings::AdoptLanguage);
-  reg("bd.i18n_keys", &Settings::AdoptI18nKeys);
-  reg("bd.lang_path", &Settings::AdoptLanguagePath);
-  reg("bd.perf_overlay", &Settings::AdoptPerfOverlay);
-  reg("bd.update_check", &Settings::AdoptUpdateCheck);
-  reg("bd.update_base", &Settings::AdoptUpdateBase);
-  reg("bd.update_channel", &Settings::AdoptUpdateChannel);
-  reg("bd.saves_path", &Settings::AdoptSavesPath);
-  reg("bd.cache_path", &Settings::AdoptCachePath);
+std::string GetUpdateURL() {
+  const std::string base = bd::cvars::Get().update_base.Get();
+  return base.empty() ? std::string()
+                      : base + "/manifest/" + ToString(GetUpdateChannel()) +
+                            ".toml";
 }
 
 } // namespace bd

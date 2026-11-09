@@ -8,6 +8,7 @@
  * @license   BSD 3-Clause License
  *            See LICENSE file in the project root for full license text.
  */
+#include "core/cvar_table.h"
 #include "gpu/frame.h"
 
 #include <cstddef>
@@ -221,7 +222,7 @@ bool Video::FlushRenderStateLocked(u32 device_guest) {
   if (!s.pipelineState.vertexShader || !s.pipelineState.vertexDeclaration) {
     u32 n;
     if (DiagShouldLog(3, s.render_target, &n)) {
-      if (::bd::Settings::Get().Devmode()) {
+      if (::bd::cvars::Get().devmode.Get()) {
         REXBD_WARN("draw-diag #{} draw dropped: vs={} decl={} ps={} rt={}x{}", n,
                static_cast<void *>(s.pipelineState.vertexShader),
                static_cast<void *>(s.pipelineState.vertexDeclaration),
@@ -244,7 +245,7 @@ bool Video::FlushRenderStateLocked(u32 device_guest) {
     if (!pso) {
       u32 n;
       if (DiagShouldLog(4, s.render_target, &n)) {
-        if (::bd::Settings::Get().Devmode()) {
+        if (::bd::cvars::Get().devmode.Get()) {
           REXBD_WARN("draw-diag #{} draw dropped: PSO build failed (vs={} ps={} "
                  "rt={}x{} fmt={})",
                  n, static_cast<void *>(s.pipelineState.vertexShader),

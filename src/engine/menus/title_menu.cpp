@@ -23,6 +23,7 @@
 #include "engine/menus/config_menu_data.h"
 #include "engine/menus/title_task.h"
 #include "engine/menus/update_prompt.h"
+#include "core/cvar_table.h"
 #include "engine/settings.h"
 #include "engine/sfx.h"
 #include "engine/visual_render.h"
@@ -238,7 +239,7 @@ void HoverTitleRows(bd::engine::TitleTask title) {
 
   const bool moved = state == kTitleStateMenu ? HoverMenuRow(title, row)
                                               : HoverPick(title, state, row);
-  if (moved && bd::engine::Settings::Get().MouseCursorSFX())
+  if (moved && bd::cvars::Get().mouse_cursor_sfx.Get())
     sfx::Play(sfx::kCursor);
 }
 

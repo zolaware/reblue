@@ -34,6 +34,7 @@
 #include "engine/menus/mechatt_map_main_task.h"
 #include "engine/mini_map_task.h"
 #include "engine/script.h"
+#include "core/cvar_table.h"
 #include "engine/settings.h"
 #include "engine/sfx.h"
 #include "engine/task.h"
@@ -389,7 +390,7 @@ void AreaMap::Enter() {
     title_ = i18n::Text("map.area");
   counts_ = CountLine(stem);
   markers_ = Gimmicks::Get().Markers(stem);
-  legend_ = Settings::Get().MapGimmickMarkers() ? BuildLegend(markers_)
+  legend_ = bd::cvars::Get().map_gimmick_markers.Get() ? BuildLegend(markers_)
                                                 : std::vector<LegendRow>();
 
   sfx::Play(sfx::kOpen);
@@ -671,7 +672,7 @@ void AreaMap::Draw(const MechattMapMainTask &screen) {
   if (!miniMap)
     return;
 
-  if (Settings::Get().MapGimmickMarkers()) {
+  if (bd::cvars::Get().map_gimmick_markers.Get()) {
     PrimSelectTexture(kChromeMarker, miniMap.ChromeTexAddress());
     const u32 shapeTex = mem::load<u32>(PrimState() + kPrim_Texture);
 
@@ -731,7 +732,7 @@ void RestoreMapCrossfade(const MechattMapMainTask &screen) {
 void AreaMapTick() {
   // Nothing loads while the markers are off, so a session that never turns them
   // on never pays for the sheets.
-  if (!Settings::Get().MapGimmickMarkers())
+  if (!bd::cvars::Get().map_gimmick_markers.Get())
     return;
   for (IconSheet *sheet : kIconSheets)
     sheet->list.Poll();

@@ -19,7 +19,7 @@
 #include "core/app_root.h"
 #include "core/logging.h"
 #include "core/time_util.h"
-#include "vfs/settings.h"
+#include "core/cvar_table.h"
 
 namespace bd::vfs {
 
@@ -155,7 +155,7 @@ void AccessLog::LoadSummaryLocked() {
 }
 
 void AccessLog::Record(const std::string &key, FileSource source) {
-  if (!Settings::Get().ModLog())
+  if (!bd::cvars::Get().mod_log.Get())
     return;
 
   auto [pack, inner] = SplitPackPath(key);
@@ -179,7 +179,7 @@ void AccessLog::Record(const std::string &key, FileSource source) {
 }
 
 void AccessLog::RecordEngineHit(const std::string &key) {
-  if (!Settings::Get().ModLog())
+  if (!bd::cvars::Get().mod_log.Get())
     return;
 
   std::filesystem::path disc_root;
@@ -194,7 +194,7 @@ void AccessLog::RecordEngineHit(const std::string &key) {
 }
 
 void AccessLog::PruneOldDetailLogsLocked() {
-  i32 keep = Settings::Get().ModLogKeep();
+  i32 keep = bd::cvars::Get().mod_log_keep.Get();
   if (keep < 1)
     keep = 1;
 
@@ -315,7 +315,7 @@ void AccessLog::Flush() {
   // Per-session size guard turns the count-based retention ceiling hard: worst
   // case on disk is (bd_mod_log_keep + 1) * bd_mod_log_max_mb (the retained
   // sessions plus this active one).
-  i32 max_mb = Settings::Get().ModLogMaxMB();
+  i32 max_mb = bd::cvars::Get().mod_log_max_mb.Get();
   if (max_mb > 0) {
     std::error_code sec;
     u64 cur = std::filesystem::exists(detail_path, sec)

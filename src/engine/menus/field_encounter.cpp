@@ -15,6 +15,7 @@
 #include "engine/d2anime/anime_input.h"
 #include "engine/d2anime/anime_mouse.h"
 #include "engine/menus/field_encounter_menu.h"
+#include "core/cvar_table.h"
 #include "engine/settings.h"
 #include "engine/sfx.h"
 #include "reblue_init.h"
@@ -34,7 +35,7 @@ bool PadMovedCursor() {
 // confirms the row the pointer had just moved to.
 void MoveCursor(FieldEncounterMenu menu, int to) {
   menu.SetCursor(u32(to));
-  if (Settings::Get().MouseCursorSFX())
+  if (bd::cvars::Get().mouse_cursor_sfx.Get())
     sfx::Play(sfx::kCursor);
 }
 
@@ -72,7 +73,7 @@ void DriveEncounterMouse(FieldEncounterMenu menu) {
 
   if (!menu)
     return;
-  if (!Settings::Get().MouseInput())
+  if (!bd::cvars::Get().mouse_input.Get())
     return;
 
   if (PadMovedCursor()) {

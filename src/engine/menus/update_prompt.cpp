@@ -5,6 +5,7 @@
  * @license   BSD 3-Clause License
  *            See LICENSE file in the project root for full license text.
  */
+#include "core/cvar_table.h"
 #include "engine/menus/update_prompt.h"
 
 #include <string>
@@ -150,8 +151,8 @@ bool UpdatePrompt::Hold(const Task &parent) {
     if (updates.State() == Updates::Stage::kIdle) {
       REXBD_INFO("update no check to run at the title, letting the engine "
               "through (bd_update_check={}, endpoint '{}')",
-              bd::Settings::Get().UpdateCheck(),
-              bd::Settings::Get().UpdateUrl());
+              bd::cvars::Get().update_check.Get(),
+              bd::GetUpdateURL());
       phase_.store(Phase::kDone);
       return false;
     }

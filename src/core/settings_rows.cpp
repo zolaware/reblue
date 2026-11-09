@@ -313,7 +313,7 @@ constexpr SettingRow kGameplaySettings[] = {
      .group = "menu.header.text",
      .binding = {.setText =
                      [](const char *code) {
-                       return Settings::Get().SetLanguage(code);
+                       return bd::cvars::Get().language.Set(code).has_value();
                      }},
      .restart = true,
      .sliderUi = true,
@@ -347,13 +347,13 @@ constexpr SettingRow kGameplaySettings[] = {
      .group = "menu.header.assists",
      .binding = {.get =
                      [] {
-                       return engine::Settings::Get().DisableTutorials() ? 1.0
+                       return bd::cvars::Get().disable_tutorials.Get() ? 1.0
                                                                          : 0.0;
                      },
                  .set =
                      [](double v) {
-                       return engine::Settings::Get().SetDisableTutorials(v !=
-                                                                          0.0);
+                       return bd::cvars::Get().disable_tutorials.Set(v !=
+                                                                          0.0).has_value();
                      }},
      .options = kOnOff,
      .count = OptCount(kOnOff)},
@@ -367,12 +367,12 @@ constexpr SettingRow kGameplaySettings[] = {
      .group = "menu.header.battle_field",
      .binding = {.get =
                      [] {
-                       return engine::Settings::Get().SaveAnywhere() ? 1.0
+                       return bd::cvars::Get().save_anywhere.Get() ? 1.0
                                                                      : 0.0;
                      },
                  .set =
                      [](double v) {
-                       return engine::Settings::Get().SetSaveAnywhere(v != 0.0);
+                       return bd::cvars::Get().save_anywhere.Set(v != 0.0).has_value();
                      }},
      .options = kOnOff,
      .count = OptCount(kOnOff)},
@@ -380,13 +380,12 @@ constexpr SettingRow kGameplaySettings[] = {
      .group = "menu.header.battle_field",
      .binding = {.get =
                      [] {
-                       return engine::Settings::Get().MapGimmickMarkers() ? 1.0
+                       return bd::cvars::Get().map_gimmick_markers.Get() ? 1.0
                                                                           : 0.0;
                      },
                  .set =
                      [](double v) {
-                       return engine::Settings::Get().SetMapGimmickMarkers(
-                           v != 0.0);
+                       return bd::cvars::Get().map_gimmick_markers.Set(v != 0.0).has_value();
                      }},
      .options = kOnOff,
      .count = OptCount(kOnOff)},
@@ -395,21 +394,20 @@ constexpr SettingRow kGameplaySettings[] = {
      .binding = {.get =
                      [] {
                        return static_cast<double>(
-                           static_cast<i32>(engine::Settings::Get().HudMode()));
+                           static_cast<i32>(bd::engine::GetHudMode()));
                      },
                  .set =
                      [](double v) {
-                       return engine::Settings::Get().SetHudMode(
-                           static_cast<i32>(v));
+                       return bd::cvars::Get().hud_mode.Set(static_cast<i32>(v)).has_value();
                      }},
      .options = kHudMode,
      .count = OptCount(kHudMode)},
     {.label = "settings.gameplay.hud_fade_delay.label",
      .group = "menu.header.interface",
-     .binding = {.get = [] { return engine::Settings::Get().HudFadeDelay(); },
+     .binding = {.get = [] { return bd::cvars::Get().hud_fade_delay.Get(); },
                  .set =
                      [](double v) {
-                       return engine::Settings::Get().SetHudFadeDelay(v);
+                       return bd::cvars::Get().hud_fade_delay.Set(v).has_value();
                      }},
      .kind = SettingKind::Slider,
      .smin = 1.0,
@@ -421,12 +419,11 @@ constexpr SettingRow kGameplaySettings[] = {
      .binding = {.get =
                      [] {
                        return static_cast<double>(
-                           engine::Settings::Get().GlyphSetMode());
+                           bd::cvars::Get().glyph_set.Get());
                      },
                  .set =
                      [](double v) {
-                       return engine::Settings::Get().SetGlyphSetMode(
-                           static_cast<i32>(v));
+                       return bd::cvars::Get().glyph_set.Set(static_cast<i32>(v)).has_value();
                      }},
      .options = kGlyphSet,
      .count = OptCount(kGlyphSet)},
@@ -435,12 +432,11 @@ constexpr SettingRow kGameplaySettings[] = {
      .binding = {.get =
                      [] {
                        return static_cast<double>(
-                           engine::Settings::Get().PadGlyphSet());
+                           bd::cvars::Get().glyph_pad.Get());
                      },
                  .set =
                      [](double v) {
-                       return engine::Settings::Get().SetPadGlyphSet(
-                           static_cast<i32>(v));
+                       return bd::cvars::Get().glyph_pad.Set(static_cast<i32>(v)).has_value();
                      }},
      .options = kPadGlyphSet,
      .count = OptCount(kPadGlyphSet),
@@ -448,10 +444,10 @@ constexpr SettingRow kGameplaySettings[] = {
     {.label = "settings.gameplay.update_check.label",
      .group = "menu.header.advanced",
      .binding = {.get =
-                     [] { return Settings::Get().UpdateCheck() ? 1.0 : 0.0; },
+                     [] { return bd::cvars::Get().update_check.Get() ? 1.0 : 0.0; },
                  .set =
                      [](double v) {
-                       return Settings::Get().SetUpdateCheck(v != 0.0);
+                       return bd::cvars::Get().update_check.Set(v != 0.0).has_value();
                      }},
      .options = kOnOff,
      .count = OptCount(kOnOff)},
@@ -460,20 +456,19 @@ constexpr SettingRow kGameplaySettings[] = {
      .binding = {.get =
                      [] {
                        return static_cast<double>(
-                           Settings::Get().UpdateChannel());
+                           bd::GetUpdateChannel());
                      },
                  .set =
                      [](double v) {
-                       return Settings::Get().SetUpdateChannel(
-                           static_cast<UpdateChannel>(static_cast<i32>(v)));
+                       return bd::cvars::Get().update_channel.Set(std::string(bd::ToString(static_cast<UpdateChannel>(static_cast<i32>(v))))).has_value();
                      }},
      .options = kUpdateChannel,
      .count = OptCount(kUpdateChannel)},
     {.label = "settings.gameplay.developer_mode.label",
      .group = "menu.header.advanced",
      .binding = {
-         .get = [] { return Settings::Get().Devmode() ? 1.0 : 0.0; },
-         .set = [](double v) { return Settings::Get().SetDevmode(v != 0.0); }},
+         .get = [] { return bd::cvars::Get().devmode.Get() ? 1.0 : 0.0; },
+         .set = [](double v) { return bd::cvars::Get().devmode.Set(v != 0.0).has_value(); }},
      .options = kOnOff,
      .count = OptCount(kOnOff),
      .restart = true},
@@ -510,11 +505,11 @@ constexpr SettingRow kDisplaySettings[] = {
      .binding = {
          .get =
              [] {
-               return static_cast<double>(gpu::Settings::Get().AspectRatio());
+               return static_cast<double>(bd::cvars::Get().aspect_ratio.Get());
              },
          .set =
              [](double v) {
-               return gpu::Settings::Get().SetAspectRatio(static_cast<i32>(v));
+               return bd::cvars::Get().aspect_ratio.Set(static_cast<i32>(v)).has_value();
              }},
      .options = kAspect,
      .count = OptCount(kAspect),
@@ -550,12 +545,11 @@ constexpr SettingRow kDisplaySettings[] = {
      .binding = {.get =
                      [] {
                        return static_cast<double>(
-                           gpu::Settings::Get().FOVOffset());
+                           bd::cvars::Get().fov_offset.Get());
                      },
                  .set =
                      [](double v) {
-                       return gpu::Settings::Get().SetFOVOffset(
-                           static_cast<i32>(v));
+                       return bd::cvars::Get().fov_offset.Set(static_cast<i32>(v)).has_value();
                      }},
      .options = kFOV,
      .count = OptCount(kFOV),
@@ -565,11 +559,11 @@ constexpr SettingRow kDisplaySettings[] = {
      .binding = {
          .get =
              [] {
-               return static_cast<double>(engine::Settings::Get().FPSLimit());
+               return static_cast<double>(bd::engine::GetFPSLimit());
              },
          .set =
              [](double v) {
-               return engine::Settings::Get().SetFPSLimit(static_cast<i32>(v));
+               return bd::engine::SetFPSLimit(static_cast<i32>(v));
              }},
      .options = kFPS,
      .count = OptCount(kFPS),
@@ -577,9 +571,9 @@ constexpr SettingRow kDisplaySettings[] = {
     {.label = "settings.display.vsync.label",
      .group = "menu.header.frame_rate",
      .binding = {
-         .get = [] { return gpu::Settings::Get().Vsync() ? 1.0 : 0.0; },
+         .get = [] { return bd::gpu::IsVsyncEnabled() ? 1.0 : 0.0; },
          .set =
-             [](double v) { return gpu::Settings::Get().SetVsync(v != 0.0); }},
+             [](double v) { return bd::gpu::SetVsync(v != 0.0); }},
      .options = kOnOff,
      .count = OptCount(kOnOff)},
 };
@@ -591,11 +585,11 @@ constexpr SettingRow kGraphicsSettings[] = {
      .binding = {.get =
                      [] {
                        return static_cast<double>(static_cast<u32>(
-                           gpu::Settings::Get().QualityPreset()));
+                           bd::gpu::GetPreset()));
                      },
                  .set =
                      [](double v) {
-                       return gpu::Settings::Get().SetQualityPreset(
+                       return bd::gpu::SetPreset(
                            static_cast<gpu::QualityPreset>(
                                static_cast<u32>(v)));
                      }},
@@ -604,7 +598,7 @@ constexpr SettingRow kGraphicsSettings[] = {
      .optionDisabled =
          [](const SettingOption &o) {
            return static_cast<int>(o.num) == kPresetCustom &&
-                  gpu::Settings::Get().QualityPreset() !=
+                  bd::gpu::GetPreset() !=
                       gpu::QualityPreset::Custom;
          }},
     {.label = "settings.graphics.msaa.label",
@@ -612,12 +606,11 @@ constexpr SettingRow kGraphicsSettings[] = {
      .desc = "settings.graphics.msaa.desc",
      .binding = {.get =
                      [] {
-                       return static_cast<double>(gpu::Settings::Get().MSAA());
+                       return static_cast<double>(bd::cvars::Get().msaa.Get());
                      },
                  .set =
                      [](double v) {
-                       return gpu::Settings::Get().SetMSAA(
-                           static_cast<i32>(v));
+                       return bd::cvars::Get().msaa.Set(static_cast<i32>(v)).has_value();
                      }},
      .options = kMSAA,
      .count = OptCount(kMSAA)},
@@ -627,12 +620,11 @@ constexpr SettingRow kGraphicsSettings[] = {
      .binding = {.get =
                      [] {
                        return static_cast<double>(
-                           gpu::Settings::Get().SuperSampling());
+                           bd::cvars::Get().supersampling.Get());
                      },
                  .set =
                      [](double v) {
-                       return gpu::Settings::Get().SetSuperSampling(
-                           static_cast<i32>(v));
+                       return bd::cvars::Get().supersampling.Set(static_cast<i32>(v)).has_value();
                      }},
      .options = kSuperSampling,
      .count = OptCount(kSuperSampling)},
@@ -641,24 +633,23 @@ constexpr SettingRow kGraphicsSettings[] = {
      .desc = "settings.graphics.anisotropic.desc",
      .binding = {.get =
                      [] {
-                       return gpu::Settings::Get().Anisotropy() > 0
+                       return bd::cvars::Get().anisotropy.Get() > 0
                                   ? static_cast<double>(kAnisotropyOn)
                                   : 0.0;
                      },
                  .set =
                      [](double v) {
-                       return gpu::Settings::Get().SetAnisotropy(
-                           static_cast<i32>(v));
+                       return bd::cvars::Get().anisotropy.Set(static_cast<i32>(v)).has_value();
                      }},
      .options = kAniso,
      .count = OptCount(kAniso)},
     {.label = "settings.graphics.shadow_quality.label",
      .group = "menu.header.detail",
      .desc = "settings.graphics.shadow_quality.desc",
-     .binding = {.get = [] { return gpu::Settings::Get().ShadowDistance(); },
+     .binding = {.get = [] { return bd::cvars::Get().shadow_distance.Get(); },
                  .setPair =
                      [](double distance, double dimension) {
-                       return gpu::Settings::Get().SetShadowQuality(
+                       return bd::gpu::SetShadowQuality(
                            distance, static_cast<i32>(dimension));
                      }},
      .options = kShadowQuality,
@@ -670,12 +661,11 @@ constexpr SettingRow kGraphicsSettings[] = {
      .binding = {.get =
                      [] {
                        return static_cast<double>(static_cast<i32>(
-                           gpu::Settings::Get().ReflectionQuality()));
+                           bd::gpu::GetReflectionQuality()));
                      },
                  .set =
                      [](double v) {
-                       return gpu::Settings::Get().SetReflectionQuality(
-                           static_cast<i32>(v));
+                       return bd::cvars::Get().reflection_quality.Set(static_cast<i32>(v)).has_value();
                      }},
      .options = kReflectionQuality,
      .count = OptCount(kReflectionQuality),
@@ -686,12 +676,11 @@ constexpr SettingRow kGraphicsSettings[] = {
      .binding = {.get =
                      [] {
                        return static_cast<double>(static_cast<i32>(
-                           gpu::Settings::Get().PostQuality()));
+                           bd::gpu::GetPostQuality()));
                      },
                  .set =
                      [](double v) {
-                       return gpu::Settings::Get().SetPostQuality(
-                           static_cast<i32>(v));
+                       return bd::cvars::Get().post_quality.Set(static_cast<i32>(v)).has_value();
                      }},
      .options = kPostQuality,
      .count = OptCount(kPostQuality),
@@ -702,10 +691,10 @@ constexpr SettingRow kGraphicsSettings[] = {
      .group = "menu.header.detail",
      .desc = "settings.graphics.depth_of_field.desc",
      .binding = {.get =
-                     [] { return gpu::Settings::Get().DOFStrength() * 100.0; },
+                     [] { return bd::cvars::Get().dof_strength.Get() * 100.0; },
                  .set =
                      [](double v) {
-                       return gpu::Settings::Get().SetDOFStrength(v / 100.0);
+                       return bd::cvars::Get().dof_strength.Set(v / 100.0).has_value();
                      }},
      .kind = SettingKind::Slider,
      .smin = 0.0,
@@ -780,15 +769,15 @@ constexpr SettingRow kControlsSettings[] = {
      .group = "menu.header.camera",
      .binding = {.get =
                      [] {
-                       return engine::Settings::Get().CameraSpeed();
+                       return bd::cvars::Get().camera_speed.Get();
                      },
                  .set =
                      [](double v) {
-                       return engine::Settings::Get().SetCameraSpeed(v);
+                       return bd::cvars::Get().camera_speed.Set(v).has_value();
                      }},
      .kind = SettingKind::Slider,
-     .smin = engine::Settings::kCameraSpeedMin,
-     .smax = engine::Settings::kCameraSpeedMax,
+     .smin = engine::kCameraSpeedMin,
+     .smax = engine::kCameraSpeedMax,
      .sstep = 0.10,
      .sfmt = "%.2f"},
     {.label = "settings.controls.bindings.label",
@@ -799,11 +788,11 @@ constexpr SettingRow kControlsSettings[] = {
      .group = "menu.header.controller",
      .binding = {.get =
                      [] {
-                       return engine::Settings::Get().Vibration() ? 1.0 : 0.0;
+                       return bd::engine::IsVibrationEnabled() ? 1.0 : 0.0;
                      },
                  .set =
                      [](double v) {
-                       return engine::Settings::Get().SetVibration(v != 0.0);
+                       return bd::engine::SetVibration(v != 0.0);
                      }},
      .options = kOnOff,
      .count = OptCount(kOnOff)},
@@ -819,16 +808,15 @@ constexpr SettingRow kControlsSettings[] = {
      .binding = {.get =
                      [] {
                        return static_cast<double>(
-                           engine::Settings::Get().MouseCursorOpacity());
+                           bd::cvars::Get().mouse_cursor_opacity.Get());
                      },
                  .set =
                      [](double v) {
-                       return engine::Settings::Get().SetMouseCursorOpacity(
-                           static_cast<i32>(v));
+                       return bd::cvars::Get().mouse_cursor_opacity.Set(static_cast<i32>(v)).has_value();
                      }},
      .kind = SettingKind::Slider,
-     .smin = static_cast<double>(engine::Settings::kMouseCursorOpacityMin),
-     .smax = static_cast<double>(engine::Settings::kMouseCursorOpacityMax),
+     .smin = static_cast<double>(engine::kMouseCursorOpacityMin),
+     .smax = static_cast<double>(engine::kMouseCursorOpacityMax),
      .sstep = 5.0,
      .sfmt = "%.0f"},
 };

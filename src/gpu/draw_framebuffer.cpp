@@ -8,6 +8,7 @@
  * @license   BSD 3-Clause License
  *            See LICENSE file in the project root for full license text.
  */
+#include "core/cvar_table.h"
 #include "gpu/frame.h"
 
 #include <mutex>
@@ -169,7 +170,7 @@ void SeedFreshColorTarget(VideoState &s, GuestTexture *rt, bool full_screen) {
   if (full_screen) {
     u32 n;
     if (DiagShouldLog(6, rt, &n)) {
-      if (::bd::Settings::Get().Devmode()) {
+      if (::bd::cvars::Get().devmode.Get()) {
         REXBD_WARN("composite-seed #{} fullscreen {}x{} composite DISCARDED "
                     "({})",
                     n, rt->width, rt->height,
@@ -212,7 +213,7 @@ bool Video::BindDrawFramebufferLocked(bool color_clear_follows) {
   if (!rt && !ds) {
     u32 n;
     if (DiagShouldLog(5, s.render_target, &n)) {
-      if (::bd::Settings::Get().Devmode()) {
+      if (::bd::cvars::Get().devmode.Get()) {
         REXBD_WARN("draw-diag #{} draw dropped: no effective RT/DS "
                     "(s.render_target={} s.depth_stencil={})",
                     n, static_cast<void *>(s.render_target),

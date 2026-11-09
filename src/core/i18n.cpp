@@ -5,6 +5,7 @@
  * @license   BSD 3-Clause License
  *            See LICENSE file in the project root for full license text.
  */
+#include "core/cvar_table.h"
 #include "core/i18n.h"
 
 #include "core/app_root.h"
@@ -99,7 +100,7 @@ const std::string &KeyMarker(std::string_view key) {
 }
 
 std::filesystem::path OverrideFolder() {
-  const std::filesystem::path dir(bd::Settings::Get().LanguagePath());
+  const std::filesystem::path dir(bd::cvars::Get().lang_path.Get());
   return dir.is_absolute() ? dir : AppRootFolder() / dir;
 }
 
@@ -186,7 +187,7 @@ void SyncLocale() {
     SetLocale(language.Current().Id());
     return;
   }
-  const u32 xlang = platform::XLanguageFromCode(bd::Settings::Get().Language());
+  const u32 xlang = platform::XLanguageFromCode(bd::cvars::Get().language.Get());
   SetLocale(engine::Locale::FromXLanguage(xlang ? xlang
                                                 : platform::DetectOsXLanguage())
                 .Id());
@@ -218,7 +219,7 @@ const std::string &Text(std::string_view key) {
   if (!g_loaded)
     Reload();
 
-  if (bd::Settings::Get().I18nKeys())
+  if (bd::cvars::Get().i18n_keys.Get())
     return KeyMarker(key);
 
   const std::string_view code = engine::Locale(g_localeId).CodeLower();

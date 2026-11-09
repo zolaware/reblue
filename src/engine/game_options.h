@@ -35,7 +35,7 @@ public:
   // global after the restore. Called from the same hook once the original has
   // run, so the global set takes that choice instead of pushing the previous
   // one back the next time an option changes.
-  void AdoptVoiceType();
+  void SyncVoiceType();
 
   // Persists the global set.
   void Flush();

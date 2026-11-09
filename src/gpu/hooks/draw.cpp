@@ -28,6 +28,7 @@
 
 #include <plume_render_interface.h>
 
+#include "core/cvar_table.h"
 #include "core/logging.h"
 #include "core/memory_helpers.h"
 #include "gpu/constant_buffers.h"

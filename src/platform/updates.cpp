@@ -95,10 +95,9 @@ void Updates::Init(std::filesystem::path install_root) {
 bool Updates::CanApply() const { return can_apply_; }
 
 void Updates::BeginCheck() {
-  const auto &settings = bd::Settings::Get();
-  if (!settings.UpdateCheck())
+  if (!bd::cvars::Get().update_check.Get())
     return;
-  const std::string url = settings.UpdateUrl();
+  const std::string url = bd::GetUpdateURL();
   if (url.empty()) {
     REXBD_INFO("No update endpoint, skipping the update and content checks");
     return;

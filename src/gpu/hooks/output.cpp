@@ -22,6 +22,7 @@
 #include "engine/free_dfs_task.h"
 #include "gpu/d3d.h"
 #include "gpu/device.h"
+#include "core/cvar_table.h"
 #include "gpu/settings.h"
 #include "gpu/hooks/tweaks.h"
 
@@ -70,7 +71,7 @@ REX_MIDASM_HOOK(bdProjectionAspectHook, (PPCRegister &fov_half, PPCRegister &asp
     return;
 
   double tan_scale =
-      AuthoredFraming() ? 1.0 : bd::gpu::Settings::Get().FOVTanScale();
+      AuthoredFraming() ? 1.0 : bd::gpu::GetFOVTanScale();
   const double target = bd::gpu::Output::ProjectionAspect();
   if (std::fabs(target - kDesignCanvasAspect) > kDesignCanvasAspectEpsilon) {
     aspect.f64 = target;
@@ -90,7 +91,7 @@ REX_MIDASM_AT(bdProjectionAspectHook, 0x821782F4, after, f1, f29);
 // view takes the scene rate.
 REX_MIDASM_HOOK(bdSubViewRenderScaleHook,
                 (bd::engine::CameraView_t * view)) {
-  if (!view || bd::gpu::Settings::Get().SuperSampling() <= 1 ||
+  if (!view || bd::cvars::Get().supersampling.Get() <= 1 ||
       IsFullFrameView(static_cast<float>(view->renderSize[0])))
     return;
   view->rate = 1.0f;

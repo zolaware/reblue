@@ -105,7 +105,7 @@ void Output::HostScale(float &kx, float &ky) {
 }
 
 double Output::ConfiguredAspect() {
-  switch (static_cast<AspectMode>(Settings::Get().AspectRatio())) {
+  switch (static_cast<AspectMode>(bd::cvars::Get().aspect_ratio.Get())) {
   case AspectMode::Standard:
     return 4.0 / 3.0;
   case AspectMode::Wide:
@@ -124,7 +124,7 @@ double Output::ConfiguredAspect() {
 }
 
 const char *Output::ConfiguredWindowAspect() {
-  switch (static_cast<AspectMode>(Settings::Get().AspectRatio())) {
+  switch (static_cast<AspectMode>(bd::cvars::Get().aspect_ratio.Get())) {
   case AspectMode::Standard:
     return "4:3";
   case AspectMode::Wide:
@@ -143,7 +143,7 @@ const char *Output::ConfiguredWindowAspect() {
 }
 
 bool Output::StretchToFill() {
-  return static_cast<AspectMode>(Settings::Get().AspectRatio()) ==
+  return static_cast<AspectMode>(bd::cvars::Get().aspect_ratio.Get()) ==
          AspectMode::Stretch;
 }
 

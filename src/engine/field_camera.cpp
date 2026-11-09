@@ -262,7 +262,7 @@ void MouseLook(u32 camera, u32 activityBefore) {
     dy = 0.0f;
   }
 
-  const bool enabled = Settings::Get().MouseInput() &&
+  const bool enabled = bd::cvars::Get().mouse_input.Get() &&
                        Game::Get().FieldPlayerEntity().HasControl();
   const InputActions &actions = InputActions::Get();
   if (!enabled || actions.Axis(AxisPair::Right, 1) != 0.0f ||

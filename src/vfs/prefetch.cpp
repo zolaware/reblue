@@ -14,7 +14,7 @@
 
 #include "core/logging.h"
 #include "core/threading.h"
-#include "vfs/settings.h"
+#include "core/cvar_table.h"
 
 namespace bd::vfs {
 
@@ -28,7 +28,7 @@ constexpr std::string_view kWarmRoots[] = {"pack", "snd_memory",
 Prefetch::~Prefetch() { Shutdown(); }
 
 void Prefetch::Init(const std::filesystem::path &game_root) {
-  if (!Settings::Get().DiscPrefetch() || game_root.empty())
+  if (!bd::cvars::Get().disc_prefetch.Get() || game_root.empty())
     return;
 
   Shutdown();

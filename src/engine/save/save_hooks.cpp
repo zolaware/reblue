@@ -26,6 +26,7 @@
 #include "core/memory_helpers.h"
 #include "engine/save/save_manager.h"
 #include "engine/save/save_types.h"
+#include "core/cvar_table.h"
 #include "engine/settings.h"
 
 using rex::kernel::X_RESULT;
@@ -191,6 +192,6 @@ REX_HOOK(bdSaveGameWriteThumbnail, bdSaveGameWriteThumbnail_hook);
 // menu gates entry 12's enabled flag on it (what makes A deny) and paints btn11
 // DisableColor, and nothing past that re-checks.
 REX_MIDASM_BRANCH(bdCampSaveAnywhereHook, ()) {
-  return bd::engine::Settings::Get().SaveAnywhere();
+  return bd::cvars::Get().save_anywhere.Get();
 }
 REX_MIDASM_AT(bdCampSaveAnywhereHook, 0x822D7640, before, 0x822D7694);

@@ -5,6 +5,7 @@
  * @license   BSD 3-Clause License
  *            See LICENSE file in the project root for full license text.
  */
+#include "core/cvar_table.h"
 #include "core/app_root.h"
 
 #include <rex/platform/file.h>
@@ -48,7 +49,7 @@ void SetAppRoot(const std::filesystem::path &root) {
 }
 
 std::filesystem::path CacheRootFor(const std::filesystem::path &root) {
-  const auto &override_path = bd::Settings::Get().CachePath();
+  const auto &override_path = bd::cvars::Get().cache_path.Get();
   return override_path.empty() ? root / "cache"
                                : std::filesystem::path(override_path);
 }

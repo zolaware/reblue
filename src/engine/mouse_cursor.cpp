@@ -17,6 +17,7 @@
 #include "engine/guest_prim.h"
 #include "engine/guest_texlist.h"
 #include "engine/mouse_cursor.h"
+#include "core/cvar_table.h"
 #include "engine/settings.h"
 #include "engine/virtual_buttons.h"
 #include "platform/platform.h"
@@ -128,7 +129,7 @@ void DrawMouseCursor() {
   const f32 seconds = SpinSeconds();
   const f32 outerAngle = SpinAngle(seconds, kOuterDegreesPerSecond);
   const f32 innerAngle = SpinAngle(seconds, kInnerDegreesPerSecond);
-  const i32 opacity = Settings::Get().MouseCursorOpacity();
+  const i32 opacity = bd::cvars::Get().mouse_cursor_opacity.Get();
 
   g_cursor.Select(kSlotGlow);
   PrimDrawRectRotated(x, y, kGlowZ, kGlowSize, kGlowSize, 0.0,
@@ -154,7 +155,7 @@ void MouseCursorTick() {
   // screen and the drawn one off it while the debug menu is up. The
   // title rows publish MenuOwnsInput now, so without this the pointer opening
   // that menu is the one the game is still holding.
-  const bool wanted = Settings::Get().MouseInput() && MenuOwnsInput() &&
+  const bool wanted = bd::cvars::Get().mouse_input.Get() && MenuOwnsInput() &&
                       !HostOverlayOwnsPointer();
   // The pad takes the pointer off screen with it, mouse motion brings it back.
   g_visible.store(wanted && MenuMouse::Get().MouseHasCursor(),

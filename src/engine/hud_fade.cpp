@@ -17,6 +17,7 @@
 
 #include "engine/d2anime/anime_data.h"
 #include "engine/d2anime/anime_input.h"
+#include "core/cvar_table.h"
 #include "engine/settings.h"
 #include "engine/simple_status_task.h"
 
@@ -85,7 +86,7 @@ void HudFade::Poll() {
       lastPoll_ > 0.0 ? std::clamp(now - lastPoll_, 0.0, 0.25) : 0.0;
   lastPoll_ = now;
 
-  const HudMode mode = Settings::Get().HudMode();
+  const HudMode mode = bd::engine::GetHudMode();
   if (mode == HudMode::Hidden) {
     idle_ = 0.0;
     alpha_ = 0.0f;
@@ -109,7 +110,7 @@ void HudFade::Poll() {
 
   idle_ = AnyWakeButtonHeld() ? 0.0 : idle_ + dt;
 
-  const double target = idle_ > Settings::Get().HudFadeDelay() ? 0.0 : 1.0;
+  const double target = idle_ > bd::cvars::Get().hud_fade_delay.Get() ? 0.0 : 1.0;
   const double step = dt / (target > alpha_ ? kFadeInSeconds : kFadeOutSeconds);
   alpha_ = static_cast<float>(
       std::clamp(alpha_ + std::clamp(target - alpha_, -step, step), 0.0, 1.0));

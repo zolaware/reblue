@@ -7,6 +7,7 @@
  *            See LICENSE file in the project root for full license text.
  */
 #include "engine/script.h"
+#include "core/cvar_table.h"
 #include "engine/settings.h"
 
 #include <rex/ppc/context.h>
@@ -22,7 +23,7 @@ constexpr u32 kScaGroupMinigameTutorial = 3;
 
 constexpr u32 kSkillTutorialDone = 0xFFFFFFFF;
 
-bool TutorialsOff() { return bd::engine::Settings::Get().DisableTutorials(); }
+bool TutorialsOff() { return bd::cvars::Get().disable_tutorials.Get(); }
 
 } // namespace
 

@@ -12,6 +12,7 @@
 #include "engine/d2anime/anime_input.h"
 #include "engine/d2anime/anime_mouse.h"
 #include "engine/input/action_state.h"
+#include "core/cvar_table.h"
 #include "engine/settings.h"
 #include "platform/platform.h"
 #include "reblue_init.h"
@@ -53,7 +54,7 @@ HostPointerClaim::~HostPointerClaim() {
 }
 
 void UpdateMouseLook() {
-  platform::SetLookActive(Settings::Get().MouseInput() &&
+  platform::SetLookActive(bd::cvars::Get().mouse_input.Get() &&
                                   !MenuOwnsInput() &&
                                   !HostOverlayOwnsPointer());
 }

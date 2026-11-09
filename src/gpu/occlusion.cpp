@@ -8,6 +8,7 @@
  * @license   BSD 3-Clause License
  *            See LICENSE file in the project root for full license text.
  */
+#include "core/cvar_table.h"
 #include "gpu/frame.h"
 
 #include <mutex>
@@ -110,7 +111,7 @@ void Occlusion::Begin() {
           oversample > 1.0f ? static_cast<u32>(count / oversample + 0.5f) : count;
       s.occlusion_last_count = normalized > 16384u ? 16384u : normalized;
       if (normalized > 16384u)
-        if (::bd::Settings::Get().Devmode()) {
+        if (::bd::cvars::Get().devmode.Get()) {
           REXBD_WARN("occlusion normalized count {} (raw {} / {}x) > 16384 (slot "
                  "{}), clamped",
                  normalized, count, oversample, slot);

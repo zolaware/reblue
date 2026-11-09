@@ -30,6 +30,7 @@
 #include "gpu/device.h"
 #include "gpu/host_resource_heap.h"
 #include "gpu/output.h"
+#include "core/cvar_table.h"
 #include "gpu/settings.h"
 #include "gpu/surface_registry.h"
 
@@ -42,7 +43,7 @@ constexpr u32 kDOFPoolSlotDims[] = {0x268, 0x318};
 
 bool PostQualityChanged(u32 owner) {
   static std::unordered_map<u32, bd::gpu::PostQuality> applied;
-  const bd::gpu::PostQuality quality = bd::gpu::Settings::Get().PostQuality();
+  const bd::gpu::PostQuality quality = bd::gpu::GetPostQuality();
   auto &entry = applied.try_emplace(owner, quality).first->second;
   if (entry == quality)
     return false;
@@ -58,7 +59,7 @@ void InvalidatePoolKeys(u32 owner, const u32 (&slots)[2]) {
 }
 
 f64 BloomTargetScale() {
-  switch (bd::gpu::Settings::Get().PostQuality()) {
+  switch (bd::gpu::GetPostQuality()) {
   case bd::gpu::PostQuality::Low:
     return 0.5;
   case bd::gpu::PostQuality::Medium:
@@ -70,7 +71,7 @@ f64 BloomTargetScale() {
 }
 
 f64 DOFIntermediateScale() {
-  return bd::gpu::Settings::Get().PostQuality() == bd::gpu::PostQuality::Low
+  return bd::gpu::GetPostQuality() == bd::gpu::PostQuality::Low
              ? 0.5
              : 1.0;
 }
@@ -105,7 +106,7 @@ namespace bd::gpu {
 f64 ShadowCoverageScale() {
   return bd::engine::IssEvent::LiveCount() > 0
              ? 1.0
-             : Settings::Get().ShadowDistance();
+             : bd::cvars::Get().shadow_distance.Get();
 }
 
 f32 SceneRenderScale() {
@@ -120,10 +121,10 @@ REX_MIDASM_AT(bdSceneTilingSuppressHook, 0x82186C40, before, 0x82186C54);
 
 REX_MIDASM_HOOK(bdSceneRenderScaleHook, (PPCRegister &r31)) {
   bd::engine::VisualRender render(r31.u32);
-  const f32 rate = static_cast<f32>(bd::gpu::Settings::Get().SuperSampling());
+  const f32 rate = static_cast<f32>(bd::cvars::Get().supersampling.Get());
   if (render.RenderRate() != rate)
     render.SetRenderRate(rate);
-  render.SetFSAA(bd::gpu::Settings::Get().MSAA() > 0);
+  render.SetFSAA(bd::cvars::Get().msaa.Get() > 0);
 }
 REX_MIDASM_AT(bdSceneRenderScaleHook, 0x8213307C, after, r31);
 REX_MIDASM_AT(bdSceneRenderScaleHook, 0x8213597C, before, r31);
@@ -149,7 +150,7 @@ REX_MIDASM_HOOK(bdReflectionResolutionScaleHook,
   u32 width = stock;
 
   const bd::gpu::ReflectionQuality quality =
-      bd::gpu::Settings::Get().ReflectionQuality();
+      bd::gpu::GetReflectionQuality();
   if (quality != bd::gpu::ReflectionQuality::Low) {
     const f64 rate = quality == bd::gpu::ReflectionQuality::High
                          ? bd::gpu::SceneRenderScale()
@@ -195,7 +196,7 @@ REX_MIDASM_AT(bdReflectionTextureSeedHook, 0x821786D0, after, r3);
 // The light frustum is world-space and receivers sample by UV, so a larger map
 // is just finer with no shader change.
 REX_MIDASM_HOOK(bdShadowResolutionScaleHook, (PPCRegister &r3, PPCRegister &r4)) {
-  const u32 d = static_cast<u32>(bd::gpu::Settings::Get().ShadowDimension());
+  const u32 d = static_cast<u32>(bd::cvars::Get().shadow_dimension.Get());
   r3.u32 = d;
   r4.u32 = d;
   bd::gpu::SurfaceRegistry::ExemptNext(d, d);
@@ -219,7 +220,7 @@ REX_MIDASM_HOOK(bdShadowMapTextureResizeHook,
       info->texture);
   if (!texture)
     return;
-  const u32 d = static_cast<u32>(bd::gpu::Settings::Get().ShadowDimension());
+  const u32 d = static_cast<u32>(bd::cvars::Get().shadow_dimension.Get());
   bd::gpu::Video::ResizeTexture(texture, d, d);
 }
 REX_MIDASM_AT(bdShadowMapTextureResizeHook, 0x82175308, before, r31);
@@ -239,7 +240,7 @@ REX_MIDASM_AT(bdShadowCoverageScaleHook, 0x82175974, before, f1);
 // square root of the wanted intensity is what makes half the setting read as
 // half the blur.
 REX_MIDASM_HOOK(bdDOFStrengthScaleHook, (be_f32 * constants)) {
-  const f64 strength = bd::gpu::Settings::Get().DOFStrength();
+  const f64 strength = bd::cvars::Get().dof_strength.Get();
   if (strength >= 1.0)
     return;
   if (!constants)
@@ -355,6 +356,6 @@ REX_MIDASM_AT(bdPrimBeginDropWarnHook, 0x82146478, before, f31);
 // All 300 NTSC blocks across BD's shipped db_posteffect records are Enable 0,
 // so the only place the scanline offset fires is the Battle Viewer.
 REX_MIDASM_BRANCH(bdNtscFilterNoiseDisableHook, ()) {
-  return !bd::gpu::Settings::Get().NTSCFilter();
+  return !bd::cvars::Get().ntsc_filter.Get();
 }
 REX_MIDASM_AT(bdNtscFilterNoiseDisableHook, 0x8221914C, before, 0x822191A0);

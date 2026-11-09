@@ -1,3 +1,4 @@
+#include "core/cvar_table.h"
 #include "engine/input/dispatch.h"
 
 #include "core/settings.h"
@@ -17,13 +18,13 @@ struct Entry {
 
 Entry g_entries[kActionCount] = {};
 
-bool DevmodeOn() { return bd::Settings::Get().Devmode(); }
+bool DevmodeOn() { return bd::cvars::Get().devmode.Get(); }
 
 void ToggleDebugOverlay() { Game::Get().ToggleMindows(); }
 
 void ToggleOverlay() {
-  auto &settings = bd::Settings::Get();
-  settings.SetPerfOverlay(!settings.PerfOverlay());
+  auto &overlay = bd::cvars::Get().perf_overlay;
+  (void)overlay.Set(!overlay.Get());
 }
 
 void TogglePause() { CutscenePause::Get().Toggle(); }

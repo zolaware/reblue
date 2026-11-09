@@ -5,6 +5,7 @@
  * @license   BSD 3-Clause License
  *            See LICENSE file in the project root for full license text.
  */
+#include "core/cvar_table.h"
 #include "core/frame_meter.h"
 
 #include <algorithm>
@@ -82,7 +83,7 @@ f64 PerCount(std::atomic<u64> &ns, std::atomic<u32> &count, bool &has) {
 
 } // namespace
 
-bool FrameMeterOn() { return Settings::Get().PerfOverlay(); }
+bool FrameMeterOn() { return bd::cvars::Get().perf_overlay.Get(); }
 
 void FrameMeterTickBegin() {
   if (!FrameMeterOn())

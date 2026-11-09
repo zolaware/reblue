@@ -5,6 +5,7 @@
  * @license   BSD 3-Clause License
  *            See LICENSE file in the project root for full license text.
  */
+#include "core/cvar_table.h"
 #include "installer/installer_wizard.h"
 
 #include <imgui.h>
@@ -107,7 +108,7 @@ InstallerWizard::InstallerWizard(
   // No engine yet, so this resolves to the bd_language cvar or the OS language.
   i18n::SyncLocale();
 
-  update_check_ = bd::Settings::Get().UpdateCheck();
+  update_check_ = bd::cvars::Get().update_check.Get();
 
   if (existing) {
     for (int i = 0; i < kDiscCount; ++i)
@@ -937,12 +938,12 @@ void InstallerWizard::DrawPreferences() {
 
   if (ImGui::Checkbox(T("installer.update_check"), &update_check_)) {
     choices_.update_check = update_check_;
-    bd::Settings::Get().SetUpdateCheck(update_check_);
+    bd::cvars::Get().update_check.Set(update_check_).has_value();
   }
 
   // A build with no endpoint compiled in has nothing to show, and an empty
   // TextDisabled still takes a line and its spacing.
-  if (const std::string &url = bd::Settings::Get().UpdateUrl(); !url.empty()) {
+  if (const std::string &url = bd::GetUpdateURL(); !url.empty()) {
     if (g_path_font)
       ImGui::PushFont(g_path_font);
     ImGui::Indent(12.0f);

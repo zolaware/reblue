@@ -48,6 +48,7 @@
 #include "gpu/output.h"
 #include "gpu/pipeline/pso_recorder.h"
 #include "gpu/pipeline/vulkan_pipeline_cache.h"
+#include "core/cvar_table.h"
 #include "gpu/settings.h"
 #include "gpu/surface_registry.h"
 #include "platform/platform.h"
@@ -120,7 +121,7 @@ bool BuildPresentSemaphores(VideoState &s) {
 plume::RenderSampleCounts Video::CvarMSAASampleCount() {
   auto &s = state();
   plume::RenderSampleCounts requested;
-  switch (Settings::Get().MSAA()) {
+  switch (bd::cvars::Get().msaa.Get()) {
   case 2:
     requested = plume::RenderSampleCount::COUNT_2;
     break;
@@ -145,7 +146,7 @@ plume::RenderSampleCounts Video::CvarMSAASampleCount() {
 // suppressed volume.
 bool DiagShouldLog(u64 site, const GuestTexture *t, u32 *n_out) {
   *n_out = 0;
-  if (!::bd::Settings::Get().Devmode())
+  if (!::bd::cvars::Get().devmode.Get())
     return false;
   const u64 key =
       (site << 56) |
