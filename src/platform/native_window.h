@@ -12,7 +12,7 @@
 #include <plume_render_interface.h>
 #include <rex/platform/native_window.h>
 
-namespace rex::ui {
+namespace rex {
 struct NativeWindow;
 }
 

@@ -8,7 +8,7 @@
 
 #include <atomic>
 
-namespace rex {
+namespace rex::kernel {
 class TitleRuntime;
 }
 

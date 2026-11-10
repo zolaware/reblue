@@ -17,10 +17,10 @@
 #include <rex/kernel/memory_view.h>
 #include <rex/types.h>
 
-namespace rex {
+namespace rex::kernel {
 class GuestMemory;
 class TitleRuntime;
-} // namespace rex
+} // namespace rex::kernel
 
 namespace bd {
 
