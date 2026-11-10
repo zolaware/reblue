@@ -269,6 +269,7 @@ rex::Result<void> ReblueApp::OnConfigure(rex::SettingsRegistry &settings) {
   settings.AddAlias("bd.vsync", "gpu.vsync");
   settings.AddAlias("bd.fps_limit", "gpu.frame_limit");
   settings.AddAlias("bd.profiler", "perf.profiler");
+  settings.AddAlias("profile", "bd.profile");
 
   // The SDK's bind defaults are arbitrary. These are the PC convention layout
   // for this game. A default moves under a value the user set, so a rebound
@@ -306,6 +307,8 @@ rex::Result<void> ReblueApp::OnConfigure(rex::SettingsRegistry &settings) {
   if (args_) {
     if (auto profile = args_->Get("bd.profile"))
       requested = std::string(*profile);
+    else if (auto legacy = args_->Get("profile"))
+      requested = std::string(*legacy);
   }
   active_profile_ = rex::platform::SanitizeFolderName(requested);
 
