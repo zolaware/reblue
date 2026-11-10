@@ -15,18 +15,25 @@ STAGING="$(mktemp -d)"
 APPDIR="${STAGING}/AppDir"
 trap 'rm -rf "${STAGING}"' EXIT
 
-# Shared libs sit beside the binary: reblue's INSTALL_RPATH is $ORIGIN, the
-# same flat layout as the build dir and the Windows zip.
-mkdir -p "${APPDIR}/usr/bin" "${APPDIR}/usr/lib"
-cp "${BUILD_DIR}/reblue" "${BUILD_DIR}/gamecontrollerdb.txt" "${APPDIR}/usr/bin/"
-
-shopt -s nullglob
-libs=("${BUILD_DIR}"/librex*.so*)
-if [ ${#libs[@]} -eq 0 ]; then
-  echo "::error::no librex*.so in ${BUILD_DIR}"
+# The shipped-file list is written by CMake at configure, so the AppImage holds
+# the same files as the Windows zip. They sit beside the binary because
+# reblue's INSTALL_RPATH is $ORIGIN, the same flat layout as the build dir.
+LIST="${BUILD_DIR}/packaging/program_files.txt"
+if [ ! -f "${LIST}" ]; then
+  echo "::error::missing ${LIST}, configure the build first"
   exit 1
 fi
-cp "${libs[@]}" "${APPDIR}/usr/bin/"
+mkdir -p "${APPDIR}/usr/bin" "${APPDIR}/usr/lib"
+while IFS= read -r rel || [ -n "${rel}" ]; do
+  rel="${rel%$'\r'}"
+  [ -n "${rel}" ] || continue
+  if [ ! -e "${BUILD_DIR}/${rel}" ]; then
+    echo "::error::missing required file: ${BUILD_DIR}/${rel}"
+    exit 1
+  fi
+  mkdir -p "$(dirname "${APPDIR}/usr/bin/${rel}")"
+  cp -L "${BUILD_DIR}/${rel}" "${APPDIR}/usr/bin/${rel}"
+done < "${LIST}"
 
 if ldd "${APPDIR}/usr/bin/reblue" | grep -q "not found"; then
   ldd "${APPDIR}/usr/bin/reblue" | grep "not found" >&2
