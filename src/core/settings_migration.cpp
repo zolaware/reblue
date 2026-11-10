@@ -208,6 +208,9 @@ void SettingsMigration::RewriteFile(const std::filesystem::path &file) {
   if (!moved && dropped.empty())
     return;
 
+  std::filesystem::copy_file(
+      file, std::filesystem::path(file).concat(".pre-scoped"),
+      std::filesystem::copy_options::skip_existing, ec);
   std::ofstream os(file, std::ios::binary | std::ios::trunc);
   os << out;
   if (!os) {
