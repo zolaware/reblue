@@ -13,8 +13,6 @@ if [ -z "${version}" ]; then
   exit 1
 fi
 
-# reblue_manifest.toml and generated/rexglue.cmake both require SDK 0.10.0,
-# which so far only the nightlies carry - hence the default.
 case "${SDK_REF}" in
   latest-nightly)
     sdk_tag=$(gh release list --repo "${SDK_REPO}" --limit 100 \

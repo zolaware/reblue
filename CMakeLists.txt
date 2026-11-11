@@ -1,7 +1,6 @@
 # reblue - ReXGlue Recompiled Project
 #
 # This file is yours to edit. 'rexglue migrate' will NOT overwrite it.
-# SDK boilerplate lives in generated/rexglue.cmake.
 
 cmake_minimum_required(VERSION 3.25)
 project(reblue VERSION 1.4.0 LANGUAGES C CXX)
@@ -53,7 +52,13 @@ cmake_path(GET REBLUE_SHADER_COMMON_H PARENT_PATH REBLUE_SHADER_COMMON_DIR)
 set(REBLUE_PROFILING_ON
     "$<AND:$<BOOL:${REBLUE_PROFILING}>,$<NOT:$<CONFIG:Release>>>")
 
-include(generated/rexglue.cmake)
+set(REXSDK_DIR "" CACHE PATH "Path to the rexglue-sdk source tree, empty for an installed SDK")
+if(REXSDK_DIR)
+    add_subdirectory("${REXSDK_DIR}" rexglue-sdk)
+else()
+    find_package(rexglue 0.11.0 REQUIRED CONFIG)
+endif()
+rexglue_project(reblue)
 if(WIN32)
     find_package(directx-dxc CONFIG REQUIRED)
 endif()
