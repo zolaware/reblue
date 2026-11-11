@@ -11,6 +11,7 @@
 #include "gpu/frame.h"
 
 #include <atomic>
+#include <cmath>
 #include <cstring>
 #include <mutex>
 #include <utility>
@@ -227,10 +228,10 @@ void Video::FlushViewport() {
   if (s.dirtyStates.scissorRect) {
     // Scissor always tracks the viewport extent.
     plume::RenderRect rc{
-        static_cast<i32>(s.viewport.x * kx),
-        static_cast<i32>(s.viewport.y * ky),
-        static_cast<i32>((s.viewport.x + s.viewport.width) * kx),
-        static_cast<i32>((s.viewport.y + s.viewport.height) * ky)};
+        static_cast<i32>(std::lround(s.viewport.x * kx)),
+        static_cast<i32>(std::lround(s.viewport.y * ky)),
+        static_cast<i32>(std::lround((s.viewport.x + s.viewport.width) * kx)),
+        static_cast<i32>(std::lround((s.viewport.y + s.viewport.height) * ky))};
     s.command_list->setScissors(&rc, 1);
     s.dirtyStates.scissorRect = false;
   }

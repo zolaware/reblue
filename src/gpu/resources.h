@@ -97,7 +97,7 @@ struct GuestTexture {
   std::unique_ptr<GuestTexture> companionCube;
 
   static u32 HostExtent(u32 logical, float scale) {
-    return logical ? std::max(1u, static_cast<u32>(std::ceil(
+    return logical ? std::max(1u, static_cast<u32>(std::lround(
                                       static_cast<float>(logical) * scale)))
                    : 0u;
   }
