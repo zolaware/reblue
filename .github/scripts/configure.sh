@@ -20,5 +20,13 @@ if [ -n "${COMPILER_LAUNCHER:-}" ]; then
   args+=("-DCMAKE_C_COMPILER_LAUNCHER=${COMPILER_LAUNCHER}"
          "-DCMAKE_CXX_COMPILER_LAUNCHER=${COMPILER_LAUNCHER}")
 fi
+# The SDK Linux package is built against the GCC 13 libstdc++, so reblue must match it.
+case "${PRESET}" in
+  linux-*)
+    gcc_dir="/usr/lib/gcc/$(gcc-13 -dumpmachine)/13"
+    args+=("-DCMAKE_C_FLAGS=--gcc-install-dir=${gcc_dir}"
+           "-DCMAKE_CXX_FLAGS=--gcc-install-dir=${gcc_dir}")
+    ;;
+esac
 
 cmake "${args[@]}"
