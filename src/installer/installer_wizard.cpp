@@ -124,8 +124,12 @@ InstallerWizard::InstallerWizard(
 }
 
 InstallerWizard::~InstallerWizard() {
-  if (background_texture_)
+  if (background_texture_) {
+    ImGuiContext *previous = ImGui::GetCurrentContext();
+    ImGui::SetCurrentContext(background_context_);
     ImGui::UnregisterUserTexture(background_texture_.get());
+    ImGui::SetCurrentContext(previous);
+  }
   if (install_thread_.joinable()) {
     progress_.canceled.store(true);
     install_thread_.join();
@@ -367,6 +371,7 @@ bool InstallerWizard::Draw(ImGuiIO &) {
       std::memcpy(background_texture_->GetPixels(), rgba,
                   static_cast<size_t>(w) * h * 4);
       stbi_image_free(rgba);
+      background_context_ = ImGui::GetCurrentContext();
       ImGui::RegisterUserTexture(background_texture_.get());
       background_tried_ = true;
     }

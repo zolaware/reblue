@@ -15,6 +15,7 @@
 #include <functional>
 #include <memory>
 
+struct ImGuiContext;
 struct ImTextureData;
 #include <optional>
 #include <set>
@@ -118,6 +119,7 @@ private:
 
   // An ImGui user texture, which the overlay renderer uploads on first draw.
   std::unique_ptr<ImTextureData> background_texture_;
+  ImGuiContext *background_context_ = nullptr;
   bool background_tried_ = false;
 
   Page page_ = Page::Content;
