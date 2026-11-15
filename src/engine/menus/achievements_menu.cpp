@@ -138,12 +138,16 @@ void AchievementsMenu::Preload(const Task &parent) {
            task_.Address(), intro_.Address());
 }
 
-void AchievementsMenu::Create(const Task &parent) {
+void AchievementsMenu::ResetViewer() {
   state_ = State::INTRO;
   active_ = false;
   cursor_.Reset();
   intro_frames_ = 0;
   fade_ = 0.0f;
+}
+
+void AchievementsMenu::Create(const Task &parent) {
+  ResetViewer();
 
   // Twice: Preload takes one screen per call, and opening before the frame it
   // would have reached the list on must not leave us without one.
@@ -172,11 +176,7 @@ void AchievementsMenu::Close() {
   if (list_menu_)
     list_menu_.SetVisibleAndPlay(false);
 
-  state_ = State::INTRO;
-  active_ = false;
-  cursor_.Reset();
-  intro_frames_ = 0;
-  fade_ = 0.0f;
+  ResetViewer();
 
   REXBD_DEBUG("achv closed");
 }
@@ -187,11 +187,7 @@ void AchievementsMenu::Abandon() {
   intro_ = D2AnimeTask();
   task_ = D2AnimeTask();
   list_menu_ = AnimeMenu();
-  state_ = State::INTRO;
-  active_ = false;
-  cursor_.Reset();
-  intro_frames_ = 0;
-  fade_ = 0.0f;
+  ResetViewer();
 
   REXBD_DEBUG("achv abandoned with the host task");
 }

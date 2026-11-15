@@ -60,6 +60,7 @@ public:
   u32 TaskAddr() const { return task_.Address(); }
 
 private:
+  void ResetViewer();
   void Transition(State next);
   void StartOutro();
   bool IntroFinished();
