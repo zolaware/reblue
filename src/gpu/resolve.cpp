@@ -39,6 +39,15 @@ GuestTexture *ResolveSourceForFlagsLocked(VideoState &s, u32 flags) {
   return s.back_buffer_surface;
 }
 
+void SetFullViewport(VideoState &s, const GuestTexture *dst) {
+  s.command_list->setViewports(
+      plume::RenderViewport(0.0f, 0.0f, static_cast<float>(dst->hostWidth),
+                            static_cast<float>(dst->hostHeight)));
+  s.command_list->setScissors(plume::RenderRect(
+      0, 0, static_cast<i32>(dst->hostWidth),
+      static_cast<i32>(dst->hostHeight)));
+}
+
 bool CanAliasResolveLocked(const GuestTexture *src, const GuestTexture *dst) {
   return src && dst && src != dst && src->texture && dst->texture &&
          src->sampleCount == plume::RenderSampleCount::COUNT_1 &&
@@ -203,12 +212,7 @@ bool CopySurfaceToTextureLocked(VideoState &s, GuestTexture *src,
       s.command_list->discardTexture(dst->texture);
 
     s.command_list->setFramebuffer(dst_fb);
-    s.command_list->setViewports(
-        plume::RenderViewport(0.0f, 0.0f, static_cast<float>(dst->hostWidth),
-                              static_cast<float>(dst->hostHeight)));
-    s.command_list->setScissors(plume::RenderRect(
-        0, 0, static_cast<i32>(dst->hostWidth),
-        static_cast<i32>(dst->hostHeight)));
+    SetFullViewport(s, dst);
     plume::RenderPipeline *pipeline = nullptr;
     if (src->sampleCount != plume::RenderSampleCount::COUNT_1) {
       pipeline = GetOrCreateResolveMSAAPipeline(s, dst->format,
@@ -287,12 +291,7 @@ bool ClearColorTargetLocked(VideoState &s, GuestTexture *dst,
   s.command_list->barriers(plume::RenderBarrierStage::GRAPHICS, &pre, 1);
   dst->layout = plume::RenderTextureLayout::COLOR_WRITE;
   s.command_list->setFramebuffer(dst_fb);
-  s.command_list->setViewports(
-      plume::RenderViewport(0.0f, 0.0f, static_cast<float>(dst->hostWidth),
-                            static_cast<float>(dst->hostHeight)));
-  s.command_list->setScissors(plume::RenderRect(
-      0, 0, static_cast<i32>(dst->hostWidth),
-      static_cast<i32>(dst->hostHeight)));
+  SetFullViewport(s, dst);
   s.command_list->clearColor(0, color);
   s.command_list->setFramebuffer(nullptr);
   s.draw_framebuffer_bound = false;
