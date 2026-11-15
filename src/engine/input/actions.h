@@ -47,6 +47,11 @@ enum class Action : int {
 };
 inline constexpr int kActionCount = static_cast<int>(Action::Count);
 
+inline bool InRange(Action action) {
+  const int i = static_cast<int>(action);
+  return i >= 0 && i < kActionCount;
+}
+
 struct ActionDesc {
   const char *name;
   const char *labelKey;

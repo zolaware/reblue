@@ -128,12 +128,6 @@ GuestShader *ShaderFromHandle(u32 handleVa) {
                   : nullptr;
 }
 
-u64 ShaderHash(GuestShader *s) {
-  if (!s || !s->shaderCacheEntry)
-    return 0;
-  return s->shaderCacheEntry->hash;
-}
-
 std::string BaseName(const char *path) {
   if (!path)
     return {};
@@ -339,6 +333,12 @@ void MarkPairsPredictedLocked(const std::vector<u32> &techs, size_t &candidates,
 }
 
 } // namespace
+
+u64 ShaderHash(GuestShader *s) {
+  if (!s || !s->shaderCacheEntry)
+    return 0;
+  return s->shaderCacheEntry->hash;
+}
 
 void OnModelTechniqueKnown(u32 visualVa, bool loadRequest) {
   if (!visualVa)

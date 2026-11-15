@@ -31,11 +31,6 @@ bool Consumed(const Source *list, int count, const Source &source) {
   return false;
 }
 
-bool InRange(Action action) {
-  const int i = static_cast<int>(action);
-  return i >= 0 && i < kActionCount;
-}
-
 } // namespace
 
 InputActions &InputActions::Get() {

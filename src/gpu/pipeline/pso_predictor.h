@@ -21,6 +21,10 @@
 
 namespace bd::gpu {
 
+struct GuestShader;
+
+u64 ShaderHash(GuestShader *s);
+
 // visualVa = the guest VisualObject with its base technique assigned.
 // loadRequest is true at bdBinaryModelLoadRequest entry, a fresh load that
 // drops the model's previous asset links, and false at the late technique store

@@ -58,12 +58,6 @@ u64 HashFromPtr(const void *p) {
   return static_cast<u64>(reinterpret_cast<uintptr_t>(p));
 }
 
-u64 ShaderHash(GuestShader *s) {
-  if (!s || !s->shaderCacheEntry)
-    return 0;
-  return s->shaderCacheEntry->hash;
-}
-
 plume::RenderFormat CapturedFormat(plume::RenderFormat format) {
   if (plume::RenderFormatIsStencil(format))
     return plume::RenderFormat::D32_FLOAT_S8_UINT;
