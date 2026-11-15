@@ -13,6 +13,7 @@
 #include <optional>
 #include <unordered_map>
 
+#include <rex/bit.h>
 #include <rex/ppc/image.h>
 #include <rex/kernel/title_runtime.h>
 #include <rex/filesystem/xdbf.h>
@@ -52,13 +53,6 @@ std::unordered_map<u32, u32> s_cells;
 // registered since and the atlas is missing its icon.
 size_t s_builtCount = 0;
 LiveTextureStamp s_stamp;
-
-u32 RoundUpPow2(u32 v) {
-  u32 p = 1;
-  while (p < v)
-    p *= 2;
-  return p;
-}
 
 std::vector<u8> LoadIconPng(const rex::Achievement &info) {
   // Ours are baked into the executable and registered as metadata assets at
@@ -121,7 +115,7 @@ void BuildAtlas() {
 
   s_builtCount = catalog.size();
   const u32 cells = static_cast<u32>(catalog.size()) + kFirstIconCell;
-  s_atlasRows = RoundUpPow2((cells + kAtlasCols - 1u) / kAtlasCols);
+  s_atlasRows = rex::next_pow2((cells + kAtlasCols - 1u) / kAtlasCols);
   if (s_atlasRows > kMaxAtlasRows) {
     s_atlasRows = kMaxAtlasRows;
     REXBD_WARN("achv {} achievements exceed the {} the icon atlas holds, the "
