@@ -176,27 +176,52 @@ bd::gpu::GuestTexture *D3DDevice_CreateTexture_hook(u32 width, u32 height,
   return texture;
 }
 
-// CreateVertexBuffer / CreateIndexBuffer. A guest-visible scratch mirror is
-// allocated up-front so Lock returns stable memory and repeated Locks reuse it.
-bd::gpu::GuestBuffer *D3DDevice_CreateVertexBuffer_hook(u32 length,
-                                                        u32 /*usage*/, u32 fvf,
-                                                        u32 /*pool*/) {
-  auto *b = bd::gpu::HostResourceHeap::Alloc<bd::gpu::GuestBuffer>(
-      bd::gpu::ResourceType::VertexBuffer);
+bd::gpu::GuestBuffer *CreateMirroredBuffer(bd::gpu::ResourceType type,
+                                           const char *name, u32 length,
+                                           u32 guestFormat) {
+  auto *b = bd::gpu::HostResourceHeap::Alloc<bd::gpu::GuestBuffer>(type);
   if (!b) {
-    REXBD_ERROR("CreateVertexBuffer: host resource heap exhausted");
+    REXBD_ERROR("{}: host resource heap exhausted", name);
     return nullptr;
   }
   b->guestMirrorVa = bd::mem::SystemAlloc(length, 0x20);
   if (!b->guestMirrorVa) {
-    REXBD_ERROR("CreateVertexBuffer: mirror alloc failed ({} bytes)", length);
+    REXBD_ERROR("{}: mirror alloc failed ({} bytes)", name, length);
     bd::gpu::HostResourceHeap::Free(b);
     return nullptr;
   }
   b->ownsMirror = true;
   bd::mem::Zero(b->guestMirrorVa, length);
   b->dataSize = length;
-  b->guestFormat = fvf;
+  b->guestFormat = guestFormat;
+  return b;
+}
+
+u32 LockBufferMirror(u32 buffer, u32 offset_to_lock,
+                     bd::gpu::ResourceType type) {
+  auto *b = bd::gpu::HostResourceHeap::FromGuest<bd::gpu::GuestBuffer>(buffer);
+  // Physical buffers wrap an engine-owned struct FromGuest misses, so resolve
+  // it like SetStreamSource and SetIndices. The mirror reflection plane fetch
+  // (mcl_mirror_FetchReflectionPlaneTri) Locks such a struct read-only and
+  // dereferences the result at base+0, so
+  // returning 0 here crashes the guest.
+  if (!b && buffer) {
+    b = ResolveGuestBufferVa(buffer, type);
+  }
+  if (!b || !b->guestMirrorVa)
+    return 0;
+  return b->guestMirrorVa + offset_to_lock;
+}
+
+// CreateVertexBuffer / CreateIndexBuffer. A guest-visible scratch mirror is
+// allocated up-front so Lock returns stable memory and repeated Locks reuse it.
+bd::gpu::GuestBuffer *D3DDevice_CreateVertexBuffer_hook(u32 length,
+                                                        u32 /*usage*/, u32 fvf,
+                                                        u32 /*pool*/) {
+  auto *b = CreateMirroredBuffer(bd::gpu::ResourceType::VertexBuffer,
+                                 "CreateVertexBuffer", length, fvf);
+  if (!b)
+    return nullptr;
   // X360 D3DVertexBuffer prefix: 24-byte D3DResource + 8-byte vertex fetch
   // constant. FetchLo = mirror base, FetchHi = size. Engine reads via
   // GetType / D3D::GetD3DFormat.
@@ -211,22 +236,10 @@ bd::gpu::GuestBuffer *D3DDevice_CreateIndexBuffer_hook(u32 length,
                                                        u32 /*usage*/,
                                                        u32 format,
                                                        u32 /*pool*/) {
-  auto *b = bd::gpu::HostResourceHeap::Alloc<bd::gpu::GuestBuffer>(
-      bd::gpu::ResourceType::IndexBuffer);
-  if (!b) {
-    REXBD_ERROR("CreateIndexBuffer: host resource heap exhausted");
+  auto *b = CreateMirroredBuffer(bd::gpu::ResourceType::IndexBuffer,
+                                 "CreateIndexBuffer", length, format);
+  if (!b)
     return nullptr;
-  }
-  b->guestMirrorVa = bd::mem::SystemAlloc(length, 0x20);
-  if (!b->guestMirrorVa) {
-    REXBD_ERROR("CreateIndexBuffer: mirror alloc failed ({} bytes)", length);
-    bd::gpu::HostResourceHeap::Free(b);
-    return nullptr;
-  }
-  b->ownsMirror = true;
-  bd::mem::Zero(b->guestMirrorVa, length);
-  b->dataSize = length;
-  b->guestFormat = format;
   // X360 D3DIndexBuffer prefix: 24-byte D3DResource + FetchLo (base) + FetchHi
   // (size).
   bd::gpu::InitResourceHeader(b->x360.as_index_buffer.resource,
@@ -243,31 +256,14 @@ bd::gpu::GuestBuffer *D3DDevice_CreateIndexBuffer_hook(u32 length,
 
 u32 D3DVertexBuffer_Lock_hook(u32 buffer, u32 offset_to_lock, u32 size_to_lock,
                               u32 flags) {
-  auto *b = bd::gpu::HostResourceHeap::FromGuest<bd::gpu::GuestBuffer>(buffer);
-  // Physical VBs wrap an engine-owned struct FromGuest misses, so resolve it
-  // like SetStreamSource. The mirror reflection plane fetch
-  // (mcl_mirror_FetchReflectionPlaneTri) Locks such a struct read-only and
-  // dereferences the result at base+0, so
-  // returning 0 here crashes the guest.
-  if (!b && buffer) {
-    b = ResolveGuestBufferVa(buffer, bd::gpu::ResourceType::VertexBuffer);
-  }
-  if (!b || !b->guestMirrorVa)
-    return 0;
-  return b->guestMirrorVa + offset_to_lock;
+  return LockBufferMirror(buffer, offset_to_lock,
+                          bd::gpu::ResourceType::VertexBuffer);
 }
 
 u32 D3DIndexBuffer_Lock_hook(u32 buffer, u32 offset_to_lock, u32 size_to_lock,
                              u32 flags) {
-  auto *b = bd::gpu::HostResourceHeap::FromGuest<bd::gpu::GuestBuffer>(buffer);
-  // Same physical buffer struct VA miss as the VB path, so resolve like
-  // SetIndices.
-  if (!b && buffer) {
-    b = ResolveGuestBufferVa(buffer, bd::gpu::ResourceType::IndexBuffer);
-  }
-  if (!b || !b->guestMirrorVa)
-    return 0;
-  return b->guestMirrorVa + offset_to_lock;
+  return LockBufferMirror(buffer, offset_to_lock,
+                          bd::gpu::ResourceType::IndexBuffer);
 }
 
 // (Re)allocate the host RenderBuffer to match the mirror size, then byte swap
