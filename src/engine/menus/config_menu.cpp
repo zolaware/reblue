@@ -43,6 +43,15 @@ std::array<AnimeMenu *, ConfigMenu::kMenuCount> ConfigMenu::Menus() {
   return all;
 }
 
+void ConfigMenu::ResetInteraction() {
+  settings_restart_dirty_ = false;
+  wants_restart_ = false;
+  cursor_.Reset();
+  reorder_origin_ = -1;
+  capture_slot_ = -1;
+  conflict_shown_ = false;
+}
+
 void ConfigMenu::ResetMenus() {
   for (auto *m : Menus())
     *m = AnimeMenu();
@@ -233,14 +242,9 @@ void ConfigMenu::Create(Task parent, Surface surface, PPCFunc *parentUpdate) {
   active_ = false;
   dirty_ = false;
   settings_dirty_ = false;
-  settings_restart_dirty_ = false;
-  wants_restart_ = false;
-  cursor_.Reset();
-  reorder_origin_ = -1;
-  capture_slot_ = -1;
+  ResetInteraction();
   capture_chip_ = -1;
   last_bind_slot_ = 0;
-  conflict_shown_ = false;
   settings_page_ = SettingsPage::Gameplay;
   glyph_gen_ = 0;
   ResetMenus();
@@ -316,12 +320,7 @@ void ConfigMenu::Destroy() {
 
   state_ = State::INIT;
   active_ = false;
-  settings_restart_dirty_ = false;
-  wants_restart_ = false;
-  cursor_.Reset();
-  reorder_origin_ = -1;
-  capture_slot_ = -1;
-  conflict_shown_ = false;
+  ResetInteraction();
 
   REXBD_DEBUG("config destroyed");
 }
@@ -343,12 +342,7 @@ void ConfigMenu::Dismiss() {
 
   state_ = State::INIT;
   resume_state_ = State::SECTION;
-  settings_restart_dirty_ = false;
-  wants_restart_ = false;
-  cursor_.Reset();
-  reorder_origin_ = -1;
-  capture_slot_ = -1;
-  conflict_shown_ = false;
+  ResetInteraction();
   held_dir_ = 0;
   held_frames_ = 0;
   drag_row_ = -1;

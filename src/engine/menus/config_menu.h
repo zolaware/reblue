@@ -158,6 +158,7 @@ private:
   bool DiscoverMenus();
   bool MenusReady();
   void ResetMenus();
+  void ResetInteraction();
   AnimeMenu &CurrentSettingsList();
 
   static constexpr size_t kFixedMenus = 6;
