@@ -145,18 +145,8 @@ GuestTexture *BuildBCMirrorCore(const BCMirrorDesc &d,
   return t;
 }
 
-} // namespace
-
-GuestTexture *BuildBCMirrorTexture(u32 width, u32 height, u32 format,
-                                          const void *block_data,
-                                          size_t block_data_size,
-                                          u32 staging_row_bytes,
-                                          u32 row_width_texels) {
-  plume::RenderFormat fmt;
-  if (!BCFormatFromGuestByte(format, fmt)) {
-    REXBD_WARN("BuildBCMirrorTexture: unsupported BC format 0x{:X}", format);
-    return nullptr;
-  }
+BCMirrorDesc MakeBCMirrorDesc(const char *caller, plume::RenderFormat fmt,
+                              u32 width, u32 height) {
   BCMirrorDesc d{};
   d.resource_type = ResourceType::Texture;
   d.tex_dim = plume::RenderTextureDimension::TEXTURE_2D;
@@ -168,7 +158,22 @@ GuestTexture *BuildBCMirrorTexture(u32 width, u32 height, u32 format,
   d.mip_levels = 1;
   d.array_size = 1;
   d.flags = plume::RenderTextureFlag::NONE;
-  d.caller_name = "BuildBCMirrorTexture";
+  d.caller_name = caller;
+  return d;
+}
+
+} // namespace
+
+GuestTexture *BuildBCMirrorTexture(u32 width, u32 height, u32 format,
+                                          const void *block_data,
+                                          size_t block_data_size,
+                                          u32 row_width_texels) {
+  plume::RenderFormat fmt;
+  if (!BCFormatFromGuestByte(format, fmt)) {
+    REXBD_WARN("BuildBCMirrorTexture: unsupported BC format 0x{:X}", format);
+    return nullptr;
+  }
+  BCMirrorDesc d = MakeBCMirrorDesc("BuildBCMirrorTexture", fmt, width, height);
   BCSubresourceUpload up{};
   up.data = block_data;
   up.size = block_data_size;
@@ -178,7 +183,6 @@ GuestTexture *BuildBCMirrorTexture(u32 width, u32 height, u32 format,
   up.row_width_texels = row_width_texels;
   up.subresource = 0;
   up.array_index = 0;
-  (void)staging_row_bytes;
   return BuildBCMirrorCore(d, &up, 1);
 }
 
@@ -193,18 +197,8 @@ GuestTexture *BuildBCMirrorTexture2DMips(u32 width, u32 height,
     REXBD_WARN("BuildBCMirrorTexture2DMips: unsupported format 0x{:X}", format);
     return nullptr;
   }
-  BCMirrorDesc d{};
-  d.resource_type = ResourceType::Texture;
-  d.tex_dim = plume::RenderTextureDimension::TEXTURE_2D;
-  d.view_dim = plume::RenderTextureViewDimension::TEXTURE_2D;
-  d.format = fmt;
-  d.width = width;
-  d.height = height;
-  d.depth = 0;
+  BCMirrorDesc d = MakeBCMirrorDesc("BuildBCMirrorTexture2DMips", fmt, width, height);
   d.mip_levels = level_count;
-  d.array_size = 1;
-  d.flags = plume::RenderTextureFlag::NONE;
-  d.caller_name = "BuildBCMirrorTexture2DMips";
   std::vector<BCSubresourceUpload> ups(level_count);
   for (u32 i = 0; i < level_count; ++i) {
     ups[i].data = levels[i].data;
@@ -222,25 +216,16 @@ GuestTexture *BuildBCMirrorTexture2DMips(u32 width, u32 height,
 GuestTexture *BuildBCMirrorTextureCube(u32 width, u32 height, u32 format,
                                               const u8 *faces[6],
                                               size_t face_byte_size,
-                                              u32 staging_row_bytes,
                                               u32 row_width_texels) {
   plume::RenderFormat fmt;
   if (!BCFormatFromGuestByte(format, fmt)) {
     REXBD_WARN("BuildBCMirrorTextureCube: unsupported BC format 0x{:X}", format);
     return nullptr;
   }
-  BCMirrorDesc d{};
-  d.resource_type = ResourceType::Texture;
-  d.tex_dim = plume::RenderTextureDimension::TEXTURE_2D;
+  BCMirrorDesc d = MakeBCMirrorDesc("BuildBCMirrorTextureCube", fmt, width, height);
   d.view_dim = plume::RenderTextureViewDimension::TEXTURE_CUBE;
-  d.format = fmt;
-  d.width = width;
-  d.height = height;
-  d.depth = 0;
-  d.mip_levels = 1;
   d.array_size = 6;
   d.flags = plume::RenderTextureFlag::CUBE;
-  d.caller_name = "BuildBCMirrorTextureCube";
   BCSubresourceUpload ups[6];
   for (int face = 0; face < 6; ++face) {
     ups[face].data = faces[face];
@@ -252,30 +237,22 @@ GuestTexture *BuildBCMirrorTextureCube(u32 width, u32 height, u32 format,
     ups[face].subresource = 0;
     ups[face].array_index = static_cast<u32>(face);
   }
-  (void)staging_row_bytes;
   return BuildBCMirrorCore(d, ups, 6);
 }
 
 GuestTexture *BuildBCMirrorTextureVolume(
     u32 width, u32 height, u32 depth, u32 format, const void *slice_data,
-    size_t slice_data_size, u32 staging_row_bytes, u32 row_width_texels) {
+    size_t slice_data_size, u32 row_width_texels) {
   plume::RenderFormat fmt;
   if (!BCFormatFromGuestByte(format, fmt)) {
     REXBD_WARN("BuildBCMirrorTextureVolume: unsupported BC format 0x{:X}", format);
     return nullptr;
   }
-  BCMirrorDesc d{};
+  BCMirrorDesc d = MakeBCMirrorDesc("BuildBCMirrorTextureVolume", fmt, width, height);
   d.resource_type = ResourceType::VolumeTexture;
   d.tex_dim = plume::RenderTextureDimension::TEXTURE_3D;
   d.view_dim = plume::RenderTextureViewDimension::TEXTURE_3D;
-  d.format = fmt;
-  d.width = width;
-  d.height = height;
   d.depth = depth;
-  d.mip_levels = 1;
-  d.array_size = 1;
-  d.flags = plume::RenderTextureFlag::NONE;
-  d.caller_name = "BuildBCMirrorTextureVolume";
   BCSubresourceUpload up{};
   up.data = slice_data;
   up.size = slice_data_size;
@@ -285,7 +262,6 @@ GuestTexture *BuildBCMirrorTextureVolume(
   up.row_width_texels = row_width_texels;
   up.subresource = 0;
   up.array_index = 0;
-  (void)staging_row_bytes;
   return BuildBCMirrorCore(d, &up, 1);
 }
 

@@ -36,25 +36,23 @@ struct BCMipLevel {
 GuestTexture *BuildBCMirrorTexture(u32 width, u32 height, u32 format,
                                    const void *block_data,
                                    size_t block_data_size,
-                                   u32 staging_row_bytes, u32 row_width_texels);
+                                   u32 row_width_texels);
 
 // levels[0] is the base.
 GuestTexture *BuildBCMirrorTexture2DMips(u32 width, u32 height, u32 format,
                                          const BCMipLevel *levels,
                                          u32 level_count);
 
-// Face rows padded to staging_row_bytes. arraySize=6 CUBE.
+// arraySize=6 CUBE.
 GuestTexture *BuildBCMirrorTextureCube(u32 width, u32 height, u32 format,
                                        const u8 *faces[6],
                                        size_t face_byte_size,
-                                       u32 staging_row_bytes,
                                        u32 row_width_texels);
 
 // Slices contiguous in slice_data, slice 0 first, uploaded in one copy.
 GuestTexture *BuildBCMirrorTextureVolume(u32 width, u32 height, u32 depth,
                                          u32 format, const void *slice_data,
                                          size_t slice_data_size,
-                                         u32 staging_row_bytes,
                                          u32 row_width_texels);
 
 } // namespace bd::gpu

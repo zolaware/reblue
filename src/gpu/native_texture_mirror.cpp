@@ -202,7 +202,7 @@ GuestTexture *BuildVolumeMirror(const MirrorLayout &L, const u8 *src,
 
   GuestTexture *tex = BuildBCMirrorTextureVolume(
       L.width, L.height, L.depth, u32(L.format), staging.data(), staging.size(),
-      L.staging_row_bytes, L.row_width_texels);
+      L.row_width_texels);
   if (!tex) {
     REXBD_WARN("native texture va=0x{:08X}: volume mirror build failed "
             "({}x{}x{} fmt=0x{:X})",
@@ -214,7 +214,7 @@ GuestTexture *BuildVolumeMirror(const MirrorLayout &L, const u8 *src,
   // the volume into both index tables.
   GuestTexture *slice0 = BuildBCMirrorTexture(
       L.width, L.height, u32(L.format), staging.data(), slice_size,
-      L.staging_row_bytes, L.row_width_texels);
+      L.row_width_texels);
   if (slice0) {
     tex->companion2D.reset(slice0);
   } else {
@@ -244,7 +244,7 @@ GuestTexture *BuildCubeMirror(const MirrorLayout &L, const u8 *src,
 
   GuestTexture *tex = BuildBCMirrorTextureCube(
       L.width, L.height, u32(L.format), face_ptrs, face_size,
-      L.staging_row_bytes, L.row_width_texels);
+      L.row_width_texels);
   if (!tex) {
     REXBD_WARN("native texture va=0x{:08X}: cube mirror build failed "
             "({}x{} fmt=0x{:X})",
@@ -351,7 +351,7 @@ void AttachCubeAtlasCompanion(const MirrorLayout &L, GuestTexture *tex,
   }
 
   GuestTexture *cube = BuildBCMirrorTextureCube(
-      L.height, L.height, u32(L.format), face_ptrs, face_size, face_row_bytes,
+      L.height, L.height, u32(L.format), face_ptrs, face_size,
       face_row_width_texels);
   if (cube) {
     tex->companionCube.reset(cube);
@@ -372,7 +372,7 @@ GuestTexture *Build2DMirror(const MirrorLayout &L, const u8 *src,
   if (!tex) {
     tex = BuildBCMirrorTexture(L.width, L.height, u32(L.format),
                                       staging.data(), staging.size(),
-                                      L.staging_row_bytes, L.row_width_texels);
+                                      L.row_width_texels);
   }
   if (!tex) {
     REXBD_WARN("native texture va=0x{:08X}: 2D mirror build failed "
