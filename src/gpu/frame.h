@@ -26,6 +26,8 @@ void AdvanceAndWaitReused(VideoState &s);
 
 void SubmitOpenListLocked(VideoState &s);
 
+void WaitSubmittedLists(VideoState &s);
+
 void ResolveEffectiveTargets(VideoState &s, GuestTexture *&rt,
                              GuestTexture *&ds);
 

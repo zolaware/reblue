@@ -81,12 +81,7 @@ void AbandonFrame(VideoState &s, std::unique_lock<std::mutex> &lock) {
 
 void RebuildSwapChain(VideoState &s) {
   SubmitOpenListLocked(s);
-  for (u32 i = 0; i < kNumFrames; ++i) {
-    if (s.command_list_submitted[i]) {
-      s.queue->waitForCommandFence(s.fences[i].get());
-      s.command_list_submitted[i] = false;
-    }
-  }
+  WaitSubmittedLists(s);
   s.framebuffers.clear();
   if (!s.swap_chain->resize() || !BuildFramebuffers(s) ||
       !BuildPresentSemaphores(s)) {
@@ -359,12 +354,7 @@ void Video::PresentOverlayFrame() {
   const bool resize_requested =
       s.resize_requested.exchange(false, std::memory_order_acq_rel);
   if (s.swap_chain->needsResize() || resize_requested) {
-    for (u32 i = 0; i < kNumFrames; ++i) {
-      if (s.command_list_submitted[i]) {
-        s.queue->waitForCommandFence(s.fences[i].get());
-        s.command_list_submitted[i] = false;
-      }
-    }
+    WaitSubmittedLists(s);
     s.framebuffers.clear();
     if (!s.swap_chain->resize() || !BuildFramebuffers(s) ||
         !BuildPresentSemaphores(s)) {

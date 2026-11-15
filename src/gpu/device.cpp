@@ -513,12 +513,7 @@ void Video::SyncBackBufferSizeLocked() {
     return;
 
   SubmitOpenListLocked(s);
-  for (u32 i = 0; i < kNumFrames; ++i) {
-    if (s.command_list_submitted[i]) {
-      s.queue->waitForCommandFence(s.fences[i].get());
-      s.command_list_submitted[i] = false;
-    }
-  }
+  WaitSubmittedLists(s);
 
   if (!CreateBackBufferTexture(s, bb, w, h)) {
     REXBD_ERROR("Back-buffer resize to {}x{} failed", w, h);

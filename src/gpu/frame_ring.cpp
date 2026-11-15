@@ -253,4 +253,13 @@ void SubmitOpenListLocked(VideoState &s) {
   s.command_list_submitted[cur] = true;
 }
 
+void WaitSubmittedLists(VideoState &s) {
+  for (u32 i = 0; i < kNumFrames; ++i) {
+    if (s.command_list_submitted[i]) {
+      s.queue->waitForCommandFence(s.fences[i].get());
+      s.command_list_submitted[i] = false;
+    }
+  }
+}
+
 } // namespace bd::gpu
