@@ -114,7 +114,7 @@ public:
               "Active profile name. Selects <install_root>/profiles/<name> as "
               "the user data location for config, saves, and DLC toggles. Set "
               "by the launcher.",
-              rex::kStartupOnly, rex::kNoSave);
+              rex::kInitOnly, rex::kNoSave);
   REX_SETTING(i32, config_version, 0,
               "Config schema version this file was last written by");
   REX_SETTING(bool, no_installer, false,
@@ -127,7 +127,7 @@ public:
   REX_SETTING(std::string, language, "auto",
               "UI text language: auto, us, jp, de, fr, es, it, kr, tw, cn, "
               "po. Requires restart.",
-              rex::kRestart);
+              rex::kRequiresRestart);
   REX_SETTING(bool, i18n_keys, false,
               "Show catalog keys instead of translated text, so a string on "
               "screen names the entry that produced it.");
