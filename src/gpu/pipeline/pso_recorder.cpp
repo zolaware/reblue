@@ -32,8 +32,6 @@
 
 #include <rex/platform/file.h>
 #include <rex/kernel/title_runtime.h>
-
-#include "gpu/pipeline/pso_predictor.h"
 #endif
 
 #include "core/cvar_table.h"
@@ -41,6 +39,7 @@
 #include "gpu/device.h"
 #include "gpu/pipeline/pipeline_cache.h"
 #include "gpu/pipeline/pso_precache.h"
+#include "gpu/pipeline/pso_predictor.h"
 #include "gpu/shaders/shader_cache.h"
 #include "gpu/vertex_declaration.h"
 #include "platform/host_ui.h"
