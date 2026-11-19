@@ -1,0 +1,59 @@
+# Signing wrapper for the CMake-built iOS app. CMake (Ninja) compiles and
+# links out/build/ios-arm64/reblue.app; this project copies that bundle's
+# contents into its product so Xcode can provision and sign it with the
+# developer's team. Generate with: xcodegen (in this folder).
+name: reblueIOS
+options:
+  deploymentTarget:
+    iOS: "18.0"
+settings:
+  base:
+    REBLUE_CMAKE_BUILD_DIR: $(SRCROOT)/../../../out/build/ios-arm64
+targets:
+  reblue:
+    type: application
+    platform: iOS
+    sources:
+      - Assets.xcassets
+    settings:
+      base:
+        PRODUCT_NAME: reblue
+        EXECUTABLE_NAME: reblue
+        PRODUCT_BUNDLE_IDENTIFIER: $(REBLUE_IOS_BUNDLE_ID)
+        REBLUE_IOS_BUNDLE_ID: com.zolaware.reblue
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        INFOPLIST_FILE: $(REBLUE_CMAKE_BUILD_DIR)/reblue.app/Info.plist
+        CODE_SIGN_ENTITLEMENTS: ../reblue.entitlements
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SUPPORTED_PLATFORMS: iphoneos
+        ARCHS: arm64
+        GENERATE_INFOPLIST_FILE: NO
+        ENABLE_BITCODE: NO
+        ALWAYS_SEARCH_USER_PATHS: NO
+    attributes:
+      SystemCapabilities:
+        com.apple.iCloud:
+          enabled: 1
+    postBuildScripts:
+      - name: Copy CMake-built app
+        basedOnDependencyAnalysis: false
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(WRAPPER_NAME)/$(EXECUTABLE_NAME)
+        script: |
+          set -euo pipefail
+          src="${REBLUE_CMAKE_BUILD_DIR}/reblue.app"
+          dst="${TARGET_BUILD_DIR}/${WRAPPER_NAME}"
+          if [ ! -x "$src/reblue" ]; then
+            echo "error: build the runtime first: cmake --build out/build/ios-arm64 --target reblue"
+            exit 1
+          fi
+          mkdir -p "$dst"
+          rsync -a --delete --exclude Info.plist --exclude _CodeSignature --exclude embedded.mobileprovision \
+            --exclude PkgInfo --exclude Assets.car --exclude 'AppIcon*' "$src/" "$dst/"
+          if [ -d "$dst/Frameworks" ]; then
+            for fw in "$dst"/Frameworks/*.dylib; do
+              [ -f "$fw" ] || continue
+              /usr/bin/codesign --force --sign "${EXPANDED_CODE_SIGN_IDENTITY}" --timestamp=none "$fw"
+            done
+          fi

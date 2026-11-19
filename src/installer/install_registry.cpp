@@ -7,6 +7,13 @@
  */
 #include "installer/install_registry.h"
 
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#if TARGET_OS_IOS && !TARGET_OS_MACCATALYST
+#include "platform/ios_support.h"
+#endif
+#endif
+
 #include <filesystem>
 #include <fstream>
 
@@ -289,6 +296,15 @@ const char *ToString(InstallConnector connector) {
 }
 
 std::optional<InstallConfig> InstallConfig::Read() {
+#if defined(__APPLE__) && TARGET_OS_IOS && !TARGET_OS_MACCATALYST
+  bd::platform::ios::PrepareDocuments();
+  InstallConfig cfg;
+  cfg.install_root = bd::platform::ios::DocumentsDir();
+  cfg.schema_version = kInstallSchemaVersion;
+  cfg.app_version = REBLUE_VERSION_STRING;
+  cfg.connector = InstallConnector::kPortableFile;
+  return Finish(std::move(cfg));
+#else
   if (auto cfg = ReadRecordFile(PortableRecordPath(),
                                 InstallConnector::kPortableFile))
     return cfg;
@@ -296,6 +312,7 @@ std::optional<InstallConfig> InstallConfig::Read() {
   return ReadRegistry();
 #else
   return ReadRecordFile(ConfigRecordPath(), InstallConnector::kConfigFile);
+#endif
 #endif
 }
 

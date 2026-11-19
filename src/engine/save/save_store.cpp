@@ -29,6 +29,7 @@ constexpr std::string_view kSaveFileName = "savegame.dat";
 rex::filesystem::VirtualFileSystem *g_vfs = nullptr;
 std::filesystem::path
     g_saves_root; // decoupled save root (default <install_root>/saves)
+std::string g_current_slot;
 
 std::filesystem::path SlotDir(std::string_view slot) {
   return g_saves_root / std::filesystem::path(std::string(slot));
@@ -72,11 +73,18 @@ void MountSaveStore(rex::filesystem::VirtualFileSystem *vfs,
 void SetCurrentSaveSlot(std::string_view slot) {
   if (!g_vfs)
     return;
-  std::string target = std::string(kSaveMountPath) + "\\" + std::string(slot);
+  g_current_slot = std::string(slot);
+  std::string target = std::string(kSaveMountPath) + "\\" + g_current_slot;
   // RegisterSymbolicLink uses map::insert (no overwrite), so drop the old one
   // first.
   g_vfs->UnregisterSymbolicLink(kSaveSymlink);
   g_vfs->RegisterSymbolicLink(kSaveSymlink, target);
+}
+
+std::filesystem::path CurrentSaveSlotDir() {
+  if (g_saves_root.empty() || g_current_slot.empty())
+    return {};
+  return SlotDir(g_current_slot);
 }
 
 bool CreateSaveSlotDir(std::string_view slot) {

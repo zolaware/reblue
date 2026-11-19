@@ -185,6 +185,7 @@ void GuestBackBufferDims(u32 &w, u32 &h) {
 // fence wait) and rebinds the SRV slot.
 bool CreateBackBufferTexture(VideoState &s, GuestTexture *bb, u32 w, u32 h) {
   bb->framebuffers.clear();
+  bb->textureView.reset();
   bb->width = w;
   bb->height = h;
   bb->format = plume::RenderFormat::B8G8R8A8_UNORM;

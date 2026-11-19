@@ -7,6 +7,32 @@
  */
 #include "platform/file_dialog.h"
 
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
+
+#if defined(__APPLE__) && TARGET_OS_IOS && !TARGET_OS_MACCATALYST
+
+namespace bd::platform {
+
+std::optional<std::filesystem::path>
+ShowOpenFileDialog(const wchar_t *, std::span<const FileFilter>) {
+  return std::nullopt;
+}
+
+std::vector<std::filesystem::path>
+ShowOpenFilesDialog(const wchar_t *, std::span<const FileFilter>) {
+  return {};
+}
+
+std::optional<std::filesystem::path> ShowOpenFolderDialog(const wchar_t *) {
+  return std::nullopt;
+}
+
+} // namespace bd::platform
+
+#else
+
 #include <SDL3/SDL.h>
 
 #include <atomic>
@@ -144,3 +170,5 @@ ShowOpenFolderDialog(const wchar_t *title) {
 }
 
 } // namespace bd::platform
+
+#endif

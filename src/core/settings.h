@@ -82,6 +82,7 @@ public:
   // Empty means the default location, resolved by reblue_app.
   const std::string &SavesPath() const { return savesPath_; }
   const std::string &CachePath() const { return cachePath_; }
+  bool ICloudSaves() const { return icloudSaves_; }
 
 private:
   Settings() = default;
@@ -103,6 +104,7 @@ private:
   void AdoptUpdateChannel();
   void AdoptSavesPath();
   void AdoptCachePath();
+  void AdoptICloudSaves();
 
   void ComposeUpdateUrl();
 
@@ -119,6 +121,7 @@ private:
   std::string updateUrl_;
   std::string savesPath_;
   std::string cachePath_;
+  bool icloudSaves_ = true;
 
   std::function<void()> devmodeApplier_;
 };

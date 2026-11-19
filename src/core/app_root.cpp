@@ -14,6 +14,13 @@
 
 #include "core/settings.h"
 
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#if TARGET_OS_IOS && !TARGET_OS_MACCATALYST
+#include "platform/ios_support.h"
+#endif
+#endif
+
 namespace bd {
 
 namespace {
@@ -38,7 +45,11 @@ bool IsPackagedApplication() {
   if (rex::platform::env::get("APPIMAGE"))
     return true;
 #if defined(__APPLE__)
+#if TARGET_OS_IOS && !TARGET_OS_MACCATALYST
+  return true;
+#else
   return IsMacAppBundle();
+#endif
 #endif
 #endif
   return false;
@@ -77,11 +88,16 @@ std::filesystem::path AppRootFolder() {
       return config;
   }
 #if defined(__APPLE__)
+#if TARGET_OS_IOS && !TARGET_OS_MACCATALYST
+  if (auto docs = bd::platform::ios::DocumentsDir(); !docs.empty())
+    return docs;
+#else
   if (IsMacAppBundle()) {
     if (auto home = rex::platform::env::get("HOME"); home && !home->empty())
       return std::filesystem::path(*home) / "Library" / "Application Support" /
              "reblue";
   }
+#endif
 #endif
 #endif
   return rex::filesystem::GetExecutableFolder();

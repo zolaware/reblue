@@ -30,6 +30,9 @@ void MountSaveStore(rex::filesystem::VirtualFileSystem *vfs,
 // Re-point the engine "save:" symlink at <saves>/<slot>. No-op if not mounted.
 void SetCurrentSaveSlot(std::string_view slot);
 
+// Full host path of the active save slot directory (empty if none set).
+std::filesystem::path CurrentSaveSlotDir();
+
 // Create <saves>/<slot>/ if missing. False (and logs) if creation failed, so
 // the caller can fail the save instead of silently losing it.
 bool CreateSaveSlotDir(std::string_view slot);
