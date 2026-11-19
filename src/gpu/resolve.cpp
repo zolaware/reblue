@@ -343,6 +343,17 @@ bool MaterializeOutboundLocked(VideoState &s, GuestTexture *source,
                                bool aliasable_only) {
   if (!source || source->destinationTextures.empty())
     return false;
+  if (source->layout == plume::RenderTextureLayout::UNKNOWN) {
+    std::vector<GuestTexture *> destinations(source->destinationTextures.begin(),
+                                             source->destinationTextures.end());
+    for (GuestTexture *dst : destinations) {
+      if (dst && dst->sourceSurface == source) {
+        DetachSourceSurfaceLocked(s, dst);
+      }
+    }
+    source->destinationTextures.clear();
+    return false;
+  }
   bool recorded = false;
   std::vector<GuestTexture *> destinations(source->destinationTextures.begin(),
                                            source->destinationTextures.end());
@@ -373,6 +384,10 @@ bool MaterializeOutboundLocked(VideoState &s, GuestTexture *source,
 void MaterializeInboundLocked(VideoState &s, GuestTexture *dst) {
   if (!dst || !dst->sourceSurface || dst->sourceSurface == dst)
     return;
+  if (dst->sourceSurface->layout == plume::RenderTextureLayout::UNKNOWN) {
+    DetachSourceSurfaceLocked(s, dst);
+    return;
+  }
   if (CopySurfaceToTextureLocked(s, dst->sourceSurface, dst, "Materialize")) {
     DetachSourceSurfaceLocked(s, dst);
   }
