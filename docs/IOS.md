@@ -21,7 +21,14 @@ Until upstreamed, the iOS cross-build depends on:
 
 ## Build
 
-1. Build the macOS host target once to generate `out/build/mac-arm64-release/generated/shader_cache.cpp` and guest sources.
+0. Clone this branch and the matching `rexglue-sdk` iOS fork recursively:
+
+```bash
+git clone --branch ios-port --recursive https://github.com/n-elnouby/re-bluedragon.git
+git clone --branch ios-port --recursive https://github.com/n-elnouby/rexglue-sdk.git
+```
+
+1. Build the macOS host target once (using your own legally dumped Blue Dragon discs) to generate `out/build/mac-arm64-release/generated/shader_cache.cpp` and guest sources.
 2. Configure and build the iOS target:
 
 ```bash
