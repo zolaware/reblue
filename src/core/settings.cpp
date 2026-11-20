@@ -23,6 +23,7 @@ REXCVAR_DECLARE(std::string, bd_update_base);
 REXCVAR_DECLARE(std::string, bd_update_channel);
 REXCVAR_DECLARE(std::string, bd_saves_path);
 REXCVAR_DECLARE(std::string, bd_cache_path);
+REXCVAR_DECLARE(bool, bd_icloud_saves);
 
 REXCVAR_DEFINE_BOOL(bd_devmode, false, kCvarGroup,
                     "Developer mode: debug menu boot, Mindows overlay (F11) "
@@ -71,6 +72,9 @@ REXCVAR_DEFINE_STRING(
 REXCVAR_DEFINE_STRING(
     bd_cache_path, "", "reblue",
     "Transient cache directory (PSO capture). Empty = <exe_dir>/cache.");
+REXCVAR_DEFINE_BOOL(
+    bd_icloud_saves, true, "reblue",
+    "Sync save slots with iCloud Drive on startup and after each save.");
 
 namespace bd {
 namespace {
@@ -142,6 +146,7 @@ void Settings::ComposeUpdateUrl() {
 
 void Settings::AdoptSavesPath() { savesPath_ = REXCVAR_GET(bd_saves_path); }
 void Settings::AdoptCachePath() { cachePath_ = REXCVAR_GET(bd_cache_path); }
+void Settings::AdoptICloudSaves() { icloudSaves_ = REXCVAR_GET(bd_icloud_saves); }
 
 // Each hands the value to the cvar layer and lets the registered change
 // callback adopt it back. SetFlagByName keeps the range check, the restart
@@ -195,6 +200,7 @@ void Settings::AdoptCvars() {
   AdoptUpdateChannel();
   AdoptSavesPath();
   AdoptCachePath();
+  AdoptICloudSaves();
 }
 
 void Settings::Init() {
@@ -218,6 +224,7 @@ void Settings::Init() {
   reg("bd_update_channel", &Settings::AdoptUpdateChannel);
   reg("bd_saves_path", &Settings::AdoptSavesPath);
   reg("bd_cache_path", &Settings::AdoptCachePath);
+  reg("bd_icloud_saves", &Settings::AdoptICloudSaves);
 }
 
 } // namespace bd

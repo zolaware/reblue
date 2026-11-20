@@ -21,6 +21,10 @@
 #include <rex/logging.h>
 #include <rex/platform/env.h>
 
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
+
 #if defined(_WIN32)
 #include "core/windows_lean.h"
 #else
@@ -118,6 +122,8 @@ bool SpawnProcess(const std::filesystem::path &exe, bool repair) {
   ::CloseHandle(pi.hProcess);
   return true;
 }
+#elif defined(__APPLE__) && TARGET_OS_IOS && !TARGET_OS_MACCATALYST
+bool SpawnProcess(const std::filesystem::path &, bool) { return false; }
 #else
 bool SpawnProcess(const std::filesystem::path &exe, bool repair) {
   std::vector<std::string> args;
@@ -153,7 +159,9 @@ bool SpawnProcess(const std::filesystem::path &exe, bool repair) {
 } // namespace
 
 bool AcquireInstanceLock() {
-#if defined(_WIN32)
+#if defined(__APPLE__) && TARGET_OS_IOS && !TARGET_OS_MACCATALYST
+  return true;
+#elif defined(_WIN32)
   HANDLE h = ::CreateMutexW(nullptr, FALSE, kInstanceLockName);
   if (!h) {
     BD_WARN("[reboot] instance lock unavailable (err {})", ::GetLastError());

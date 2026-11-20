@@ -24,6 +24,7 @@
 #include "core/logging.h"
 #include "core/memory_helpers.h"
 #include "engine/save/save_store.h"
+#include "platform/cloud_saves.h"
 #include "engine/save/save_types.h"
 #include "engine/settings.h"
 
@@ -178,6 +179,9 @@ REX_HOOK(ContentTask__CheckForAnySavedGame,
 // stock function always returns 1, so match it and bdSaveGameWrite is
 // unchanged.
 u32 bdSaveGameWriteThumbnail_hook(u32 /*task*/, u32 /*filenamePtr*/) {
+  if (auto slot_dir = bd::engine::CurrentSaveSlotDir(); !slot_dir.empty()) {
+    bd::platform::cloud_saves::PushSlot(slot_dir);
+  }
   return 1;
 }
 REX_HOOK(bdSaveGameWriteThumbnail, bdSaveGameWriteThumbnail_hook);

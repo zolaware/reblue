@@ -34,8 +34,13 @@ void RaiseFDLimit() {}
 #include <sys/resource.h>
 
 #if defined(__APPLE__)
+#include <TargetConditionals.h>
 #include <mach/mach.h>
+#if TARGET_OS_IOS && !TARGET_OS_MACCATALYST
+#include <mach/vm_map.h>
+#else
 #include <mach/mach_vm.h>
+#endif
 #include <mach/vm_region.h>
 #endif
 
@@ -67,16 +72,27 @@ long CountOpenDescriptors() {
 // Walks the task's top-level VM regions the way counting /proc/self/maps
 // lines does on Linux, macOS has no /proc, so this is the mach equivalent.
 long CountMemoryRegions() {
+#if TARGET_OS_IOS && !TARGET_OS_MACCATALYST
+  vm_address_t address = 0;
+  vm_size_t size = 0;
+#else
   mach_vm_address_t address = 0;
   mach_vm_size_t size = 0;
+#endif
   long regions = 0;
   vm_region_basic_info_data_64_t info;
   while (true) {
     mach_msg_type_number_t info_count = VM_REGION_BASIC_INFO_COUNT_64;
     mach_port_t object_name = MACH_PORT_NULL;
+#if TARGET_OS_IOS && !TARGET_OS_MACCATALYST
+    const kern_return_t kr = vm_region_64(
+        mach_task_self(), &address, &size, VM_REGION_BASIC_INFO_64,
+        reinterpret_cast<vm_region_info_t>(&info), &info_count, &object_name);
+#else
     const kern_return_t kr = mach_vm_region(
         mach_task_self(), &address, &size, VM_REGION_BASIC_INFO_64,
         reinterpret_cast<vm_region_info_t>(&info), &info_count, &object_name);
+#endif
     if (kr != KERN_SUCCESS)
       break;
     if (object_name != MACH_PORT_NULL)

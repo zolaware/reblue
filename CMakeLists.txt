@@ -16,6 +16,21 @@ option(REBLUE_BUILD_INSTALLER "Build the built-in first-run disc installer" ON)
 option(REBLUE_PSO_CAP "Compile in the PSO predictor-miss capture instrument" OFF)
 option(REBLUE_PROFILING "Compile in Tracy zones (never in Release)" ON)
 option(REBLUE_PCH "Precompile the hot shared headers" ON)
+set(REBLUE_IOS_BUNDLE_ID "com.zolaware.reblue" CACHE STRING "iOS CFBundleIdentifier")
+set(REBLUE_ICLOUD_CONTAINER "" CACHE STRING "iCloud container ID for save sync (empty disables)")
+set(REBLUE_PREBUILT_SHADER_CACHE "" CACHE FILEPATH "Pre-generated shader_cache.cpp for cross-builds")
+
+set(REBLUE_IOS OFF)
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    set(REBLUE_IOS ON)
+    set(REBLUE_BUILD_INSTALLER OFF CACHE BOOL "" FORCE)
+    set(REBLUE_PROFILING OFF CACHE BOOL "" FORCE)
+    set(REBLUE_PCH OFF CACHE BOOL "" FORCE)
+    if(NOT REBLUE_ICLOUD_CONTAINER)
+        set(REBLUE_ICLOUD_CONTAINER "iCloud.${REBLUE_IOS_BUNDLE_ID}" CACHE STRING "" FORCE)
+    endif()
+    enable_language(OBJC OBJCXX)
+endif()
 
 set(REBLUE_TARGETS reblue)
 set(REBLUE_D3D12_TARGETS "")
@@ -48,7 +63,11 @@ cmake_path(GET REBLUE_SHADER_COMMON_H PARENT_PATH REBLUE_SHADER_COMMON_DIR)
 set(REBLUE_PROFILING_ON
     "$<AND:$<BOOL:${REBLUE_PROFILING}>,$<NOT:$<CONFIG:Release>>>")
 
-include(generated/rexglue.cmake)
+if(REBLUE_IOS)
+    include(cmake/ios_rexglue.cmake)
+else()
+    include(generated/rexglue.cmake)
+endif()
 if(WIN32)
     find_package(directx-dxc CONFIG REQUIRED)
 endif()
@@ -113,7 +132,7 @@ endif()
 # The update check speaks HTTPS: WinHTTP on Windows, libcurl elsewhere. Only
 # the headers are a build dependency, since http.cpp dlopens the library. A
 # build with no endpoint to ask may go without them.
-if(NOT WIN32)
+if(NOT WIN32 AND NOT REBLUE_IOS)
     find_package(CURL QUIET)
     if(NOT CURL_FOUND)
         if(REBLUE_UPDATE_BASE)
@@ -131,7 +150,9 @@ target_link_libraries(reblue_common PRIVATE rex::runtime)
 # gpu/backend.h and gpu/gpu_profiling.h #error on this.
 target_compile_definitions(reblue_common PRIVATE REBLUE_COMMON_TU)
 # The hooks include the codegen-emitted reblue_funcs.h.
-add_dependencies(reblue_common reblue_codegen)
+if(TARGET reblue_codegen)
+    add_dependencies(reblue_common reblue_codegen)
+endif()
 
 foreach(target IN LISTS REBLUE_COMMON_TARGETS REBLUE_TARGETS)
     # shader_common.h is the one source of the SPEC_CONSTANT_* values, shared
@@ -144,6 +165,10 @@ foreach(target IN LISTS REBLUE_COMMON_TARGETS REBLUE_TARGETS)
         $<$<BOOL:${REBLUE_BUILD_INSTALLER}>:REBLUE_BUILD_INSTALLER>
         $<$<BOOL:${REBLUE_PSO_CAP}>:REBLUE_PSO_CAP=1>
         $<${REBLUE_PROFILING_ON}:REXGLUE_ENABLE_PROFILING>)
+    if(REBLUE_ICLOUD_CONTAINER)
+        target_compile_definitions(${target} PRIVATE
+            REBLUE_ICLOUD_CONTAINER="${REBLUE_ICLOUD_CONTAINER}")
+    endif()
 
     # Named for their headers: the OBJECT library links nothing itself.
     target_link_libraries(${target} PRIVATE
@@ -228,6 +253,49 @@ foreach(target IN LISTS REBLUE_VULKAN_TARGETS)
         # vulkan-1.dll through volk, so this backend needs no extra libraries. The
         # D3D12 and Vulkan exes coexist in one install, so rename this one.
         set_target_properties(${target} PROPERTIES OUTPUT_NAME reblue_vk)
+    elseif(REBLUE_IOS)
+        target_compile_definitions(${target} PRIVATE REBLUE_MVK REBLUE_PLATFORM_IOS=1)
+        target_link_libraries(${target} PRIVATE
+            iconv
+            "-framework Foundation"
+            "-framework UIKit"
+            "-framework QuartzCore"
+            "-framework Metal"
+            "-framework IOSurface"
+            "-framework CoreGraphics"
+            "-framework GameController"
+            "-framework CoreHaptics"
+            "-framework AudioToolbox"
+            "-framework AVFoundation"
+            "-framework CoreAudio")
+        set_target_properties(${target} PROPERTIES
+            MACOSX_BUNDLE TRUE
+            MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/packaging/ios/Info.plist.in"
+            MACOSX_BUNDLE_GUI_IDENTIFIER "${REBLUE_IOS_BUNDLE_ID}"
+            MACOSX_BUNDLE_BUNDLE_NAME "reblue"
+            MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+            MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
+            INSTALL_RPATH "@executable_path/Frameworks"
+            BUILD_WITH_INSTALL_RPATH ON
+            XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED NO)
+        add_custom_command(TARGET ${target} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_BUNDLE_DIR:${target}>/Frameworks"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "$<TARGET_FILE:rex::runtime>"
+                "$<TARGET_BUNDLE_DIR:${target}>/Frameworks/$<TARGET_FILE_NAME:rex::runtime>"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "$<TARGET_FILE:SDL3::SDL3>"
+                "$<TARGET_BUNDLE_DIR:${target}>/Frameworks/$<TARGET_FILE_NAME:SDL3::SDL3>"
+            VERBATIM)
+        if(TARGET MoltenVK::MoltenVK)
+            add_dependencies(${target} MoltenVK::MoltenVK)
+            add_custom_command(TARGET ${target} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_BUNDLE_DIR:${target}>/Frameworks"
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "$<TARGET_FILE:MoltenVK::MoltenVK>"
+                    "$<TARGET_BUNDLE_DIR:${target}>/Frameworks/libMoltenVK.dylib"
+                VERBATIM)
+        endif()
     elseif(APPLE)
         # plume builds VK_EXT_metal_surface straight off the CAMetalLayer and
         # reaches libMoltenVK/libvulkan through volk, so no find_package(Vulkan)
@@ -256,7 +324,7 @@ endforeach()
 # nothing populates the $ORIGIN rpath it sets on UNIX, so librexruntime and
 # libTracyClient link but fail to load. These two are the only SHARED IMPORTED
 # targets reblue links.
-if(UNIX)
+if(UNIX AND NOT REBLUE_IOS)
     foreach(target IN LISTS REBLUE_TARGETS)
         add_custom_command(TARGET ${target} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -285,7 +353,11 @@ endif()
 
 # Only a profiled build stages Tracy, so its entry is emitted whole or left out
 # entirely rather than becoming an empty one.
-set(reblue_tracy "$<TARGET_FILE_NAME:rex::TracyClient>")
+if(TARGET rex::TracyClient)
+    set(reblue_tracy "$<TARGET_FILE_NAME:rex::TracyClient>")
+else()
+    set(reblue_tracy "")
+endif()
 
 set(reblue_program_files_cxx "")
 foreach(f IN LISTS reblue_program_files)

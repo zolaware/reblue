@@ -44,7 +44,11 @@
 #include "generated/reblue_init.h"
 #include "gpu/gpu.h"
 #include "installer/installer.h"
+#include "platform/cloud_saves.h"
 #include "platform/platform.h"
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
 #include "vfs/vfs.h"
 
 #ifdef REBLUE_BUILD_INSTALLER
@@ -82,13 +86,16 @@ SDL_Window *MainWindow() {
 // A relaunch starts behind whatever the user switched to while the outgoing
 // process was quitting.
 void RaiseMainWindow() {
+#if !(defined(__APPLE__) && TARGET_OS_IOS && !TARGET_OS_MACCATALYST)
   if (SDL_Window *win = MainWindow())
     SDL_RaiseWindow(win);
+#endif
 }
 
 // Border drags cannot leave the output ratio. Maximize and snap bypass
 // WM_SIZING, so the present-time letterbox covers those. UI thread only.
 void ApplyWindowSizeConstraints() {
+#if !(defined(__APPLE__) && TARGET_OS_IOS && !TARGET_OS_MACCATALYST)
   SDL_Window *win = MainWindow();
   if (!win)
     return;
@@ -97,6 +104,7 @@ void ApplyWindowSizeConstraints() {
   // whatever ratio the window ends up.
   const float ar = static_cast<float>(bd::gpu::Output::ConfiguredAspect());
   SDL_SetWindowAspectRatio(win, ar, ar);
+#endif
 }
 
 // The profile dir IS user_data_root. Saves sit in a sibling subtree of
@@ -867,7 +875,9 @@ void ReblueApp::OnPreLaunchModule() {
   // the guest's own downloadable-content load.
   bd::platform::Updates::Get().Init(install_root_);
 
-  bd::engine::MountSaveStore(rt->file_system(), ResolveSavesRoot(profile_root));
+  const auto saves_root = ResolveSavesRoot(profile_root);
+  bd::platform::cloud_saves::Start(saves_root);
+  bd::engine::MountSaveStore(rt->file_system(), saves_root);
 
   if (bd::Settings::Get().Devmode())
     bd::vfs::VFS::Get().PrepareDevWriteDirs();

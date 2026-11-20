@@ -1,3 +1,12 @@
+> [!TIP]
+> ### iOS & macOS Port Fork (`ios-port`) — Native iPhone/iPad + iCloud Drive Save Sync
+>
+> This fork adds **native iOS / iPadOS support** (iPhone 15 Pro+ / M-series iPad, iOS 18+, controller required) and **iCloud Drive save sync** between macOS and iOS on top of upstream **re:Blue**.
+>
+> - **macOS build with iCloud Drive saves:** Upstream macOS releases do not include iCloud sync. Build macOS from this `ios-port` branch with `-DREBLUE_ICLOUD_CONTAINER=iCloud.<your.bundle.id>` (no macOS iCloud entitlement required) to sync saves bidirectionally with iOS via iCloud Drive — see [docs/IOS.md#icloud-drive-saves-ios-and-macos](docs/IOS.md#icloud-drive-saves-ios-and-macos).
+> - **Full iOS build & deploy guide:** [docs/IOS.md](docs/IOS.md) *(requires Xcode, your own Apple Developer team, and your own legally dumped Blue Dragon discs 1–3 — no copyrighted game files or prebuilt IPAs are distributed)*
+> - **Easiest way to build & deploy on Mac/iPhone:** [**Sessionist for macOS (Direct Edition + Recomp Hub)**](https://github.com/n-elnouby/SessionistApp/releases/latest) automates cloning this branch + `rexglue-sdk`, building the Mac app & shader cache, signing/deploying to iPhone, copying disc data, and tracking your playtime (with iCloud sync to [Sessionist on the iOS App Store](https://apps.apple.com/app/id6758464286)).
+
 <h1 align="center">
   <img width="1480" height="662" alt="Untitled-1" src="https://github.com/user-attachments/assets/1779fdfd-bc3a-416d-8b6c-38874d8eae93" />
   <a href="https://discord.gg/92MCyYDpuY">

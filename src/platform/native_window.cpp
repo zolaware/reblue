@@ -9,9 +9,14 @@
 
 #include <SDL3/SDL_video.h>
 #if defined(__APPLE__)
+#include <TargetConditionals.h>
 #include <SDL3/SDL_metal.h>
 
+#if TARGET_OS_IOS && !TARGET_OS_MACCATALYST
+#include "platform/ios_support.h"
+#else
 #include <mach-o/dyld.h>
+#endif
 #include <unistd.h>
 
 #include <cstdint>
@@ -62,6 +67,10 @@ ConfigureMoltenVKAndReexec(int /*argc*/, char **argv) {
   SetenvIfUnset("MVK_CONFIG_SEMAPHORE_SUPPORT_STYLE", "3");
   SetenvIfUnset("MVK_CONFIG_PRESENT_WITH_COMMAND_BUFFER", "1");
 
+#if TARGET_OS_IOS && !TARGET_OS_MACCATALYST
+  // iOS loads Frameworks/libMoltenVK.dylib via @rpath and forbids execv.
+  return;
+#else
   if (std::getenv("REBLUE_MOLTENVK_RELAUNCHED"))
     return; // already relaunched
 
@@ -100,6 +109,7 @@ ConfigureMoltenVKAndReexec(int /*argc*/, char **argv) {
   setenv("REBLUE_MOLTENVK_RELAUNCHED", "1", 1);
   execv(exe.c_str(), argv);
   // execv only returns on failure, fall through and let startup continue.
+#endif
 }
 
 } // namespace
@@ -118,8 +128,13 @@ bool GetNativeRenderWindow(rex::ui::Window *window, plume::RenderWindow &out) {
   }
 
   SDL_PropertiesID props = SDL_GetWindowProperties(sdl_window);
+#if TARGET_OS_IOS && !TARGET_OS_MACCATALYST
+  out.window = SDL_GetPointerProperty(
+      props, SDL_PROP_WINDOW_UIKIT_WINDOW_POINTER, nullptr);
+#else
   out.window = SDL_GetPointerProperty(
       props, SDL_PROP_WINDOW_COCOA_WINDOW_POINTER, nullptr);
+#endif
 
   // The view is a subview of the SDL window and dies with it, so it is cached
   // against the window it was made for rather than unconditionally: a
@@ -134,6 +149,9 @@ bool GetNativeRenderWindow(rex::ui::Window *window, plume::RenderWindow &out) {
     BD_ERROR("SDL_Metal_CreateView failed: {}", SDL_GetError());
     return false;
   }
+#if TARGET_OS_IOS && !TARGET_OS_MACCATALYST
+  ios::FitMetalView(out.window, metal_view);
+#endif
   out.view = SDL_Metal_GetLayer(metal_view);
 
   if (!out.window || !out.view) {

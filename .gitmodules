@@ -1,6 +1,7 @@
 [submodule "thirdparty/plume"]
 	path = thirdparty/plume
-	url = https://github.com/zolaware/plume.git
+	url = https://github.com/n-elnouby/plume.git
+	branch = ios-support
 [submodule "thirdparty/XenosRecomp"]
 	path = thirdparty/XenosRecomp
 	url = https://github.com/zolaware/reblue-XenosRecomp.git
