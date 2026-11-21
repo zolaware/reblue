@@ -56,7 +56,7 @@ set(REXSDK_DIR "" CACHE PATH "Path to the rexglue-sdk source tree, empty for an 
 if(REXSDK_DIR)
     add_subdirectory("${REXSDK_DIR}" rexglue-sdk)
 else()
-    find_package(rexglue 0.11.0 REQUIRED CONFIG)
+    find_package(rexglue 0.12.0 REQUIRED CONFIG)
 endif()
 rexglue_project(reblue)
 if(WIN32)

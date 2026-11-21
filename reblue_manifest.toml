@@ -1,5 +1,5 @@
 [project]
-sdk_version = "0.11.0"
+sdk_version = "0.12.0"
 name = "reblue"
 hook_sources = ["src"]
 
