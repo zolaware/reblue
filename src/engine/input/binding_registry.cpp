@@ -189,6 +189,9 @@ void Bindings::Unregister() {
   set_->Unregister();
   // The set must not outlive the input system, and this singleton does.
   set_.reset();
+  for (auto &sources : frame_)
+    sources.clear();
+  frame_generation_ = 0;
 }
 
 void Bindings::Migrate() {
@@ -300,6 +303,22 @@ std::vector<Source> Bindings::Sources(Action action) const {
     return {};
   const int i = static_cast<int>(action);
   return set_->GetSources((i < 0 || i >= kActionCount) ? 0 : size_t(i));
+}
+
+std::span<const Source> Bindings::FrameSources(Action action) const {
+  const int i = static_cast<int>(action);
+  return frame_[(i < 0 || i >= kActionCount) ? 0 : size_t(i)];
+}
+
+void Bindings::Reload() {
+  if (!set_)
+    return;
+  const u32 generation = set_->GetGeneration();
+  if (generation == frame_generation_)
+    return;
+  for (size_t i = 0; i < kActionCount; ++i)
+    frame_[i] = set_->GetSources(i);
+  frame_generation_ = generation;
 }
 
 bool Bindings::SetSource(Action action, int slot, const Source &source) {

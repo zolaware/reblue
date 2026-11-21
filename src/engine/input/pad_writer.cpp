@@ -88,7 +88,7 @@ AxisState ResolveAxes() {
     if (desc.kind != ActionKind::Mapped || pair < 0 || pair >= kAxisPairs)
       continue;
     bool drives = false;
-    for (const Source &source : Bindings::Get().Sources(action))
+    for (const Source &source : Bindings::Get().FrameSources(action))
       drives = drives || DrivesAxis(source);
     if (!drives)
       continue;
@@ -160,6 +160,7 @@ void WritePadZero(bool route) {
 
   InputSources::Get().Sample(addr::kPadZeroBlock.GetAddress());
   ButtonMap::Get().Rebuild();
+  Bindings::Get().Reload();
   InputActions::Get().Resolve();
 
   AxisState axes = ResolveAxes();

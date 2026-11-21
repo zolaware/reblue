@@ -37,6 +37,13 @@ public:
 
   std::vector<Source> Sources(Action action) const;
 
+  // The binds as of the last Reload, read without a lock or a copy. Engine
+  // thread only. Everything else calls Sources.
+  std::span<const Source> FrameSources(Action action) const;
+
+  // Engine thread, once per frame. Copies the binds again when they changed.
+  void Reload();
+
   bool SetSource(Action action, int slot, const Source &source);
   bool SetSources(Action action, std::span<const Source> sources);
   bool Reset(Action action);
@@ -54,6 +61,8 @@ private:
   std::array<rex::hid::BindingConfig, kActionCount> descs_;
   std::array<std::string, kActionCount> descriptions_;
   std::unique_ptr<rex::hid::IBindingSet> set_;
+  std::array<std::vector<Source>, kActionCount> frame_;
+  u32 frame_generation_ = 0;
   bool migrated_ = false;
 };
 

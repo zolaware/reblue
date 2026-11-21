@@ -1,6 +1,7 @@
 #include "engine/input/action_state.h"
 
 #include <cmath>
+#include <span>
 #include <vector>
 
 #include "core/guest_global.h"
@@ -51,7 +52,7 @@ void InputActions::Resolve() {
     const auto action = static_cast<Action>(i);
     if (Describe(action).kind != ActionKind::Dispatched)
       continue;
-    const auto &sources = binds.Sources(action);
+    const std::span<const Source> sources = binds.FrameSources(action);
     const auto active = [&](const Source &s) {
       return action == Action::Mindows ? in.ActiveUnheld(s) : in.Active(s);
     };
@@ -85,7 +86,7 @@ void InputActions::Resolve() {
     if (Describe(action).kind != ActionKind::Mapped)
       continue;
     bool held = false;
-    for (const Source &s : binds.Sources(action)) {
+    for (const Source &s : binds.FrameSources(action)) {
       if (Consumed(consumed, consumedCount, s))
         continue;
       if (in.Active(s)) {
@@ -153,7 +154,7 @@ void InputActions::Resolve() {
     if (desc.axis == AxisPair::None)
       continue;
     const int pair = static_cast<int>(desc.axis);
-    for (const Source &s : binds.Sources(action)) {
+    for (const Source &s : binds.FrameSources(action)) {
       for (int c = 0; c < 2; ++c) {
         const f32 value = in.Axis(s, c);
         if (std::abs(value) > std::abs(axis_[pair][c]))
