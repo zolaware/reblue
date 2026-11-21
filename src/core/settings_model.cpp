@@ -20,7 +20,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <optional>
-#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -284,7 +283,7 @@ void SwapInto(engine::Action owner, const engine::Source &taken,
 }
 
 int ChipSource(const BindEntry &entry, int chip) {
-  const std::span<const engine::Source> sources =
+  const std::vector<engine::Source> sources =
       engine::Bindings::Get().Sources(entry.action);
   const int count = static_cast<int>(sources.size());
   switch (entry.cell) {
@@ -720,7 +719,7 @@ const char *BindRowLabel(engine::Action action) {
 }
 
 std::string BindChipToken(const BindEntry &entry, int chip) {
-  const std::span<const engine::Source> sources =
+  const std::vector<engine::Source> sources =
       engine::Bindings::Get().Sources(entry.action);
   if (entry.cell == BindCell::AxisKey && chip == kBindPadChip) {
     for (const engine::Source &source : sources) {

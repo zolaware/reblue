@@ -295,7 +295,7 @@ void Bindings::Migrate() {
   REXBD_INFO("input profile migrated: {} binds seeded from {}", seeded, from);
 }
 
-std::span<const Source> Bindings::Sources(Action action) const {
+std::vector<Source> Bindings::Sources(Action action) const {
   if (!set_)
     return {};
   const int i = static_cast<int>(action);

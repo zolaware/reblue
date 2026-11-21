@@ -35,7 +35,7 @@ public:
   // title is up, after Register.
   void Migrate();
 
-  std::span<const Source> Sources(Action action) const;
+  std::vector<Source> Sources(Action action) const;
 
   bool SetSource(Action action, int slot, const Source &source);
   bool SetSources(Action action, std::span<const Source> sources);
