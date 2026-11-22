@@ -52,8 +52,23 @@ jobs:
           ref: ${{ inputs.ref }}
           submodules: recursive
 
+      # The runner's MSVC standard library needs Clang 22 or newer, and the
+      # image ships an older LLVM that `choco install llvm` leaves in place.
       - name: Install LLVM, CMake, Ninja
-        run: choco install llvm cmake ninja -y
+        shell: pwsh
+        env:
+          LLVM_VERSION: "22.1.8"
+        run: |
+          choco install cmake ninja -y
+          $installer = "LLVM-$env:LLVM_VERSION-win64.exe"
+          Invoke-WebRequest -Uri "https://github.com/llvm/llvm-project/releases/download/llvmorg-$env:LLVM_VERSION/$installer" -OutFile $installer
+          $install = Start-Process -FilePath ".\$installer" -ArgumentList "/S", "/D=C:\Program Files\LLVM" -Wait -PassThru
+          if ($install.ExitCode -ne 0) {
+            throw "The LLVM $env:LLVM_VERSION installer failed with exit code $($install.ExitCode)"
+          }
+          $llvm = "C:\Program Files\LLVM\bin"
+          $llvm | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          & (Join-Path $llvm "clang.exe") --version
 
       # The preset reads $env{VCPKG_ROOT}, but the runner only exports
       # VCPKG_INSTALLATION_ROOT.
