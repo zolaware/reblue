@@ -248,6 +248,10 @@ rex::Result<void> ReblueApp::OnConfigure(rex::SettingsRegistry &settings) {
   title("app.single_instance", "reblue");
   // Blue Dragon is single player and polls title user 0, so every pad drives it.
   title("hid.shared_pads", "true");
+#if defined(__APPLE__)
+  title("hid.sdl.mappings_file",
+        (rex::platform::GetExecutableFolder() / "gamecontrollerdb.txt").string());
+#endif
   title("ui.min_width", "640");
   title("ui.min_height", "360");
   title("ui.cursor_timeout", "5");

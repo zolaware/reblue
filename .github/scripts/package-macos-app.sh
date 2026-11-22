@@ -45,6 +45,8 @@ mkdir -p "${MACOS_DIR}" "${RESOURCES_DIR}" "${VK_LIB_DIR}"
 
 cp "${BUILD_DIR}/reblue" "${MACOS_DIR}/reblue"
 chmod 755 "${MACOS_DIR}/reblue"
+cp "${BUILD_DIR}/gamecontrollerdb.txt" "${RESOURCES_DIR}/gamecontrollerdb.txt"
+ln -s ../Resources/gamecontrollerdb.txt "${MACOS_DIR}/gamecontrollerdb.txt"
 
 # Follow the dependency graph rather than globbing the build dir, so optional
 # profiler libraries sitting next to the binary do not get shipped.
