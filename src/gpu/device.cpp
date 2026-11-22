@@ -181,39 +181,62 @@ void GuestBackBufferDims(u32 &w, u32 &h) {
   h = static_cast<u32>(kDesignCanvasHeight);
 }
 
-// (Re)create the back buffer placeholder's texture and view at w x h. Caller
-// guarantees no in-flight GPU references (init, or the resize path's full-ring
-// fence wait) and rebinds the SRV slot.
+// Caller ensures the old back buffer is idle.
 bool CreateBackBufferTexture(VideoState &s, GuestTexture *bb, u32 w, u32 h) {
-  bb->framebuffers.clear();
-  Output::HostScale(bb->scaleX, bb->scaleY);
-  bb->SetSize(w, h);
-  bb->format = plume::RenderFormat::B8G8R8A8_UNORM;
-  bb->mipLevels = 1;
-  bb->viewDimension = plume::RenderTextureViewDimension::TEXTURE_2D;
-  bb->layout = plume::RenderTextureLayout::UNKNOWN;
+  float scale_x = 1.0f;
+  float scale_y = 1.0f;
+  Output::HostScale(scale_x, scale_y);
 
   plume::RenderTextureDesc desc;
   desc.dimension = plume::RenderTextureDimension::TEXTURE_2D;
-  desc.width = bb->hostWidth;
-  desc.height = bb->hostHeight;
+  desc.width = GuestTexture::HostExtent(w, scale_x);
+  desc.height = GuestTexture::HostExtent(h, scale_y);
   desc.depth = 1;
   desc.mipLevels = 1;
   desc.arraySize = 1;
-  desc.format = bb->format;
+  desc.format = plume::RenderFormat::B8G8R8A8_UNORM;
   desc.flags = plume::RenderTextureFlag::RENDER_TARGET;
   desc.multisampling.sampleCount = plume::RenderSampleCount::COUNT_1;
   desc.committed = true; // avoid placed-resource uninit GBV debug fill
-  bb->textureHolder = CreateHostTexture(s.device.get(), desc, "backbuffer-rt");
-  bb->texture = bb->textureHolder.get();
-  if (!bb->texture)
+  auto texture = CreateHostTexture(s.device.get(), desc, "backbuffer-rt");
+  if (!texture)
     return false;
 
   plume::RenderTextureViewDesc view_desc;
-  view_desc.format = bb->format;
+  view_desc.format = desc.format;
   view_desc.dimension = plume::RenderTextureViewDimension::TEXTURE_2D;
   view_desc.mipLevels = 1;
-  bb->textureView = bb->texture->createTextureView(view_desc);
+  auto view = texture->createTextureView(view_desc);
+  if (!view
+#if !defined(REBLUE_D3D12)
+      || static_cast<plume::VulkanTextureView *>(view.get())->vk == VK_NULL_HANDLE
+      || static_cast<plume::VulkanTexture *>(texture.get())->imageView ==
+             VK_NULL_HANDLE
+#endif
+  ) {
+    REXBD_ERROR("Back-buffer texture view creation failed for {}x{}",
+                desc.width, desc.height);
+    return false;
+  }
+
+  InvalidateTextureFramebuffersLocked(s, bb);
+  if (bb->descriptorIndex != kInvalidDescriptorIndex) {
+    s.texture_descriptor_set->setTexture(
+        bb->descriptorIndex, texture.get(),
+        plume::RenderTextureLayout::SHADER_READ, view.get());
+  }
+  // Destroy the view while its texture is alive.
+  bb->textureView.reset();
+  bb->textureHolder = std::move(texture);
+  bb->texture = bb->textureHolder.get();
+  bb->textureView = std::move(view);
+  bb->scaleX = scale_x;
+  bb->scaleY = scale_y;
+  bb->SetSize(w, h);
+  bb->format = desc.format;
+  bb->mipLevels = desc.mipLevels;
+  bb->viewDimension = view_desc.dimension;
+  bb->layout = plume::RenderTextureLayout::UNKNOWN;
   return true;
 }
 
@@ -458,7 +481,8 @@ bool Video::CreateHostDevice(const rex::NativeWindow &window, u32 window_w,
     u32 bb_w = 0, bb_h = 0;
     GuestBackBufferDims(bb_w, bb_h);
     if (!CreateBackBufferTexture(s, bb, bb_w, bb_h)) {
-      REXBD_ERROR("Plume createTexture for back-buffer failed");
+      REXBD_ERROR("Back-buffer initialization failed");
+      HostResourceHeap::Free(bb);
       return false;
     }
 
@@ -467,6 +491,7 @@ bool Video::CreateHostDevice(const rex::NativeWindow &window, u32 window_w,
     const u32 slot = AllocateSlot(s);
     if (slot == kInvalidDescriptorIndex) {
       REXBD_ERROR("Back-buffer SRV bind failed: bindless heap full");
+      HostResourceHeap::Free(bb);
       return false;
     }
     s.texture_descriptor_set->setTexture(
@@ -518,11 +543,6 @@ void Video::SyncBackBufferSizeLocked() {
   if (!CreateBackBufferTexture(s, bb, w, h)) {
     REXBD_ERROR("Back-buffer resize to {}x{} failed", w, h);
     return;
-  }
-  if (bb->descriptorIndex != kInvalidDescriptorIndex) {
-    s.texture_descriptor_set->setTexture(
-        bb->descriptorIndex, bb->texture,
-        plume::RenderTextureLayout::SHADER_READ, bb->textureView.get());
   }
   s.viewport.width = static_cast<float>(w);
   s.viewport.height = static_cast<float>(h);
