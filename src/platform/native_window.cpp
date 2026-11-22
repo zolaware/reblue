@@ -44,6 +44,23 @@ void SetenvIfUnset(const char *name, const char *value) {
     setenv(name, value, 1);
 }
 
+bool HasMoltenVK(const std::string &dir) {
+  return access((dir + "/libMoltenVK.dylib").c_str(), R_OK) == 0;
+}
+
+bool PathListHas(const std::string &list, const std::string &dir) {
+  for (size_t start = 0; start <= list.size();) {
+    size_t end = list.find(':', start);
+    if (end == std::string::npos)
+      end = list.size();
+    if (list.compare(start, end - start, dir) == 0)
+      return true;
+    start = end + 1;
+  }
+  return false;
+}
+
+// dyld reads its library search paths at launch.
 __attribute__((constructor(101))) void
 ConfigureMoltenVKAndReexec(int /*argc*/, char **argv) {
   (void)rex::platform::RaiseOpenFileLimit();
@@ -64,31 +81,32 @@ ConfigureMoltenVKAndReexec(int /*argc*/, char **argv) {
   const std::string exe(exe_buf);
   const std::string exe_dir = exe.substr(0, exe.find_last_of('/'));
 
-  const std::string dirs[] = {
-      exe_dir + "/vulkan/lib",
-      "/opt/homebrew/lib",
-      "/usr/local/lib",
-  };
-  std::string vk_path;
-  for (const std::string &dir : dirs) {
-    if (access((dir + "/libMoltenVK.dylib").c_str(), R_OK) != 0)
-      continue;
-    if (!vk_path.empty())
-      vk_path += ':';
-    vk_path += dir;
+  const std::string staged = exe_dir + "/vulkan/lib";
+  const char *cur_lib = std::getenv("DYLD_LIBRARY_PATH");
+  const std::string old_lib = cur_lib ? cur_lib : "";
+  std::string new_lib = old_lib;
+  if (HasMoltenVK(staged) && !PathListHas(old_lib, staged))
+    new_lib = old_lib.empty() ? staged : staged + ":" + old_lib;
+
+  // Keep Homebrew as a fallback so ImageIO loads Apple's PNG library.
+  const char *cur_fb = std::getenv("DYLD_FALLBACK_LIBRARY_PATH");
+  const bool had_fb = cur_fb && *cur_fb;
+  const std::string old_fb = had_fb ? cur_fb : "/usr/local/lib:/usr/lib";
+  std::string new_fb = old_fb;
+  for (const char *dir : {"/opt/homebrew/lib", "/usr/local/lib"}) {
+    if (HasMoltenVK(dir) && !PathListHas(new_fb, dir)) {
+      new_fb += ':';
+      new_fb += dir;
+    }
   }
-  if (vk_path.empty())
+
+  if (new_lib == old_lib && new_fb == old_fb)
     return;
 
-  std::string dyld_path = vk_path;
-  if (const char *existing = std::getenv("DYLD_LIBRARY_PATH");
-      existing && *existing) {
-    if (std::string(existing).find(vk_path) != std::string::npos)
-      return;
-    dyld_path += ':';
-    dyld_path += existing;
-  }
-  setenv("DYLD_LIBRARY_PATH", dyld_path.c_str(), 1);
+  if (new_lib != old_lib)
+    setenv("DYLD_LIBRARY_PATH", new_lib.c_str(), 1);
+  if (new_fb != old_fb)
+    setenv("DYLD_FALLBACK_LIBRARY_PATH", new_fb.c_str(), 1);
   setenv("REBLUE_MOLTENVK_RELAUNCHED", "1", 1);
   execv(exe.c_str(), argv);
 }
