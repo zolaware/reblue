@@ -507,6 +507,7 @@ bool BuildPresentSemaphores(VideoState &s);
 u32 AllocateSlot(VideoState &s);
 u32 BindTextureSRVLocked(VideoState &s, GuestTexture *tex);
 void ReleaseTextureSRVLocked(VideoState &s, GuestTexture *tex);
+void InvalidateTextureFramebuffersLocked(VideoState &s, GuestTexture *texture);
 void RetireTextureBindingsLocked(VideoState &s, GuestTexture *dead);
 // Null-rewrite and free every slot parked in descriptor_graveyard[slot].
 // Callable only once that slot's fence has been awaited (DrainSlot entry).

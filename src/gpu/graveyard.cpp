@@ -174,7 +174,7 @@ void Video::ParkBufferUntilFence(std::unique_ptr<plume::RenderBuffer> buffer) {
   s.buffer_graveyard[Video::RetireSlot("buffer")].push_back(std::move(buffer));
 }
 
-void RetireTextureBindingsLocked(VideoState &s, GuestTexture *dead) {
+void InvalidateTextureFramebuffersLocked(VideoState &s, GuestTexture *dead) {
   if (dead->framebufferAttached) {
     REX_PROFILE_SCOPE("FbCacheInvalidate");
     const plume::RenderTexture *deadTex = dead->texture;
@@ -194,6 +194,10 @@ void RetireTextureBindingsLocked(VideoState &s, GuestTexture *dead) {
       }
     }
   }
+}
+
+void RetireTextureBindingsLocked(VideoState &s, GuestTexture *dead) {
+  InvalidateTextureFramebuffersLocked(s, dead);
   ReleaseTextureSRVLocked(s, dead);
   if (dead->companion2D) {
     ReleaseTextureSRVLocked(s, dead->companion2D.get());
