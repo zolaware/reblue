@@ -44,7 +44,8 @@ on:
         # satisfies it and the build dies at link time minutes later instead;
         # fetch-deps.sh and .ps1 check the exported names before configure.
         # Moving past v0.10.1 is a port across the 281 files here that include a
-        # rex/ header, mapped out in docs/sdk-remap-0.11.md.
+        # rex/ header - 279 under src/, plus the two under generated/ that the
+        # SDK's own codegen rewrites - mapped row by row in docs/sdk-remap-0.11.md.
         default: v0.10.1
   schedule:
     - cron: "30 6 * * *"

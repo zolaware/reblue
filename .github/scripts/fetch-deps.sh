@@ -37,13 +37,15 @@ echo "Extracted $(basename "${url}") to sdk/${SDK_SLICE}"
 # the old names at all - stable or nightly - and v0.10.0 before it.
 # Moving forward is not that rename alone, and nobody should plan it as four line
 # edits: the nightly stream restarts at nightly-20261109-2d51d257 after a five
-# week gap, and everything in it also moved or dropped 41 of the 60 rex/ headers
-# this tree includes (measured against v0.11.0 and nightly-20261122-44b7fdc5: the
-# 308 SDK headers here become 148, and rex/ui, rex/system, rex/filesystem and
-# rex/graphics all reshaped), swapped o1heap for TLSF, and rejects
-# generated/rexglue.cmake outright in favour of rexglue_project() with rex::sdk.
-# That is a port across the 281 files here that include a rex/ header; every
-# include is mapped in docs/sdk-remap-0.11.md.
+# week gap, and everything in it also moved or dropped 51 of the 60 rex/ headers
+# this tree includes by hand (measured against v0.11.0 and
+# nightly-20261122-44b7fdc5: the 308 SDK headers here become 148, and rex/ui,
+# rex/system, rex/filesystem and rex/graphics all reshaped), swapped o1heap for
+# TLSF, and rejects generated/rexglue.cmake outright in favour of
+# rexglue_project() with rex::sdk.
+# That is a port across the 281 files here that include a rex/ header - 279 under
+# src/, plus the two files under generated/ that the SDK's own codegen rewrites
+# for itself; every include is mapped in docs/sdk-remap-0.11.md.
 cmake_dir="sdk/${SDK_SLICE}/lib/cmake/rexglue"
 if [ ! -d "${cmake_dir}" ]; then
   echo "::error::${SDK_REPO} ${SDK_TAG} has no ${SDK_SLICE}/lib/cmake/rexglue, so its exported targets cannot be checked"

@@ -9,11 +9,14 @@ measurement of that port, taken on 2026-11-25 by extracting the `v0.11.0` and
 used here. It is a checklist for a future branch, not a plan anyone has to execute
 now.
 
-60 distinct `#include <rex/...>` paths across the 279 files here that include one - 490
-include lines, measured with grep over `src/`, `thirdparty/` and `cmake/` on 2026-11-25.
-(`generated/` adds 4 more paths and 9 more lines, but `generated/reblue_pch.h` and
-`generated/reblue_register.cpp` are written by the SDK's own codegen and rewrite themselves,
-so no port touches them by hand.)
+60 distinct `#include <rex/...>` paths across the 279 hand-written files here that
+include one - 490 include lines, measured with grep over `src/`, `thirdparty/` and
+`cmake/` on 2026-11-25. Two more files include rex/ headers, taking the tree-wide
+count to 281: `generated/reblue_pch.h` and `generated/reblue_register.cpp`, which the
+SDK's own codegen writes and rewrites, so no port edits them by hand. They reach 4
+paths that appear nowhere in the table below (`rex/chrono/clock.h`, `rex/image_info.h`,
+`rex/system/mmio_handler.h`, `rex/thread/mutex.h`) - the SDK emits those includes, so it
+owns fixing them.
 Verdict: SAME = no edit | MOVED = path-only sed | SPLIT = one old header -> several new | REWORK = API redesign | GONE = no counterpart | VERIFY = candidate only.
 
 | old include | files | verdict | new include(s) | note |
