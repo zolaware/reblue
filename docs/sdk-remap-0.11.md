@@ -6,8 +6,10 @@ Everything on the 0.11 line and later renames those targets *and* reshapes the
 header tree, so moving forward is a port, not a version bump. This is the
 measurement of that port, taken on 2026-11-25 by extracting the `v0.11.0` and
 `nightly-20261122-44b7fdc5` SDK archives and diffing them against the includes
-used here. It is a checklist for a future branch, not a plan anyone has to execute
-now.
+used here. It was written as a checklist for a future branch; the same day it was
+checked against upstream `development`, which had already paid the port on
+2026-11-21 - so what follows is now a cross-check of what upstream chose, and the
+last section says what that changes.
 
 60 distinct `#include <rex/...>` paths across the 279 hand-written files here that
 include one - 490 include lines, measured with grep over `src/`, `thirdparty/` and
@@ -17,7 +19,7 @@ SDK's own codegen writes and rewrites, so no port edits them by hand. They reach
 paths that appear nowhere in the table below (`rex/chrono/clock.h`, `rex/image_info.h`,
 `rex/system/mmio_handler.h`, `rex/thread/mutex.h`) - the SDK emits those includes, so it
 owns fixing them.
-Verdict: SAME = no edit | MOVED = path-only sed | SPLIT = one old header -> several new | REWORK = API redesign | GONE = no counterpart | VERIFY = candidate only.
+Verdict: SAME = no edit | MOVED = path-only sed | SPLIT = one old header -> several new | REWORK = API redesign | GONE = no counterpart. Every row is a decision, not a candidate: each verdict was checked against the 0.11.0 and 0.12 nightly headers, symbol by symbol.
 
 | old include | files | verdict | new include(s) | note |
 |---|--:|---|---|---|
@@ -42,7 +44,7 @@ Verdict: SAME = no edit | MOVED = path-only sed | SPLIT = one old header -> seve
 | `rex/ui/windowed_app_context.h` | 3 | REWORK | `rex/app/app.h` | WindowedAppContext gone; App owns lifecycle |
 | `rex/ui/ui_event.h` | 3 | SAME | `rex/ui/ui_event.h` |  |
 | `rex/system/xcontent.h` | 3 | MOVED | `rex/xam/content_manager.h + rex/kernel/types/content.h` |  |
-| `rex/platform/env.h` | 3 | VERIFY | `(no counterpart found)` | host env helpers - vendor into src/host or drop |
+| `rex/platform/env.h` | 3 | GONE | `(no counterpart)` | rex::platform::env get/set/unset is gone from every rex/platform/ header in 0.12 -> vendor into src/host or rewrite the 3 call sites on getenv |
 | `rex/graphics/pipeline/texture/util.h` | 3 | MOVED | `rex/xenos/texture.h` | GetSubresourcesFromFetchConstant etc. verified there |
 | `rex/graphics/pipeline/texture/conversion.h` | 3 | MOVED | `rex/xenos/texture.h` | ConvertTexel*/Untile verified there |
 | `rex/version.h` | 2 | SAME | `rex/version.h` |  |
@@ -58,7 +60,7 @@ Verdict: SAME = no edit | MOVED = path-only sed | SPLIT = one old header -> seve
 | `rex/system/format.h` | 1 | MOVED | `rex/xenos/format.h` |  |
 | `rex/system/xtypes.h` | 1 | SPLIT | `rex/kernel/types/{list,thread,io}.h` |  |
 | `rex/system/xthread.h` | 1 | SPLIT | `rex/kernel/object/kernel_thread.h + rex/kernel/types/thread.h` |  |
-| `rex/string.h` | 1 | VERIFY | `rex/string/{text,numeric,path}.h` | trim_string/compare_case* not found -> vendor helpers |
+| `rex/string.h` | 1 | SPLIT | `rex/string/text.h + rex/string/path.h` | the two symbols used here: rex::string::trim -> rex::string::Trim (text.h), rex::string::utf8_fix_path_separators unchanged (path.h) |
 | `rex/rex_app.h` | 1 | MOVED | `rex/app/app.h (+ rex/app/title_app.h)` | ReXApp -> rex::App |
 | `rex/ppc/function.h` | 1 | MOVED | `rex/ppc/call.h + rex/ppc/hook.h` |  |
 | `rex/ppc/func.h` | 1 | MOVED | `rex/ppc/call.h` | REX_XSTRINGIFY now in rex/platform.h |
@@ -66,12 +68,12 @@ Verdict: SAME = no edit | MOVED = path-only sed | SPLIT = one old header -> seve
 | `rex/memory/mapped_memory.h` | 1 | MOVED | `rex/memory/mapped_ptr.h + rex/kernel/memory_view.h` | MappedMemory -> MappedPtr + MemoryView |
 | `rex/logging/api.h` | 1 | MOVED | `rex/logging/log_category.h + rex/logging/logger.h` |  |
 | `rex/input/input_system.h` | 1 | MOVED | `rex/hid/input_system.h` |  |
-| `rex/input/device_assignment.h` | 1 | VERIFY | `rex/hid/input_system.h + rex/xam/input.h` | SlotAssignment/SharedAssignment absent |
+| `rex/input/device_assignment.h` | 1 | GONE | `(no counterpart)` | DeviceAssignment/SlotAssignment/SharedAssignment absent in 0.12; rex/hid/input_system.h merges drivers into four user slots (InputSettings::shared_pads) -> drop the object at reblue_app.cpp:311 |
 | `rex/filesystem/vfs.h` | 1 | MOVED | `rex/filesystem/{file_system_factory,mount}.h` | VirtualFileSystem gone |
 | `rex/filesystem/file.h` | 1 | SAME | `rex/filesystem/file.h` |  |
 | `rex/filesystem/devices/stfs_container_device.h` | 1 | MOVED | `rex/filesystem/stfs.h` |  |
 | `rex/filesystem/devices/host_path_device.h` | 1 | GONE | `rex/filesystem/file_system_factory.h` | HostPathDevice absent |
-| `rex/filesystem/devices/disc_image_device.h` | 1 | VERIFY | `rex/filesystem/{mount,stfs}.h + rex/xam/device.h` | DiscImageDevice absent |
+| `rex/filesystem/devices/disc_image_device.h` | 1 | REWORK | `rex/filesystem/{mount,stfs}.h` | DiscImageDevice class absent in 0.12; the one call site (src/installer/disc_install.cpp:80) rebuilds on stfs.h IContainerImage + mount.h providers |
 | `rex/filesystem/device.h` | 1 | MOVED | `rex/xam/device.h` |  |
 | `rex/embedded_metadata.h` | 1 | MOVED | `rex/ppc/image.h` | also rexglue_embed_metadata() CMake fn |
 | `rex/dbg.h` | 1 | MOVED | `rex/platform/process.h (+ rex/kernel/title_debug_output.h)` |  |
@@ -99,10 +101,12 @@ The tree links only rex::runtime (CMakeLists.txt:133, thirdparty/CMakeLists.txt:
 | `v0.11.0` (latest stable) | 0.11.0 | 2026-11-14 | same new layout as 20261109 | same new targets | same full remap cost as 0.12 |
 | `nightly-20261122-44b7fdc5` | 0.12.0-dev | 2026-11-22 | identical file set to the 0.11 nightlies | identical target set | same remap, plus 400 commits of fixes |
 
-- 400 commits separate `nightly-20261002-bd833a2a` from `nightly-20261122-44b7fdc5`; the 51 include paths this tree uses that no longer exist are what that gap measures. Of those 51, 45 have a documented counterpart in the table (MOVED/SPLIT/REWORK/VERIFY) and 6 have none at all (GONE) - the vendoring of those 6 is the part of the port that is not a sed.
+- 400 commits separate `nightly-20261002-bd833a2a` from `nightly-20261122-44b7fdc5`; the 51 include paths this tree uses that no longer exist are what that gap measures. Of those 51, 43 have a documented counterpart in the table (29 MOVED, 9 SPLIT, 5 REWORK) and 8 have none at all (GONE) - that last group is the part of the port that is not a sed: either vendor the old header in or rewrite the call site against whatever 0.12 offers instead.
 - There is no nightly or stable that keeps `rex::runtime`/`rex::o1heap` while carrying the new header layout, so the "two-step via 0.11" route does not exist: the remap is paid once, at 0.11 or at 0.12.
 - 0.11 to 0.12 is header-layout-stable, so the remap can be done against stable `v0.11.0` and the pins moved to the newest 0.12 nightly afterwards.
-- Suggested staging: (1) re-pin the pins to stable `v0.10.1` (done 2026-11-25: zero header diff, removes the nightly dependency); (2) do the header/target remap on a branch against `v0.11.0`; (3) re-pin to `nightly-20261122-44b7fdc5` or a newer 0.12 nightly once that branch lands.
+- Checked against upstream `origin/development` on 2026-11-25: upstream already paid this port. `314f10a build: require SDK 0.12.0` (2026-11-21) flips `find_package(rexglue 0.11.0)` to `0.12.0` and `sdk_version` in `reblue_manifest.toml` with it, and the includes there land where this table says they would: `rex/ppc/hook.h` in 53 files, `rex/kernel/title_runtime.h` in 31, `rex/ppc/context.h`/`rex/ppc/midasm.h` in 21/25 where the `rex/ppc.h` umbrella used to sit, `rex/string/text.h` in 21, `rex/settings_registry.h` in 5 where `rex/cvar.h` sat.
+- All 8 GONE paths are at zero references in upstream's `src/` and no vendored copy of any of them is in its tree, so upstream dropped or rewrote those call sites rather than carrying the old headers - the table's "(vendor it)" option was not the route taken.
+- Suggested staging: (1) re-pin the pins to stable `v0.10.1` (done 2026-11-25: zero header diff, removes the nightly dependency, green on CI - run 45690013729, six jobs); (2) do not port this branch by hand - it is 18 commits ahead of and 33 behind `origin/development` (merge-base `85aae68 bump v1.3.1`), so the way onto 0.12 is to rebase the cheats-only commits onto `development` and let its remap stand; (3) move the fork's pins to the newest 0.12 nightly once that lands.
 
 ## CMake migration shape (from `lib/cmake/rexglue/rexglue_project.cmake` in the 0.11/0.12 archives)
 

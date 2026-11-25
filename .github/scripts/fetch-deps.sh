@@ -45,7 +45,9 @@ echo "Extracted $(basename "${url}") to sdk/${SDK_SLICE}"
 # rexglue_project() with rex::sdk.
 # That is a port across the 281 files here that include a rex/ header - 279 under
 # src/, plus the two files under generated/ that the SDK's own codegen rewrites
-# for itself; every include is mapped in docs/sdk-remap-0.11.md.
+# for itself; every include is mapped in docs/sdk-remap-0.11.md, which also records
+# that upstream development made that move on 2026-11-21 - the cheap way onto 0.12
+# is to rebase onto it, not to redo it here.
 cmake_dir="sdk/${SDK_SLICE}/lib/cmake/rexglue"
 if [ ! -d "${cmake_dir}" ]; then
   echo "::error::${SDK_REPO} ${SDK_TAG} has no ${SDK_SLICE}/lib/cmake/rexglue, so its exported targets cannot be checked"
