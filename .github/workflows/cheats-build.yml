@@ -1,8 +1,9 @@
 name: Cheats build
 
 # Builds the cheats branch for Windows and Linux and puts both on one rolling
-# prerelease, so the build people are pointed at in the PR thread has a Windows
-# artifact behind it and does not rot when the branch moves.
+# release that is also the repository's latest, so the build people are pointed
+# at in the PR thread has a Windows artifact behind it, does not rot when the
+# branch moves, and is what the releases page leads with.
 #
 # Neither upstream path reaches this repository. release.yml only fires on a v*
 # tag matching the project version and its publish job needs the CDN secrets.
@@ -195,18 +196,25 @@ jobs:
           TAG: ${{ env.ROLLING_TAG }}
         run: bash .github/scripts/compose-cheats-notes.sh
 
-      # One moving prerelease rather than a release per run: nobody has to find
-      # the current one, and the PR comment can link the tag once and stay true.
+      # One moving release rather than a release per run: nobody has to find the
+      # current one, and the PR comment can link the tag once and stay true. It is
+      # published as a full release with make_latest so the releases page leads
+      # with the build a player should actually download - the hand-made v1.0.0
+      # cheats release predates the Windows artifact and is the wrong thing to
+      # land on. "latest" is GitHub's pointer at the newest published release, not
+      # a stability promise: the notes still say the build is rolling and does not
+      # self-update. Nothing here touches upstream's own v* releases, which
+      # release.yml publishes with the CDN secrets.
       # Symbols are left out on purpose; they are for symbolizing crash logs and
       # would triple what a player downloads.
-      - name: Publish rolling prerelease
+      - name: Publish rolling release
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ env.ROLLING_TAG }}
           name: reblue ${{ needs.resolve.outputs.version }} with cheats
-          prerelease: true
+          prerelease: false
           overwrite: true
-          make_latest: false
+          make_latest: true
           target_commitish: ${{ github.sha }}
           body_path: notes.md
           files: |

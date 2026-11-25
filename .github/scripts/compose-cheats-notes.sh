@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Release notes for the rolling cheats prerelease: what is in the download, which
+# Release notes for the rolling cheats release: what is in the download, which
 # commit built it, and what is not promised. The cheats page is documented in
 # README.md, so the notes point there instead of repeating it.
 #
@@ -22,9 +22,10 @@ Downloads:
 - \`reblue-${VERSION}-cheats-x86_64.AppImage\` - Linux amd64, including Steam Deck.
 - \`reblue-${VERSION}-cheats-aarch64.AppImage\` - Linux arm64.
 
-This is a rolling prerelease (\`${TAG}\`): each build replaces the one before it,
-so the link stays current and there is nothing to hunt for. It is not a stable
-release and it does not self-update.
+This is the newest build on this repository's releases page, published on the
+moving tag \`${TAG}\`: each build replaces the one before it, so the link
+stays current and there is nothing to hunt for. Newest is not the same as stable:
+it is a rolling build, and it does not self-update.
 
 Still needs your own copy of Blue Dragon, exactly as upstream does: point the
 first-run wizard at your discs or disc images. Cheats live on their own page in
