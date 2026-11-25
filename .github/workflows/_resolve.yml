@@ -16,7 +16,12 @@ on:
         description: "rexglue-sdk release tag, or 'latest-nightly' / 'latest-stable'"
         required: false
         type: string
-        default: latest-nightly
+        # Every caller passes this today, so a default here only fires if a new
+        # caller forgets to - and then it would pick whatever nightly exists now,
+        # which is exactly the drift the callers' own pins exist to prevent. Keep
+        # the fallback on the tag this tree links; an intentional move to a newer
+        # SDK is a choice a caller makes, not a default it inherits.
+        default: nightly-20261002-bd833a2a
       asset_tag:
         description: "Extra name segment: reblue-<version><asset_tag>-<platform>.<ext>"
         required: false
