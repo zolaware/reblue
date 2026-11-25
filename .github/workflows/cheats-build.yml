@@ -15,8 +15,10 @@ name: Cheats build
 # the failure mode used to be silent: an empty assets/ compiles clean and ships
 # an executable that draws nothing but menus. cmake/shader_cache.cmake stops
 # that at configure now. If you cannot read upstream's asset repo, set the
-# ASSETS_REPO variable to one of your own and stage the blobs there from your
-# own copy of the game (see tools/ipk_extract.py).
+# ASSETS_REPO variable to one of your own and stage the blobs there by copying
+# the FX folders out of BD_SYSTEM and HC_SYSTEM on your own disc into a private
+# repository with those same paths; they are loose files on the disc, not
+# entries inside an IPK pack.
 
 on:
   workflow_dispatch:
@@ -42,18 +44,81 @@ env:
 
 jobs:
   # Cheap guard ahead of two full builds: fetch-deps would fail at the clone
-  # anyway, but an hour into the Windows job rather than in one line.
+  # anyway, but an hour into the Windows job rather than in one line. Checking
+  # only that the secret is non-empty is not enough, either - the common state is
+  # a token that exists and a 404, because a fine-grained PAT that was never
+  # granted the asset repository and an account that is not a collaborator on it
+  # are indistinguishable from the repo not existing.
   preflight:
     runs-on: ubuntu-latest
     steps:
-      - name: Require a token for the asset repo
+      - name: Prove the asset repo is readable and actually holds blobs
         env:
-          HAS_ASSETS_TOKEN: ${{ secrets.ASSETS_TOKEN != '' }}
+          ASSETS_TOKEN: ${{ secrets.ASSETS_TOKEN }}
           ASSETS_REPO: ${{ vars.ASSETS_REPO || 'zolaware/reblue-assets' }}
         run: |
-          if [ "${HAS_ASSETS_TOKEN}" != "true" ]; then
-            echo "::error::No ASSETS_TOKEN secret here, so ${ASSETS_REPO} cannot be cloned into assets/ and there are no shader blobs to compile a cache from. Add a read-only fine-grained PAT (single repository) as the ASSETS_TOKEN secret, and set the ASSETS_REPO variable if the blobs live somewhere other than zolaware/reblue-assets."
+          if [ -z "${ASSETS_TOKEN}" ]; then
+            echo "::error::No ASSETS_TOKEN secret here, so ${ASSETS_REPO} cannot be cloned into assets/ and there are no shader blobs to compile a cache from. Add a read-only fine-grained PAT (Contents: read, one repository) as the ASSETS_TOKEN secret, and set the ASSETS_REPO variable if the blobs live somewhere other than zolaware/reblue-assets."
             exit 1
+          fi
+
+          # The token goes in a header, never in the URL: a credential inside a
+          # URL that curl or git echoes back on failure is a credential in the
+          # build log, which on this repository is public.
+          status=$(curl -sS -o repo.json -w '%{http_code}' \
+            -H "Authorization: Bearer ${ASSETS_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/${ASSETS_REPO}")
+          case "${status}" in
+            200) ;;
+            401)
+              echo "::error::ASSETS_TOKEN was rejected (401): expired, revoked, or never valid."
+              exit 1 ;;
+            404)
+              echo "::error::ASSETS_TOKEN cannot see ${ASSETS_REPO} (404). Either that repository does not exist, or the token was not granted it, or your account is not a collaborator on it - and for a private repository GitHub answers 404 for all three. Mint a token scoped to the repository that holds the blobs, or point the ASSETS_REPO variable at one of your own."
+              exit 1 ;;
+            *)
+              echo "::error::looking up ${ASSETS_REPO} returned HTTP ${status}."
+              exit 1 ;;
+          esac
+
+          branch=$(jq -r '.default_branch // empty' repo.json)
+          if [ -z "${branch}" ]; then
+            echo "::error::${ASSETS_REPO} answered with no default_branch, so the blob tree cannot be located."
+            exit 1
+          fi
+
+          code=$(curl -sS -o tree.json -w '%{http_code}' \
+            -H "Authorization: Bearer ${ASSETS_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/${ASSETS_REPO}/git/trees/${branch}?recursive=1")
+          if [ "${code}" != "200" ]; then
+            echo "::error::listing ${ASSETS_REPO}@${branch} returned HTTP ${code}."
+            exit 1
+          fi
+
+          fx=$(jq '[.tree[]?.path | select(test("\\.(vso|pso)$"))] | length' tree.json)
+          xex=$(jq '[.tree[]?.path | select(endswith(".xex"))] | length' tree.json)
+
+          # Fail closed on a count we cannot read. An empty substitution here used
+          # to make the -eq tests error out while the step still exited 0, which
+          # is how a repo with no blobs at all walked past this guard.
+          for count in "${fx}" "${xex}"; do
+            case "${count}" in
+              ''|*[!0-9]*)
+                echo "::error::could not count the blob tree (read '${count}'), so refusing to build rather than ship another cache with nothing in it."
+                exit 1 ;;
+            esac
+          done
+
+          echo "${ASSETS_REPO}@${branch}: ${fx} shader blobs, ${xex} xex"
+
+          if [ "${fx}" -eq 0 ]; then
+            echo "::error::${ASSETS_REPO} is readable but carries no .vso/.pso blobs. An assets/ with no shader blobs is exactly the state that shipped a build drawing menus and text and nothing else."
+            exit 1
+          fi
+          if [ "${xex}" -eq 0 ]; then
+            echo "::warning::${ASSETS_REPO} has no .xex, so shader_cache.cmake will index the cache against nothing."
           fi
 
   resolve:
