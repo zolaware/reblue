@@ -33,6 +33,13 @@ echo "Extracted $(basename "${url}") to sdk/${SDK_SLICE}"
 # CMakeLists.txt rather than a moving SDK. rexglue-sdk renamed its whole exported
 # topology in nightly-20261109-2d51d257 - rex::runtime/rex::o1heap/rex::gpu-xenos
 # became rex::base/rex::kernel/rex::xenos - so the message below names both sides.
+# Moving forward is not that rename alone, and nobody should plan it as four line
+# edits: the nightly stream restarts at nightly-20261109-2d51d257 after a five week
+# gap, and everything in it also moved or dropped 55 of the 64 rex/ headers this
+# tree includes (rex/ui, rex/system, rex/filesystem and rex/graphics all reshaped),
+# swapped o1heap for TLSF, and rejects generated/rexglue.cmake outright in favour of
+# rexglue_project() with rex::sdk. That is a port across the 281 files here that
+# include a rex/ header.
 cmake_dir="sdk/${SDK_SLICE}/lib/cmake/rexglue"
 if [ ! -d "${cmake_dir}" ]; then
   echo "::error::${SDK_REPO} ${SDK_TAG} has no ${SDK_SLICE}/lib/cmake/rexglue, so its exported targets cannot be checked"
