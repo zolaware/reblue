@@ -27,7 +27,19 @@ on:
         description: "rexglue-sdk release: latest-nightly, latest-stable, or an explicit tag"
         required: false
         type: string
-        default: latest-nightly
+        # Pinned, not 'latest-nightly'. rexglue-sdk re-architected its exported
+        # CMake targets in nightly-20261109-2d51d257: rex::runtime, rex::o1heap and
+        # rex::gpu-xenos became rex::base, rex::kernel and rex::xenos. This tree
+        # links rex::runtime (CMakeLists.txt:133, thirdparty/CMakeLists.txt:41,
+        # cmake/generated.cmake:61) and rex::o1heap (CMakeLists.txt:155), so every
+        # nightly from 20261109 on resolves targets that do not exist. The version
+        # gate does not catch it: generated/rexglue.cmake asks for
+        # find_package(rexglue 0.10.0 CONFIG) without EXACT, so a 0.12.0-dev SDK
+        # satisfies it and the build dies at link time minutes later instead.
+        # nightly-20261002-bd833a2a is the last release still exporting the old
+        # names, and its rexglueTargets.cmake is byte-identical to the SDK the
+        # known-good local build uses. Bump this together with the target names.
+        default: nightly-20261002-bd833a2a
   schedule:
     - cron: "30 6 * * *"
 
@@ -126,7 +138,7 @@ jobs:
     uses: ./.github/workflows/_resolve.yml
     with:
       ref: ${{ github.sha }}
-      sdk_ref: ${{ inputs.sdk_ref || 'latest-nightly' }}
+      sdk_ref: ${{ inputs.sdk_ref || 'nightly-20261002-bd833a2a' }}
       asset_tag: -cheats
     secrets: inherit
 
