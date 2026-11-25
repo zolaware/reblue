@@ -1,0 +1,132 @@
+name: Cheats build
+
+# Builds the cheats branch for Windows and Linux and puts both on one rolling
+# prerelease, so the build people are pointed at in the PR thread has a Windows
+# artifact behind it and does not rot when the branch moves.
+#
+# Neither upstream path reaches this repository. release.yml only fires on a v*
+# tag matching the project version and its publish job needs the CDN secrets.
+# dev-nightly-ci.yml needs a `development` branch, which this fork has never
+# had, so every scheduled run here resolves to "no development branch", skips
+# windows/linux/publish, and still reports success.
+#
+# Needs the ASSETS_TOKEN secret: a read-only token for the asset repo the Xenos
+# shader blobs are cloned into assets/ from. Say it out loud up front, because
+# the failure mode used to be silent: an empty assets/ compiles clean and ships
+# an executable that draws nothing but menus. cmake/shader_cache.cmake stops
+# that at configure now. If you cannot read upstream's asset repo, set the
+# ASSETS_REPO variable to one of your own and stage the blobs there from your
+# own copy of the game (see tools/ipk_extract.py).
+
+on:
+  workflow_dispatch:
+    inputs:
+      sdk_ref:
+        description: "rexglue-sdk release: latest-nightly, latest-stable, or an explicit tag"
+        required: false
+        type: string
+        default: latest-nightly
+  schedule:
+    - cron: "30 6 * * *"
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: cheats-build
+  cancel-in-progress: false
+
+env:
+  ROLLING_TAG: cheats-latest
+
+jobs:
+  # Cheap guard ahead of two full builds: fetch-deps would fail at the clone
+  # anyway, but an hour into the Windows job rather than in one line.
+  preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require a token for the asset repo
+        env:
+          HAS_ASSETS_TOKEN: ${{ secrets.ASSETS_TOKEN != '' }}
+          ASSETS_REPO: ${{ vars.ASSETS_REPO || 'zolaware/reblue-assets' }}
+        run: |
+          if [ "${HAS_ASSETS_TOKEN}" != "true" ]; then
+            echo "::error::No ASSETS_TOKEN secret here, so ${ASSETS_REPO} cannot be cloned into assets/ and there are no shader blobs to compile a cache from. Add a read-only fine-grained PAT (single repository) as the ASSETS_TOKEN secret, and set the ASSETS_REPO variable if the blobs live somewhere other than zolaware/reblue-assets."
+            exit 1
+          fi
+
+  resolve:
+    needs: preflight
+    uses: ./.github/workflows/_resolve.yml
+    with:
+      ref: ${{ github.sha }}
+      sdk_ref: ${{ inputs.sdk_ref || 'latest-nightly' }}
+      asset_tag: -cheats
+    secrets: inherit
+
+  windows:
+    needs: [preflight, resolve]
+    uses: ./.github/workflows/_build-windows.yml
+    with:
+      ref: ${{ github.sha }}
+      sdk_tag: ${{ needs.resolve.outputs.sdk_tag }}
+      asset_base: ${{ needs.resolve.outputs.asset_base }}
+      update_channel: stable
+    secrets: inherit
+
+  linux:
+    needs: [preflight, resolve]
+    uses: ./.github/workflows/_build-linux.yml
+    with:
+      ref: ${{ github.sha }}
+      sdk_tag: ${{ needs.resolve.outputs.sdk_tag }}
+      asset_base: ${{ needs.resolve.outputs.asset_base }}
+      update_channel: stable
+    secrets: inherit
+
+  publish:
+    needs: [resolve, windows, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: reblue-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Compose notes
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+          SDK_TAG: ${{ needs.resolve.outputs.sdk_tag }}
+          SDK_SHORT: ${{ needs.resolve.outputs.sdk_short }}
+          COMMIT: ${{ github.sha }}
+          TAG: ${{ env.ROLLING_TAG }}
+        run: bash .github/scripts/compose-cheats-notes.sh
+
+      # One moving prerelease rather than a release per run: nobody has to find
+      # the current one, and the PR comment can link the tag once and stay true.
+      # Symbols are left out on purpose; they are for symbolizing crash logs and
+      # would triple what a player downloads.
+      - name: Publish rolling prerelease
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ env.ROLLING_TAG }}
+          name: reblue ${{ needs.resolve.outputs.version }} with cheats
+          prerelease: true
+          overwrite: true
+          make_latest: false
+          target_commitish: ${{ github.sha }}
+          body_path: notes.md
+          files: |
+            artifacts/*
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
