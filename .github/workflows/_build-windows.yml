@@ -52,8 +52,15 @@ jobs:
           ref: ${{ inputs.ref }}
           submodules: recursive
 
-      - name: Install LLVM, CMake, Ninja
-        run: choco install llvm cmake ninja -y
+      # Deliberately no LLVM here. The presets name bare 'clang'/'clang++', so
+      # whichever install comes first on PATH wins, and a standalone LLVM in
+      # Program Files\LLVM lands ahead of the clang that ships inside the
+      # Visual Studio install whose C++ STL it has to match. VS 18's STL
+      # static_asserts (STL1000) against clang releases older than its own.
+      # "Enter the Visual Studio environment" puts this install's clang first;
+      # installing a second one only re-opens the gap between the two.
+      - name: Install CMake, Ninja
+        run: choco install cmake ninja -y
 
       # The preset reads $env{VCPKG_ROOT}, but the runner only exports
       # VCPKG_INSTALLATION_ROOT.
