@@ -119,6 +119,12 @@ Multipliers take effect from the next battle or equipment change.
 - Infinite Medals: held at 9,999
 - Unlock All Classes: all nine jobs open on every party member, reserves included
 
+The per-fight multipliers pay the difference on top of what the game already
+banked for that battle, so the EXP and gold that scroll past read like ordinary
+numbers while the bar lands further along than they claim. `game_cheat_diag on`
+in the console logs one line per cheat as it acts, naming the amount, if you want
+to see the actual figure rather than trust the arithmetic.
+
 **Items**
 
 - Give All Items: one of everything the game defines, in a single press
