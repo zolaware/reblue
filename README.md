@@ -183,6 +183,35 @@ cmake --build --preset win-amd64-release
 
 Presets cover `win-amd64`, `win-vk`, `linux-amd64`, `linux-arm64`, `mac-amd64`, and `mac-arm64`, each in Debug, Release, and RelWithDebInfo. A `win-amd64` preset builds both the DX12 executable (`reblue.exe`) and the Vulkan one (`reblue_vk.exe`), and a `win-vk` one builds the Vulkan executable alone. As with running the game, building requires the files from your own copy of Blue Dragon.
 
+### Stage `assets/` before you configure
+
+The `assets/` directory is gitignored, and the build reads it for the Xenos
+shader cache: the guest `.vso` and `.pso` shader containers from your own copy of
+the game, kept under the directory names they ship in, plus the `default.xex` the
+cache is indexed against.
+
+```
+assets/default.xex
+assets/bd_system/fx/*.vso, *.pso
+assets/hc_system/fx/*.vso, *.pso
+```
+
+Building by hand, that means copying the `FX` folders out of `BD_SYSTEM` and
+`HC_SYSTEM` on your own disc into those paths. CI takes the same files from the
+asset repo instead (`.github/scripts/fetch-deps.sh`), which is why a fork of this
+repository cannot build until its `ASSETS_REPO` variable points at a repository it
+is allowed to read.
+
+An `assets/` with no blobs in it used to configure and compile without complaint
+and produce an executable that draws menus and text and nothing else, on any
+platform. It now stops at configure and tells you so. If you want the old
+behaviour anyway, build with `-DREBLUE_ALLOW_EMPTY_SHADER_CACHE=ON`.
+
+The other thing a build of this branch is unusual about: `tools/ipk_extract.py`
+lists and dumps entries from the game's IPK1 pack archives, which is where the
+dev-authored tables under `bd_gamedat` live. That is where the item-category
+grants on the cheats page got their tables from.
+
 ## Credits
 
 Huge thanks to everyone who has put time into this. re:Blue would not be where it is without you.
