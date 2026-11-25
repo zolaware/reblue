@@ -55,15 +55,15 @@ Verdict: SAME = no edit | MOVED = path-only sed | SPLIT = one old header -> seve
 | `rex/ui/style.h` | 1 | SAME | `rex/ui/style.h` | rex::ui::Style still there in 0.11/0.12, grown (Palette, AchievementsStyle/ToastStyle/SettingsStyle); src/ui/theme.h::Apply keeps compiling |
 | `rex/system/xam/content_manager.h` | 2 | MOVED | `rex/xam/content_manager.h` |  |
 | `rex/system/function_dispatcher.h` | 2 | MOVED | `rex/kernel/function_dispatcher.h` |  |
-| `rex/system/achievement_manager.h` | 1 | MOVED | `rex/xam/achievement_manager.h` |  |
+| `rex/system/achievement_manager.h` | 2 | MOVED | `rex/xam/achievement_manager.h` |  |
 | `rex/system/achievements.h` | 1 | MOVED | `rex/xam/achievement_manager.h` | Unlock/Register verified there |
 | `rex/system/format.h` | 1 | MOVED | `rex/xenos/format.h` |  |
 | `rex/system/xtypes.h` | 1 | SPLIT | `rex/kernel/types/{list,thread,io}.h` |  |
 | `rex/system/xthread.h` | 1 | SPLIT | `rex/kernel/object/kernel_thread.h + rex/kernel/types/thread.h` |  |
-| `rex/string.h` | 1 | SPLIT | `rex/string/text.h + rex/string/path.h` | the two symbols used here: rex::string::trim -> rex::string::Trim (text.h), rex::string::utf8_fix_path_separators unchanged (path.h) |
+| `rex/string.h` | 2 | SPLIT | `rex/string/text.h + rex/string/path.h` | the two symbols used here: rex::string::trim -> rex::string::Trim (text.h), rex::string::utf8_fix_path_separators unchanged (path.h) |
 | `rex/rex_app.h` | 1 | MOVED | `rex/app/app.h (+ rex/app/title_app.h)` | ReXApp -> rex::App |
-| `rex/ppc/function.h` | 1 | MOVED | `rex/ppc/call.h + rex/ppc/hook.h` |  |
-| `rex/ppc/func.h` | 1 | MOVED | `rex/ppc/call.h` | REX_XSTRINGIFY now in rex/platform.h |
+| `rex/ppc/function.h` | 2 | MOVED | `rex/ppc/call.h + rex/ppc/hook.h` |  |
+| `rex/ppc/func.h` | 2 | MOVED | `rex/ppc/call.h` | REX_XSTRINGIFY now in rex/platform.h |
 | `rex/perf/counter.h` | 1 | MOVED | `rex/platform/perf.h` | basename renamed |
 | `rex/memory/mapped_memory.h` | 1 | MOVED | `rex/memory/mapped_ptr.h + rex/kernel/memory_view.h` | MappedMemory -> MappedPtr + MemoryView |
 | `rex/logging/api.h` | 1 | MOVED | `rex/logging/log_category.h + rex/logging/logger.h` |  |
@@ -71,17 +71,17 @@ Verdict: SAME = no edit | MOVED = path-only sed | SPLIT = one old header -> seve
 | `rex/input/device_assignment.h` | 1 | GONE | `(no counterpart)` | DeviceAssignment/SlotAssignment/SharedAssignment absent in 0.12; rex/hid/input_system.h merges drivers into four user slots (InputSettings::shared_pads) -> drop the object at reblue_app.cpp:311 |
 | `rex/filesystem/vfs.h` | 1 | MOVED | `rex/filesystem/{file_system_factory,mount}.h` | VirtualFileSystem gone |
 | `rex/filesystem/file.h` | 1 | SAME | `rex/filesystem/file.h` |  |
-| `rex/filesystem/devices/stfs_container_device.h` | 1 | MOVED | `rex/filesystem/stfs.h` |  |
+| `rex/filesystem/devices/stfs_container_device.h` | 2 | MOVED | `rex/filesystem/stfs.h` |  |
 | `rex/filesystem/devices/host_path_device.h` | 1 | GONE | `rex/filesystem/file_system_factory.h` | HostPathDevice absent |
 | `rex/filesystem/devices/disc_image_device.h` | 1 | REWORK | `rex/filesystem/{mount,stfs}.h` | DiscImageDevice class absent in 0.12; the one call site (src/installer/disc_install.cpp:80) rebuilds on stfs.h IContainerImage + mount.h providers |
 | `rex/filesystem/device.h` | 1 | MOVED | `rex/xam/device.h` |  |
-| `rex/embedded_metadata.h` | 1 | MOVED | `rex/ppc/image.h` | also rexglue_embed_metadata() CMake fn |
+| `rex/embedded_metadata.h` | 2 | MOVED | `rex/ppc/image.h` | also rexglue_embed_metadata() CMake fn |
 | `rex/dbg.h` | 1 | MOVED | `rex/platform/process.h (+ rex/kernel/title_debug_output.h)` |  |
 | `rex/exception_handler.h` | 1 | MOVED | `rex/platform/exception_handler.h` |  |
 | `rex/audio/audio_system.h` | 1 | MOVED | `rex/apu/audio_system.h` |  |
 | `rex/audio/downmix.h` | 1 | GONE | `(no counterpart)` | Set/GetSurroundMix absent |
-| `rex/graphics/video_mode_util.h` | 1 | GONE | `(no counterpart)` | cvar-coupled helper |
-| `rex/hash.h` | 1 | SAME | `rex/hash.h` |  |
+| `rex/graphics/video_mode_util.h` | 2 | GONE | `(no counterpart)` | cvar-coupled helper |
+| `rex/hash.h` | 2 | SAME | `rex/hash.h` |  |
 | `rex/memory.h` | 1 | SAME | `rex/memory.h` |  |
 
 ## CMake targets: old layout vs new layout
@@ -108,6 +108,7 @@ The tree links only rex::runtime (CMakeLists.txt:133, thirdparty/CMakeLists.txt:
 - Checked against upstream `origin/development` on 2026-11-25: upstream already paid this port. `314f10a build: require SDK 0.12.0` (2026-11-21) flips `find_package(rexglue 0.11.0)` to `0.12.0` and `sdk_version` in `reblue_manifest.toml` with it, and the includes there land where this table says they would: `rex/ppc/hook.h` in 53 files, `rex/kernel/title_runtime.h` in 31, `rex/ppc/context.h`/`rex/ppc/midasm.h` in 21/25 where the `rex/ppc.h` umbrella used to sit, `rex/string/text.h` in 21, `rex/settings_registry.h` in 5 where `rex/cvar.h` sat.
 - All 8 GONE paths are at zero references in upstream's `src/` and no vendored copy of any of them is in its tree, so upstream dropped or rewrote those call sites rather than carrying the old headers - the table's "(vendor it)" option was not the route taken.
 - Suggested staging: (1) re-pin the pins to stable `v0.10.1` (done 2026-11-25: zero header diff, removes the nightly dependency, green on CI - run 45690013729, six jobs); (2) do not port this branch by hand - it is 18 commits ahead of and 33 behind `origin/development` (merge-base `85aae68 bump v1.3.1`), so the way onto 0.12 is to rebase the cheats-only commits onto `development` and let its remap stand; (3) move the fork's pins to the newest 0.12 nightly once that lands.
+- The rebase in (2) is cheaper than the numbers suggest. `git merge-tree --write-tree cheats origin/development` on 2026-11-25 - a throwaway merge that touches no working tree - leaves three files conflicted and auto-merges seventeen others. Two of the three are the CI added here (`.github/scripts/resolve.sh`, where upstream has no need for the 0.10 keyword warning, and `.github/workflows/_build-windows.yml`). The third is `src/engine/achievements/achievements.cpp`, and its conflict is the include block itself: our `rex/system/achievements.h`/`rex/system/kernel_state.h`/`rex/embedded_metadata.h` against upstream's `rex/xam/achievement_manager.h`/`rex/kernel/title_runtime.h`/`rex/ppc/image.h` - which is this table's MOVED and SPLIT rows for those three paths, decided for us. Take upstream's side in all three and the cheats-only code around them merges itself.
 - Expect `dev-nightly-ci.yml` to wake up if that rebase names its branch `development`. This fork has never had one, so every scheduled run of it resolves to "no development branch" and finishes in seconds; a branch with that name turns it on, and it builds against the newest nightly by design (`SDK_NIGHTLY_PREFIX` in its env), which needs a tree already linking `rex::base`/`rex::kernel`/`rex::xenos`. Under a different branch name it stays asleep.
 
 ## CMake migration shape (from `lib/cmake/rexglue/rexglue_project.cmake` in the 0.11/0.12 archives)
