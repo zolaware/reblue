@@ -17,12 +17,14 @@ on:
         description: "rexglue-sdk release: latest-nightly, latest-stable, or an explicit tag"
         required: false
         type: string
-        # Pinned rather than latest-nightly: a release has to stay rebuildable
-        # long after the tag is pushed, and the SDK moves daily. This is the
-        # last nightly whose exported CMake targets this tree links; anything
-        # newer trips the ABI guard in _resolve.yml until this tree moves to the
-        # rex::-qualified target names.
-        default: nightly-20261002-bd833a2a
+        # Pinned rather than latest-stable: a release has to stay rebuildable
+        # long after the tag is pushed, and the SDK moves daily. v0.10.1 is the
+        # last release whose exported CMake targets this tree links; anything
+        # newer fails the exported-target check in .github/scripts/fetch-deps.sh
+        # (and .ps1) until this tree moves to the rex::base/rex::kernel/
+        # rex::xenos names. Keep it in step with cheats-build.yml and
+        # release-macos.yml.
+        default: v0.10.1
 
 permissions:
   contents: write
@@ -39,7 +41,7 @@ jobs:
       # A tag push carries no dispatch input, so this fallback is what the
       # release actually builds against; keep it on the same SDK as the default
       # above so both triggers resolve identically.
-      sdk_ref: ${{ inputs.sdk_ref || 'nightly-20261002-bd833a2a' }}
+      sdk_ref: ${{ inputs.sdk_ref || 'v0.10.1' }}
     secrets: inherit
 
   verify:

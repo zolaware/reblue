@@ -24,7 +24,7 @@ foreach ($target in 'rex::runtime', 'rex::o1heap') {
     if (-not (Select-String -Path (Join-Path $cmakeDir '*.cmake') -Pattern $definition -Quiet)) {
         $exported = Select-String -Path (Join-Path $cmakeDir '*.cmake') -Pattern 'add_library\(rex::[a-z0-9_-]+ ' -AllMatches |
             ForEach-Object { $_.Matches.Value } | Sort-Object -Unique
-        throw "$env:SDK_REPO $env:SDK_TAG does not export $target, which this tree links; the SDK changed its exported targets. Last release that still exports them: nightly-20261002-bd833a2a. Pin that in the workflow's sdk_ref input, or move this tree to the new names. This SDK exports: $($exported -join ' ')"
+        throw "$env:SDK_REPO $env:SDK_TAG does not export $target, which this tree links; the SDK changed its exported targets. Last release that still exports them: v0.10.1. Pin that in the workflow's sdk_ref input, or move this tree to the new names (docs/sdk-remap-0.11.md). This SDK exports: $($exported -join ' ')"
     }
 }
 Write-Host "$env:SDK_TAG exports rex::runtime and rex::o1heap"

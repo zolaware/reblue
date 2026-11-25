@@ -26,10 +26,11 @@ on:
         required: false
         type: string
         # Pinned like release.yml: this rebuilds an already-shipped tag, so it
-        # must resolve to the SDK that tag was cut against, not whatever nightly
-        # is current today. Last nightly exporting the target names this tree
-        # links; newer ones trip the ABI guard in _resolve.yml.
-        default: nightly-20261002-bd833a2a
+        # must resolve to the SDK that tag was cut against, not whatever is
+        # current today. v0.10.1 is the last release exporting the target names
+        # this tree links; newer ones fail the exported-target check in
+        # .github/scripts/fetch-deps.sh.
+        default: v0.10.1
       attach:
         description: "Upload the zip to the release. Off leaves it as a run artifact."
         required: false

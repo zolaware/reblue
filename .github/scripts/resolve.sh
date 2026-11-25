@@ -13,8 +13,11 @@ if [ -z "${version}" ]; then
   exit 1
 fi
 
-# reblue_manifest.toml and generated/rexglue.cmake both require SDK 0.10.0,
-# which so far only the nightlies carry - hence the default.
+# reblue_manifest.toml declares sdk_version 0.10.0 and generated/rexglue.cmake
+# asks for find_package(rexglue 0.10.0 CONFIG) without EXACT, so both keywords
+# below are traps until this tree moves: 'latest-stable' resolves to v0.11.0 and
+# 'latest-nightly' to a 0.12.0-dev nightly, and either one fails the
+# exported-target check in fetch-deps.sh. Callers pass an explicit tag.
 case "${SDK_REF}" in
   latest-nightly)
     sdk_tag=$(gh release list --repo "${SDK_REPO}" --limit 100 \
@@ -37,6 +40,8 @@ if [ -z "${sdk_tag}" ]; then
   exit 1
 fi
 
+# Nightly tags carry a sha that is short enough to put in an artifact name; a
+# stable tag has nothing to shorten, so it is used whole (v0.10.1).
 sdk_short=$(printf '%s' "${sdk_tag}" | sed -nE 's/^nightly-[0-9]{8}-([0-9a-f]{1,8}).*/\1/p')
 [ -n "${sdk_short}" ] || sdk_short="${sdk_tag}"
 

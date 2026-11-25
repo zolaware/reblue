@@ -17,11 +17,12 @@ on:
         required: false
         type: string
         # Every caller passes this today, so a default here only fires if a new
-        # caller forgets to - and then it would pick whatever nightly exists now,
+        # caller forgets to - and then it would pick whatever release exists now,
         # which is exactly the drift the callers' own pins exist to prevent. Keep
-        # the fallback on the tag this tree links; an intentional move to a newer
-        # SDK is a choice a caller makes, not a default it inherits.
-        default: nightly-20261002-bd833a2a
+        # the fallback on v0.10.1, the newest tag whose exported targets this
+        # tree links; an intentional move to a newer SDK is a choice a caller
+        # makes, not a default it inherits.
+        default: v0.10.1
       asset_tag:
         description: "Extra name segment: reblue-<version><asset_tag>-<platform>.<ext>"
         required: false

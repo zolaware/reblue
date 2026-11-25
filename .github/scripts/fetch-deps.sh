@@ -32,14 +32,18 @@ echo "Extracted $(basename "${url}") to sdk/${SDK_SLICE}"
 # later with "target rex::runtime not found", which reads like a broken
 # CMakeLists.txt rather than a moving SDK. rexglue-sdk renamed its whole exported
 # topology in nightly-20261109-2d51d257 - rex::runtime/rex::o1heap/rex::gpu-xenos
-# became rex::base/rex::kernel/rex::xenos - so the message below names both sides.
+# became rex::base/rex::kernel/rex::xenos plus a rex::sdk aggregate - so the
+# message below names both sides. v0.10.1 (2026-11-06) is the newest release on
+# the old names at all - stable or nightly - and v0.10.0 before it.
 # Moving forward is not that rename alone, and nobody should plan it as four line
-# edits: the nightly stream restarts at nightly-20261109-2d51d257 after a five week
-# gap, and everything in it also moved or dropped 55 of the 64 rex/ headers this
-# tree includes (rex/ui, rex/system, rex/filesystem and rex/graphics all reshaped),
-# swapped o1heap for TLSF, and rejects generated/rexglue.cmake outright in favour of
-# rexglue_project() with rex::sdk. That is a port across the 281 files here that
-# include a rex/ header.
+# edits: the nightly stream restarts at nightly-20261109-2d51d257 after a five
+# week gap, and everything in it also moved or dropped 41 of the 60 rex/ headers
+# this tree includes (measured against v0.11.0 and nightly-20261122-44b7fdc5: the
+# 308 SDK headers here become 148, and rex/ui, rex/system, rex/filesystem and
+# rex/graphics all reshaped), swapped o1heap for TLSF, and rejects
+# generated/rexglue.cmake outright in favour of rexglue_project() with rex::sdk.
+# That is a port across the 281 files here that include a rex/ header; every
+# include is mapped in docs/sdk-remap-0.11.md.
 cmake_dir="sdk/${SDK_SLICE}/lib/cmake/rexglue"
 if [ ! -d "${cmake_dir}" ]; then
   echo "::error::${SDK_REPO} ${SDK_TAG} has no ${SDK_SLICE}/lib/cmake/rexglue, so its exported targets cannot be checked"
@@ -47,7 +51,7 @@ if [ ! -d "${cmake_dir}" ]; then
 fi
 for target in rex::runtime rex::o1heap; do
   if ! grep -qrE "add_library\(${target} (SHARED|STATIC|INTERFACE) IMPORTED\)" "${cmake_dir}"; then
-    echo "::error::${SDK_REPO} ${SDK_TAG} does not export ${target}, which this tree links; the SDK changed its exported targets. Last release that still exports them: nightly-20261002-bd833a2a. Pin that in the workflow's sdk_ref input, or move this tree to the new names."
+    echo "::error::${SDK_REPO} ${SDK_TAG} does not export ${target}, which this tree links; the SDK changed its exported targets. Last release that still exports them: v0.10.1. Pin that in the workflow's sdk_ref input, or move this tree to the new names (docs/sdk-remap-0.11.md)."
     echo "Targets ${SDK_TAG} does export:"
     grep -rhoE 'add_library\(rex::[a-z0-9_-]+ ' "${cmake_dir}" \
       | sed 's/add_library(//;s/ $//' | sort -u | tr '\n' ' '

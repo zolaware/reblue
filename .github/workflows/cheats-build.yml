@@ -27,19 +27,25 @@ on:
         description: "rexglue-sdk release: latest-nightly, latest-stable, or an explicit tag"
         required: false
         type: string
-        # Pinned, not 'latest-nightly'. rexglue-sdk re-architected its exported
-        # CMake targets in nightly-20261109-2d51d257: rex::runtime, rex::o1heap and
-        # rex::gpu-xenos became rex::base, rex::kernel and rex::xenos. This tree
-        # links rex::runtime (CMakeLists.txt:133, thirdparty/CMakeLists.txt:41,
-        # cmake/generated.cmake:61) and rex::o1heap (CMakeLists.txt:155), so every
-        # nightly from 20261109 on resolves targets that do not exist. The version
-        # gate does not catch it: generated/rexglue.cmake asks for
+        # Pinned to a stable tag, not a nightly: this is what shipped artifacts
+        # are built against, and a nightly can be superseded under a rebuild.
+        # v0.10.1 is the newest release that still exports the targets this tree
+        # links - rex::runtime (CMakeLists.txt:133, thirdparty/CMakeLists.txt:41,
+        # cmake/generated.cmake:61) and rex::o1heap (CMakeLists.txt:155). It
+        # carries the same 1305 files as nightly-20261002-bd833a2a, same five
+        # platform slices, and a header tree identical except rex/version.h; the
+        # libraries themselves are 0.10.1's, which is the point of taking it.
+        # The 0.11 line re-architected the exported names: rex::runtime,
+        # rex::o1heap and rex::gpu-xenos became rex::base, rex::kernel,
+        # rex::xenos and the rex::sdk aggregate, so every 0.11 or 0.12 tag -
+        # stable or nightly - resolves targets this tree does not have. The
+        # version gate does not catch it: generated/rexglue.cmake asks for
         # find_package(rexglue 0.10.0 CONFIG) without EXACT, so a 0.12.0-dev SDK
-        # satisfies it and the build dies at link time minutes later instead.
-        # nightly-20261002-bd833a2a is the last release still exporting the old
-        # names, and its rexglueTargets.cmake is byte-identical to the SDK the
-        # known-good local build uses. Bump this together with the target names.
-        default: nightly-20261002-bd833a2a
+        # satisfies it and the build dies at link time minutes later instead;
+        # fetch-deps.sh and .ps1 check the exported names before configure.
+        # Moving past v0.10.1 is a port across the 281 files here that include a
+        # rex/ header, mapped out in docs/sdk-remap-0.11.md.
+        default: v0.10.1
   schedule:
     - cron: "30 6 * * *"
 
@@ -138,7 +144,7 @@ jobs:
     uses: ./.github/workflows/_resolve.yml
     with:
       ref: ${{ github.sha }}
-      sdk_ref: ${{ inputs.sdk_ref || 'nightly-20261002-bd833a2a' }}
+      sdk_ref: ${{ inputs.sdk_ref || 'v0.10.1' }}
       asset_tag: -cheats
     secrets: inherit
 
