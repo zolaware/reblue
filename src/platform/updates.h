@@ -128,6 +128,10 @@ private:
   std::atomic<u64> apply_total_{0};
 };
 
+// RecompLauncher sets RECOMPLAUNCHER=1 and installs every release itself, so
+// no update is checked for, offered, downloaded or installed under it.
+bool UnderRecompLauncher();
+
 // Installs a staged update over the install root, then clears the staging
 // tree. True if files were replaced, meaning this process is now stale and
 // must restart into what it just wrote. Call before anything opens the files

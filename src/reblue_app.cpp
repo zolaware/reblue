@@ -456,7 +456,8 @@ void ReblueApp::OnConfigurePaths(rex::PathConfig &paths) {
 #endif
   {
     bd::platform::ClearReplacedFiles(install_root_);
-    if (bd::platform::InstallStagedUpdate(install_root_)) {
+    if (!bd::platform::UnderRecompLauncher() &&
+        bd::platform::InstallStagedUpdate(install_root_)) {
       if (!bd::platform::RelaunchSelf(false)) {
         bd::platform::ShowFatalError(
             "Update installed, could not restart",
@@ -493,7 +494,9 @@ ReblueApp::PathsForInstall(const rex::PathConfig &defaults,
 bool ReblueApp::NeedsUpgradePrompt(
     const bd::installer::InstallConfig &cfg) const {
 #if defined(_WIN32) && defined(REBLUE_BUILD_INSTALLER)
-  return !cfg.Portable() && ProgramDir() != cfg.install_root;
+  // Copying this program over another install is an update the launcher owns.
+  return !bd::platform::UnderRecompLauncher() && !cfg.Portable() &&
+         ProgramDir() != cfg.install_root;
 #else
   (void)cfg;
   return false;
