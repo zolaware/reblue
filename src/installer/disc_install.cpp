@@ -443,8 +443,7 @@ Installer::RunAsync(const std::array<fs::path, kDiscCount> &sources,
       progress.bytes_total.store(plan.total_bytes);
 
       if (require_complete && missing) {
-        progress.SetError("The selected discs are incomplete: " + std::to_string(missing) +
-                          " required files are missing. The previous installation was kept.");
+        progress.SetError(i18n::Fmt("installer.error.discs_incomplete", missing));
         progress.failed.store(true);
         progress.complete.store(true);
         return;
