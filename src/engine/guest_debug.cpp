@@ -65,7 +65,7 @@ void ApplyDebugConfig() {
   cfg.SetToolEntryBits(dev ? kAllToolEntryBits : 0u);
 
   cfg.SetDebugMindows(v);
-  Game::Get().SetMindowsHidden(!dev);
+  Game::Get().SetMindowsHidden(true);
 }
 
 } // namespace

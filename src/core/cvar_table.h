@@ -122,8 +122,8 @@ public:
               "configured");
 
   REX_SETTING(bool, devmode, false,
-              "Developer mode: debug menu boot, Mindows overlay (F11) and "
-              "debug keyboard input.");
+              "Developer mode: debug menu boot, Mindows overlay (hidden until "
+              "Ctrl+Alt+M) and debug keyboard input.");
   REX_SETTING(std::string, language, "auto",
               "UI text language: auto, us, jp, de, fr, es, it, kr, tw, cn, "
               "po. Requires restart.",
