@@ -40,9 +40,8 @@ reblue --prepare-content --disc1=<DVD1.iso> --disc2=<DVD2.iso> --disc3=<DVD3.iso
 reblue --recomplauncher-play --install-dir <installation>
 ```
 
-Each disc is one `--discN=<path>` argument; the two-argument `--disc1 <path>`
-form is still accepted. RecompLauncher runs setup again after every new release.
-When `<installation>/game` is already a finished, managed build, setup prints
+Each disc is one `--discN=<path>` argument, and all three are needed for a first
+setup. RecompLauncher runs setup again after every new release. When `<installation>/game` is already a finished, managed build, setup prints
 `progress 1 Already set up` and exits 0 without reading any disc, so the discs
 can be omitted or moved after the first setup (`keeps_copy`). Newly selected DLC
 is still imported in that case; DLC paths that no longer exist are skipped. To
@@ -61,8 +60,8 @@ another installation: the launcher installs every release.
 DLC is optional. Select up to three of your own STFS packages in the DLC slots:
 Ultra Hard Mod, Six Treasures and Shuffle Dungeon. Package files need no extension.
 The launcher passes each selected path as a single `--dlc=<path>` argument; an
-unselected slot contributes no argument. Both preparation modes accept this flag
-repeatedly, for example:
+unselected slot contributes no argument. The flag can be given repeatedly, for
+example:
 
 ```text
 reblue --prepare-content --disc1=<DVD1.iso> --disc2=<DVD2.iso> --disc3=<DVD3.iso> --install-dir <installation> --dlc=<package1> --dlc=<package2>
@@ -77,18 +76,7 @@ packs are kept on subsequent runs, and profile enable/disable choices are untouc
 If a DLC import fails, setup reports failure and keeps the prepared game and packs
 already installed, so it can be retried. Removing a launcher selection does not
 uninstall a pack; use re:Blue's DLC menu to disable or remove installed content.
-The native wizard and in-game DLC flow remain available.
-
-The existing folder-discovery command remains available:
-
-```text
-reblue --prepare-content --game-dir <DVD1.iso-or-folder> --install-dir <installation>
-```
-
-With `--game-dir`, keep all three images in one folder and select DVD 1 or that
-folder. Discovery finds the three discs by their contents and rejects missing
-or duplicate candidates. Do not combine `--game-dir` with `--disc1`/`--disc2`/
-`--disc3`; explicit inputs require all three flags once each. The native wizard's
+The native wizard and in-game DLC flow remain available, and the native wizard's
 three-disc discovery and setup behavior is unchanged.
 
 On Windows the program is `reblue.exe`; Linux packages use the AppImage and macOS

@@ -104,43 +104,35 @@ std::optional<int> Configure(std::vector<std::string> &args) {
     return std::nullopt;
   AttachStandardStreams();
   const bool prepare = args[1] == "--prepare-content";
-  fs::path source, install;
+  fs::path install;
   Sources discs{};
   std::vector<fs::path> dlc;
   try {
     for (size_t i = 2; i < args.size(); ++i) {
       const auto &flag = args[i];
-      const bool path_flag = flag == "--install-dir" || (prepare &&
-          (flag == "--game-dir" || flag == "--disc1" || flag == "--disc2" || flag == "--disc3"));
-      if (path_flag && (i + 1 == args.size() || args[i + 1].empty() || args[i + 1].starts_with("--"))) {
+      if (flag == "--install-dir" &&
+          (i + 1 == args.size() || args[i + 1].empty() || args[i + 1].starts_with("--"))) {
         std::cerr << "Missing path for: " << flag << std::endl;
         return 2;
       }
-      // --discN=<path> keeps the flag and path in one argument, as the launcher
-      // passes it; the two-argument form below stays accepted.
-      const bool joined_disc = prepare && flag.size() > 8 && flag.starts_with("--disc") &&
-                               flag[6] >= '1' && flag[6] <= '3' && flag[7] == '=';
+      // Each disc is one --discN=<path> argument, as the launcher passes it.
+      const bool disc = prepare && flag.size() > 8 && flag.starts_with("--disc") &&
+                        flag[6] >= '1' && flag[6] <= '3' && flag[7] == '=';
       if (prepare && flag.starts_with("--dlc=") && flag.size() > 6)
         dlc.push_back(FromUtf8(flag.substr(6)));
-      else if (joined_disc && discs[flag[6] - '1'].empty())
+      else if (disc && discs[flag[6] - '1'].empty())
         discs[flag[6] - '1'] = FromUtf8(flag.substr(8));
-      else if (flag == "--install-dir" && install.empty() && i + 1 < args.size())
+      else if (flag == "--install-dir" && install.empty())
         install = FromUtf8(args[++i]);
-      else if (prepare && flag == "--game-dir" && source.empty() && i + 1 < args.size())
-        source = FromUtf8(args[++i]);
-      else if (prepare && (flag == "--disc1" || flag == "--disc2" || flag == "--disc3") &&
-               discs[flag.back() - '1'].empty() && i + 1 < args.size())
-        discs[flag.back() - '1'] = FromUtf8(args[++i]);
       else {
         std::cerr << "Invalid or duplicate argument: " << flag << std::endl;
         return 2;
       }
     }
-    const bool any_disc = std::any_of(discs.begin(), discs.end(), [](const auto &p) { return !p.empty(); });
     const bool all_discs = std::all_of(discs.begin(), discs.end(), [](const auto &p) { return !p.empty(); });
-    if (install.empty() || (prepare && !source.empty() && any_disc)) {
+    if (install.empty()) {
       std::cerr << "Expected --install-dir <folder>" << (prepare ?
-          " and either --game-dir <image or folder> or all of --disc1, --disc2 and --disc3 <ISO>." : ".") << std::endl;
+          " and --disc1=, --disc2= and --disc3=<ISO>." : ".") << std::endl;
       return 2;
     }
     if (prepare) {
@@ -153,7 +145,7 @@ std::optional<int> Configure(std::vector<std::string> &args) {
       const bool built = IsPrepared(install);
       if (built)
         std::erase_if(dlc, [](const fs::path &path) { return !fs::exists(path); });
-      if (!built && source.empty() && !all_discs)
+      if (!built && !all_discs)
         throw std::runtime_error("Choose your Blue Dragon DVD 1, DVD 2 and DVD 3 images to set the game up.");
       if (built && dlc.empty()) {
         Report(1, "Already set up");
@@ -181,10 +173,8 @@ std::optional<int> Configure(std::vector<std::string> &args) {
       };
       if (built)
         Report(0.9, "Game files already set up");
-      else if (any_disc)
-        Prepare(discs, install, InspectDiscSource, Extract, progress);
       else
-        Prepare(source, install, InspectDiscSource, Extract, progress);
+        Prepare(discs, install, InspectDiscSource, Extract, progress);
       if (!dlc.empty()) {
         // A local catalog avoids initializing VFS or binding profile enable state.
         vfs::DLCCatalog catalog;

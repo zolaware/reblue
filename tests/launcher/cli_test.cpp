@@ -22,20 +22,20 @@ int main() {
                       {"reblue", "--recomplauncher-play"},
                       {"reblue", "--prepare-content", "--unexpected"},
                       {"reblue", "--recomplauncher-play", "--install-dir", "a", "--install-dir", "b"},
-                      {"reblue", "--prepare-content", "--install-dir", "out", "--disc1", "a", "--disc2", "b", "--disc3"},
-                      {"reblue", "--prepare-content", "--install-dir", "out", "--disc1", "a", "--disc2", "b", "--disc3", "c", "--disc2", "d"},
-                      {"reblue", "--prepare-content", "--install-dir", "out", "--game-dir", "folder", "--disc1", "a", "--disc2", "b", "--disc3", "c"},
-                      {"reblue", "--prepare-content", "--install-dir", "out", "--disc1", "", "--disc2", "b", "--disc3", "c"},
-                      {"reblue", "--recomplauncher-play", "--install-dir", "out", "--disc1", "a"},
-                      {"reblue", "--prepare-content", "--install-dir", "out", "--disc4", "a"},
-                      {"reblue", "--prepare-content", "--disc1", "a", "--disc2", "b", "--disc3", "c"},
-                      {"reblue", "--prepare-content", "--install-dir", "out", "--disc1", "", "--disc1", "a", "--disc2", "b", "--disc3", "c"},
-                      {"reblue", "--prepare-content", "--install-dir", "out", "--disc1", "--disc2", "b", "--disc3", "c"},
-                      {"reblue", "--prepare-content", "--game-dir", "folder", "--install-dir", "out", "--dlc="},
-                      {"reblue", "--prepare-content", "--game-dir", "folder", "--install-dir", "out", "--dlc", "pack"},
+                      {"reblue", "--prepare-content", "--install-dir", "out", "--disc1=a", "--disc2=b", "--disc3=c", "--disc2=d"},
+                      // Only --discN=<path> is accepted; the folder and two-argument forms are not.
+                      {"reblue", "--prepare-content", "--install-dir", "out", "--disc1", "a", "--disc2=b", "--disc3=c"},
+                      {"reblue", "--prepare-content", "--install-dir", "out", "--game-dir", "folder"},
+                      {"reblue", "--recomplauncher-play", "--install-dir", "out", "--disc1=a"},
+                      {"reblue", "--prepare-content", "--disc1=a", "--disc2=b", "--disc3=c"},
+                      {"reblue", "--prepare-content", "--disc1=a", "--disc2=b", "--disc3=c", "--install-dir"},
+                      {"reblue", "--prepare-content", "--install-dir", "--disc1=a", "--disc2=b", "--disc3=c"},
+                      {"reblue", "--prepare-content", "--install-dir", "", "--disc1=a", "--disc2=b", "--disc3=c"},
+                      {"reblue", "--prepare-content", "--install-dir", "out", "--dlc="},
+                      {"reblue", "--prepare-content", "--install-dir", "out", "--dlc", "pack"},
                       {"reblue", "--recomplauncher-play", "--install-dir", "out", "--dlc=pack"},
                       {"reblue", "--prepare-content", "--install-dir", "out", "--disc1=", "--disc2=b", "--disc3=c"},
-                      {"reblue", "--prepare-content", "--install-dir", "out", "--disc1=a", "--disc1", "a", "--disc2=b", "--disc3=c"},
+                      {"reblue", "--prepare-content", "--install-dir", "out", "--disc1=a", "--disc1=a", "--disc2=b", "--disc3=c"},
                       {"reblue", "--prepare-content", "--install-dir", "out", "--disc4=a"}}) {
       Check(Configure(args) == 2, "Invalid external arguments must return 2");
       ++cases;
@@ -45,10 +45,8 @@ int main() {
     Check(!Configure(normal) && normal == original, "Native arguments were changed"); ++cases;
     const auto bytes = root.u8string();
     const std::string path(bytes.begin(), bytes.end());
-    std::vector<std::string> legacy{"reblue", "--prepare-content", "--game-dir", path, "--install-dir", path + "/install"};
-    Check(Configure(legacy) == 1, "Valid discovery arguments should reach installer-disabled error, not argument rejection"); ++cases;
-    std::vector<std::string> named{"reblue", "--prepare-content", "--disc1", path + "/DVD 1 α.ISO",
-        "--disc2", path + "/another/DVD 2.ISO", "--disc3", path + "/third/DVD 3.ISO", "--install-dir", path + "/install"};
+    std::vector<std::string> named{"reblue", "--prepare-content", "--disc1=" + path + "/DVD 1 α.ISO",
+        "--disc2=" + path + "/another/DVD 2.ISO", "--disc3=" + path + "/third/DVD 3.ISO", "--install-dir", path + "/install"};
     const auto named_original = named;
     Check(Configure(named) == 1 && named == named_original,
           "Valid named disc arguments should reach installer-disabled error unchanged"); ++cases;
