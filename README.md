@@ -3,6 +3,7 @@
   <a href="https://discord.gg/92MCyYDpuY">
     <img src="https://img.shields.io/badge/Discord-Join%20Server-5865F2?logo=discord&logoColor=white" alt="Discord">
   </a>
+  <a href="https://recomplauncher.com/game/reblue"><picture><source media="(prefers-color-scheme: dark)" srcset="https://recomplauncher.com/assets/press/launcher/badge-light.svg"><img alt="Get it on RecompLauncher" src="https://recomplauncher.com/assets/press/launcher/badge-dark.svg" height="48"></picture></a>
 </h1>
 
 > [!IMPORTANT]
@@ -59,9 +60,10 @@ The wizard only needs to run once. If something later goes missing from your ins
 RecompLauncher asks for each of the three discs separately, prepares them without
 opening the wizard, starts the game directly and edits common graphics settings.
 The disc images can be in different folders. Three optional DLC slots import
-your supported Blue Dragon packages using the native installer. Use the Windows zip, standalone
-Linux AppImage, or macOS zip. The AppImage embeds its manifest; Windows and macOS
-packages include it beside the program. See [the integration guide](docs/RECOMPLAUNCHER.md).
+your supported Blue Dragon packages using the native installer. The Windows zip,
+Linux AppImage and macOS zip all carry `recomplauncher.json`. Setup through the
+launcher is untested with real discs, and untested on Linux, Steam Deck and macOS. See
+[the integration guide](docs/RECOMPLAUNCHER.md).
 
 ## Features
 
