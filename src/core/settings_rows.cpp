@@ -232,16 +232,16 @@ constexpr i32 kAnisotropyOn = 16;
 constexpr SettingOption kAniso[] = {
     {.text = "Off", .num = 0, .key = "opt.off"},
     {.text = "On", .num = kAnisotropyOn, .key = "opt.on"}};
-constexpr SettingOption kPostQuality[] = {
+constexpr SettingOption kBloomQuality[] = {
     {.text = "Low",
-     .num = static_cast<double>(static_cast<i32>(gpu::PostQuality::Low)),
-     .key = gpu::ToString(gpu::PostQuality::Low)},
+     .num = static_cast<double>(static_cast<i32>(gpu::BloomQuality::Low)),
+     .key = gpu::ToString(gpu::BloomQuality::Low)},
     {.text = "Medium",
-     .num = static_cast<double>(static_cast<i32>(gpu::PostQuality::Medium)),
-     .key = gpu::ToString(gpu::PostQuality::Medium)},
+     .num = static_cast<double>(static_cast<i32>(gpu::BloomQuality::Medium)),
+     .key = gpu::ToString(gpu::BloomQuality::Medium)},
     {.text = "High",
-     .num = static_cast<double>(static_cast<i32>(gpu::PostQuality::High)),
-     .key = gpu::ToString(gpu::PostQuality::High)}};
+     .num = static_cast<double>(static_cast<i32>(gpu::BloomQuality::High)),
+     .key = gpu::ToString(gpu::BloomQuality::High)}};
 constexpr SettingOption kReflectionQuality[] = {
     {.text = "Low",
      .num = static_cast<double>(static_cast<i32>(gpu::ReflectionQuality::Low)),
@@ -670,20 +670,20 @@ constexpr SettingRow kGraphicsSettings[] = {
      .options = kReflectionQuality,
      .count = OptCount(kReflectionQuality),
      .sliderUi = true},
-    {.label = "settings.graphics.post_processing.label",
+    {.label = "settings.graphics.bloom.label",
      .group = "menu.header.detail",
-     .desc = "settings.graphics.post_processing.desc",
+     .desc = "settings.graphics.bloom.desc",
      .binding = {.get =
                      [] {
                        return static_cast<double>(static_cast<i32>(
-                           bd::gpu::GetPostQuality()));
+                           bd::gpu::GetBloomQuality()));
                      },
                  .set =
                      [](double v) {
-                       return bd::cvars::Get().post_quality.Set(static_cast<i32>(v)).has_value();
+                       return bd::cvars::Get().bloom_quality.Set(static_cast<i32>(v)).has_value();
                      }},
-     .options = kPostQuality,
-     .count = OptCount(kPostQuality),
+     .options = kBloomQuality,
+     .count = OptCount(kBloomQuality),
      .sliderUi = true},
     // Counted in percent, so the row reads as how much of the effect is left
     // rather than as the multiplier the setting stores.

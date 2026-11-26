@@ -165,13 +165,12 @@ public:
               "MSAA sample count for the 3D scene: 0 = off, 2, 4, 8. Clamped "
               "to device support.",
               rex::Range{0, 8}, rex::Allowed("0", "2", "4", "8"));
-  REX_SETTING(i32, post_quality,
-              static_cast<i32>(bd::gpu::kDefaultSettings.postQuality),
-              "Resolution the bloom and depth-of-field chain runs at: 0 = "
-              "half the scene, 1 = the scene, 2 = the widened bloom target the "
-              "native renderer builds.",
-              rex::Range{static_cast<f64>(bd::gpu::PostQuality::Low),
-                         static_cast<f64>(bd::gpu::PostQuality::High)});
+  REX_SETTING(i32, bloom_quality,
+              static_cast<i32>(bd::gpu::kDefaultSettings.bloomQuality),
+              "Resolution the bloom chain runs at: 0 = half the size BD "
+              "authored, 1 = that size, 2 = twice it.",
+              rex::Range{static_cast<f64>(bd::gpu::BloomQuality::Low),
+                         static_cast<f64>(bd::gpu::BloomQuality::High)});
   REX_SETTING(i32, reflection_quality,
               static_cast<i32>(bd::gpu::kDefaultSettings.reflectionQuality),
               "How far a planar reflection grows past the size BD authored: 0 "

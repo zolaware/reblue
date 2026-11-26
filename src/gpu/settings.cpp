@@ -35,8 +35,8 @@ f64 GetFOVTanScale() {
          std::tan(kAuthoredFOVDegrees * kHalfDegreesToRadians);
 }
 
-PostQuality GetPostQuality() {
-  return static_cast<PostQuality>(bd::cvars::Get().post_quality.Get());
+BloomQuality GetBloomQuality() {
+  return static_cast<BloomQuality>(bd::cvars::Get().bloom_quality.Get());
 }
 
 ReflectionQuality GetReflectionQuality() {
@@ -53,7 +53,7 @@ QualityPreset GetPreset() {
         std::abs(c.shadow_distance.Get() - p.shadowDistance) <
             kShadowDistanceEpsilon &&
         c.shadow_dimension.Get() == p.shadowDimension &&
-        c.post_quality.Get() == static_cast<i32>(p.postQuality) &&
+        c.bloom_quality.Get() == static_cast<i32>(p.bloomQuality) &&
         c.reflection_quality.Get() == static_cast<i32>(p.reflectionQuality)) {
       return static_cast<QualityPreset>(i);
     }
@@ -78,7 +78,7 @@ bool SetPreset(QualityPreset preset) {
   ok = c.msaa.Set(p.msaa).has_value() && ok;
   ok = c.anisotropy.Set(p.anisotropy).has_value() && ok;
   ok = SetShadowQuality(p.shadowDistance, p.shadowDimension) && ok;
-  ok = c.post_quality.Set(static_cast<i32>(p.postQuality)).has_value() && ok;
+  ok = c.bloom_quality.Set(static_cast<i32>(p.bloomQuality)).has_value() && ok;
   ok = c.reflection_quality.Set(static_cast<i32>(p.reflectionQuality))
            .has_value() &&
        ok;

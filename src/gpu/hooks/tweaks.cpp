@@ -39,11 +39,10 @@ constexpr u32 kScreenUVScaleReg = 50;
 constexpr u32 kSsScatterBlurEA = 0x82DF4344;
 
 constexpr u32 kBloomPoolSlotDims[] = {0x30A8, 0x30F4};
-constexpr u32 kDOFPoolSlotDims[] = {0x268, 0x318};
 
-bool PostQualityChanged(u32 owner) {
-  static std::unordered_map<u32, bd::gpu::PostQuality> applied;
-  const bd::gpu::PostQuality quality = bd::gpu::GetPostQuality();
+bool BloomQualityChanged(u32 owner) {
+  static std::unordered_map<u32, bd::gpu::BloomQuality> applied;
+  const bd::gpu::BloomQuality quality = bd::gpu::GetBloomQuality();
   auto &entry = applied.try_emplace(owner, quality).first->second;
   if (entry == quality)
     return false;
@@ -59,21 +58,15 @@ void InvalidatePoolKeys(u32 owner, const u32 (&slots)[2]) {
 }
 
 f64 BloomTargetScale() {
-  switch (bd::gpu::GetPostQuality()) {
-  case bd::gpu::PostQuality::Low:
+  switch (bd::gpu::GetBloomQuality()) {
+  case bd::gpu::BloomQuality::Low:
     return 0.5;
-  case bd::gpu::PostQuality::Medium:
+  case bd::gpu::BloomQuality::Medium:
     return 1.0;
-  case bd::gpu::PostQuality::High:
+  case bd::gpu::BloomQuality::High:
     break;
   }
   return 2.0;
-}
-
-f64 DOFIntermediateScale() {
-  return bd::gpu::GetPostQuality() == bd::gpu::PostQuality::Low
-             ? 0.5
-             : 1.0;
 }
 
 // The step is a constant over the target's logical dims, so a host scale of
@@ -252,7 +245,7 @@ REX_MIDASM_AT(bdDOFStrengthScaleHook, 0x82217224, after, r11);
 
 REX_MIDASM_HOOK(bdGaussianBlurTapStepHook, (PPCRegister &f0, PPCRegister &f13, PPCRegister &r28)) {
   if (r28.u32 != kSsScatterBlurEA)
-    ScaleBlurTapStep(f0, f13, DOFIntermediateScale());
+    ScaleBlurTapStep(f0, f13, 1.0);
 }
 REX_MIDASM_AT(bdGaussianBlurTapStepHook, 0x8221515C, before, f0, f13, r28);
 
@@ -268,21 +261,10 @@ REX_MIDASM_AT(bdBloomTargetSizeHook, 0x8221B360, after, r4, r5);
 REX_MIDASM_AT(bdBloomTargetSizeHook, 0x8221B38C, after, r4, r5);
 
 REX_MIDASM_HOOK(bdBloomPoolInvalidateHook, (PPCRegister &r31)) {
-  if (PostQualityChanged(r31.u32))
+  if (BloomQualityChanged(r31.u32))
     InvalidatePoolKeys(r31.u32, kBloomPoolSlotDims);
 }
 REX_MIDASM_AT(bdBloomPoolInvalidateHook, 0x8221B238, before, r31);
-
-REX_MIDASM_HOOK(bdDOFPoolInvalidateHook, (PPCRegister &r31)) {
-  if (PostQualityChanged(r31.u32))
-    InvalidatePoolKeys(r31.u32, kDOFPoolSlotDims);
-}
-REX_MIDASM_AT(bdDOFPoolInvalidateHook, 0x82217130, before, r31);
-
-REX_MIDASM_HOOK(bdDOFIntermediateScaleHook, (PPCRegister &r28, PPCRegister &r26)) {
-  ScaleTargetDims(r28, r26, DOFIntermediateScale());
-}
-REX_MIDASM_AT(bdDOFIntermediateScaleHook, 0x82217600, before, r28, r26);
 
 // r3 is a shader constant flush descriptor: flags @0 (bit1 = pixel shader
 // flush), startReg @4, endReg @8, pData @0xC. The fountain water object authors

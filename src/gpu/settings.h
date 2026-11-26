@@ -28,7 +28,7 @@ enum class AspectMode : i32 {
 // which is this across that ratio. bd_fov_offset moves off it, and 0 keeps it.
 inline constexpr i32 kAuthoredFOVDegrees = 46;
 
-enum class PostQuality : i32 {
+enum class BloomQuality : i32 {
   Low = 0,
   Medium = 1,
   High = 2,
@@ -40,13 +40,13 @@ enum class ReflectionQuality : i32 {
   High = 2,
 };
 
-constexpr const char *ToString(PostQuality quality) {
+constexpr const char *ToString(BloomQuality quality) {
   switch (quality) {
-  case PostQuality::Low:
+  case BloomQuality::Low:
     return "opt.preset.low";
-  case PostQuality::Medium:
+  case BloomQuality::Medium:
     return "opt.preset.medium";
-  case PostQuality::High:
+  case BloomQuality::High:
     return "opt.preset.high";
   }
   return "";
@@ -85,18 +85,18 @@ struct PresetBundle {
   i32 anisotropy;
   f64 shadowDistance;
   i32 shadowDimension;
-  PostQuality postQuality;
+  BloomQuality bloomQuality;
   ReflectionQuality reflectionQuality;
 };
 
 inline constexpr PresetBundle kPresets[kQualityPresetCount] = {
-    /* Low    */ {1, 0, 16, 1.0, 1024, PostQuality::Low,
+    /* Low    */ {1, 0, 16, 1.0, 1024, BloomQuality::Low,
                   ReflectionQuality::Low},
-    /* Medium */ {1, 4, 16, 2.0, 4096, PostQuality::Medium,
+    /* Medium */ {1, 4, 16, 2.0, 4096, BloomQuality::Medium,
                   ReflectionQuality::Medium},
-    /* High   */ {2, 4, 16, 2.0, 4096, PostQuality::High,
+    /* High   */ {2, 4, 16, 2.0, 4096, BloomQuality::High,
                   ReflectionQuality::High},
-    /* Ultra  */ {2, 8, 16, 4.0, 8192, PostQuality::High,
+    /* Ultra  */ {2, 8, 16, 4.0, 8192, BloomQuality::High,
                   ReflectionQuality::High},
 };
 
@@ -130,7 +130,7 @@ bool SetVsync(bool on);
 
 f64 GetFOVTanScale();
 
-PostQuality GetPostQuality();
+BloomQuality GetBloomQuality();
 ReflectionQuality GetReflectionQuality();
 
 QualityPreset GetPreset();

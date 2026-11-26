@@ -57,8 +57,8 @@ void SplitWindowSizeFromResolution() {
 }
 
 void PreserveUngatedPostAndReflections() {
-  CvarSet("bd.post_quality",
-          std::to_string(static_cast<i32>(gpu::PostQuality::High)));
+  CvarSet("bd.bloom_quality",
+          std::to_string(static_cast<i32>(gpu::BloomQuality::High)));
   CvarSet("bd.reflection_quality",
           std::to_string(static_cast<i32>(gpu::ReflectionQuality::High)));
 }
@@ -204,6 +204,16 @@ void SettingsMigration::RewriteFile(const std::filesystem::path &file) {
     }
     node.visit([&](auto &value) { target->insert_or_assign(leaf, value); });
     moved = true;
+  }
+  if (toml::table *scope = out["bd"].as_table()) {
+    if (const toml::node *post = scope->get("post_quality")) {
+      if (!scope->contains("bloom_quality"))
+        post->visit([&](auto &value) {
+          scope->insert_or_assign("bloom_quality", value);
+        });
+      scope->erase("post_quality");
+      moved = true;
+    }
   }
   if (!moved && dropped.empty())
     return;
