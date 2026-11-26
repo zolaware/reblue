@@ -10,10 +10,17 @@
 
 #ifdef _WIN32
 #include "core/windows_lean.h"
+#else
+#include <cerrno>
+#include <fcntl.h>
+#include <sys/file.h>
+#include <unistd.h>
 #endif
 
 namespace bd::launcher {
 namespace {
+constexpr const char *kTransaction = ".reblue-preparing";
+constexpr const char *kLock = ".reblue-preparing.lock";
 // Every kContentVersion starts with this, so an older version is still ours to replace.
 constexpr std::string_view kOwnerPrefix = "reblue-content-";
 
@@ -44,7 +51,87 @@ void CheckDestination(const fs::path &game) {
   if (Linked(game) || (fs::exists(game) && !Owned(game)))
     throw std::runtime_error("The game destination is not managed by this integration; its files were kept.");
 }
+
+// An OS lock on a file in the installation, held for the whole setup. The OS
+// lets go of it when the process ends, however it ends (the launcher's Cancel,
+// its stop after an hour without output, or the launcher closing), so a lock
+// that can be taken means any transaction on disk was left by a stopped run.
+class SetupLock {
+public:
+  explicit SetupLock(const fs::path &root) {
+    const auto file = root / kLock;
+#ifdef _WIN32
+    // No sharing: a second open fails while this handle is open. The file goes
+    // with the handle.
+    handle_ = CreateFileW(file.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_ALWAYS,
+                          FILE_ATTRIBUTE_HIDDEN | FILE_FLAG_DELETE_ON_CLOSE, nullptr);
+    if (handle_ == INVALID_HANDLE_VALUE) {
+      if (GetLastError() == ERROR_SHARING_VIOLATION)
+        Running();
+      throw std::runtime_error("Cannot create the setup lock " + Utf8(file) + ".");
+    }
+#else
+    // The file stays after the run: removing it while another setup waits to
+    // open it would let two setups lock different files.
+    fd_ = ::open(file.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0644);
+    if (fd_ < 0)
+      throw std::runtime_error("Cannot create the setup lock " + Utf8(file) + ".");
+    if (::flock(fd_, LOCK_EX | LOCK_NB) != 0) {
+      const int error = errno;
+      ::close(fd_);
+      if (error == EWOULDBLOCK)
+        Running();
+      throw std::runtime_error("Cannot lock " + Utf8(file) + ".");
+    }
+#endif
+  }
+  ~SetupLock() {
+#ifdef _WIN32
+    CloseHandle(handle_);
+#else
+    ::close(fd_);
+#endif
+  }
+  SetupLock(const SetupLock &) = delete;
+  SetupLock &operator=(const SetupLock &) = delete;
+
+private:
+  [[noreturn]] static void Running() {
+    throw std::runtime_error("Another re:Blue setup is running for this installation. "
+                             "Wait for it to finish, then try again.");
+  }
+#ifdef _WIN32
+  HANDLE handle_ = INVALID_HANDLE_VALUE;
+#else
+  int fd_ = -1;
+#endif
+};
+
+// Call with the lock held. A stopped run leaves the transaction in one of these
+// states: game/ in place and new/ partly written (remove it), or the previous
+// game moved to old/ and the new one not yet published (put old/ back).
+void Recover(const fs::path &root) {
+  const auto transaction = root / kTransaction;
+  if (!fs::exists(fs::symlink_status(transaction)))
+    return;
+  const auto game = root / "game", old = transaction / "old";
+  if (fs::is_directory(fs::symlink_status(old)) && !fs::exists(fs::symlink_status(game)))
+    fs::rename(old, game);
+  std::error_code error;
+  fs::remove_all(transaction, error);
+  if (error)
+    throw std::runtime_error("Cannot remove the unfinished setup in " + Utf8(transaction) +
+                             ": " + error.message());
+}
 } // namespace
+
+void RecoverSetup(const fs::path &install) {
+  const auto root = fs::weakly_canonical(fs::absolute(install));
+  if (!fs::exists(fs::symlink_status(root / kTransaction)))
+    return;
+  SetupLock lock(root);
+  Recover(root);
+}
 
 bool Overlaps(const fs::path &a, const fs::path &b) {
   const auto left = fs::weakly_canonical(fs::absolute(a));
@@ -148,15 +235,16 @@ namespace {
 void PrepareSources(const Sources &sources, const fs::path &root,
                     const Extractor &extract, const Progress &progress) {
   const auto game = root / "game";
-  CheckDestination(game);
   for (const auto &disc : sources)
     if (Overlaps(root, disc))
       throw std::runtime_error("The disc images and installation must be in separate folders.");
   fs::create_directories(root);
-  const auto transaction = root / ".reblue-preparing";
+  const SetupLock lock(root);
+  Recover(root);
+  CheckDestination(game);
+  const auto transaction = root / kTransaction;
   if (!fs::create_directory(transaction))
-    throw std::runtime_error("Setup is running or an interrupted setup remains in " +
-                             Utf8(transaction) + ". Keep it for recovery or move it aside before retrying.");
+    throw std::runtime_error("Cannot start setup in " + Utf8(transaction) + ".");
   bool moved_old = false, published = false, preserve = false;
   try {
     const auto staged = transaction / "new" / "game";

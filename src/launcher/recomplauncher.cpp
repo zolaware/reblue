@@ -148,6 +148,8 @@ std::optional<int> Configure(std::vector<std::string> &args) {
       // launcher kept the build. A published game folder of the current
       // kContentVersion is the finished build: its files come from the discs,
       // not from this program's release version.
+      // A setup the launcher stopped may have moved the previous game aside.
+      RecoverSetup(install);
       const bool built = IsPrepared(install);
       if (built)
         std::erase_if(dlc, [](const fs::path &path) { return !fs::exists(path); });

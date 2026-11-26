@@ -43,6 +43,11 @@ fs::path PreparedGame(const fs::path &install);
 // True when a completed, managed game folder of the current content version is
 // already published.
 bool IsPrepared(const fs::path &install);
+// Finish what a stopped setup left behind: put the previous game back if it was
+// moved aside and nothing replaced it, then remove the leftover transaction.
+// Throws when another setup is running for this installation, or the leftover
+// cannot be removed. Prepare does this itself.
+void RecoverSetup(const fs::path &install);
 void Prepare(const fs::path &input, const fs::path &install,
              const Inspector &inspect, const Extractor &extract,
              const Progress &progress);

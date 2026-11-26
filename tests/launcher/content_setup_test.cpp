@@ -1,10 +1,22 @@
 // SPDX-License-Identifier: BSD-3-Clause
 #include "launcher/content_setup.h"
 #include <chrono>
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
+#include <string_view>
+#include <thread>
 #include <vector>
+
+#ifdef _WIN32
+#include "core/windows_lean.h"
+#include <shellapi.h>
+#else
+#include <csignal>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
 
 namespace fs = std::filesystem;
 using namespace bd::launcher;
@@ -31,13 +43,18 @@ struct Fixture {
   fs::path images = root / fs::path(u8"Disc images Ελληνικά 日本語");
   fs::path install = root / "installation";
   std::vector<double> progress;
+  bool owner = true;
   Fixture() {
     for (int n = 1; n <= 3; ++n)
       Write(images / ("arbitrary-name-" + std::to_string(n) + ".ISO"), std::to_string(n));
     Write(install / "profiles/default/saves/player.sav", "my save");
     Write(install / "profiles/default/reblue.toml", "my settings");
   }
-  ~Fixture() { std::error_code ignored; fs::remove_all(root, ignored); }
+  // Another process's fixture, left in place.
+  explicit Fixture(const fs::path &existing)
+      : root(existing), images(root / fs::path(u8"Disc images Ελληνικά 日本語")),
+        install(root / "installation"), owner(false) {}
+  ~Fixture() { if (owner) { std::error_code ignored; fs::remove_all(root, ignored); } }
   Inspector inspector = [](const fs::path &path) {
     char disc = 0; std::ifstream(path).get(disc);
     std::array<bool, 3> result{};
@@ -56,7 +73,68 @@ struct Fixture {
   }
 };
 
+// Setup in this process that writes part of the game, then waits to be killed.
+[[noreturn]] void RunStalledSetup(const fs::path &root) {
+  try {
+    Fixture f(root);
+    const auto extract = f.extractor;
+    f.extractor = [&](const Sources &sources, const fs::path &game, const Progress &progress) {
+      extract(sources, game, progress);
+      Write(game / "stalled");
+      for (;;) std::this_thread::sleep_for(std::chrono::seconds(1));
+    };
+    f.PrepareNow();
+  } catch (const std::exception &error) {
+    std::cerr << "Stalled setup failed: " << error.what() << '\n';
+  }
+  std::_Exit(3);
+}
+
+#ifdef _WIN32
+using Child = HANDLE;
+Child StartStalledSetup(const fs::path &root) {
+  std::wstring self(32768, L'\0');
+  self.resize(GetModuleFileNameW(nullptr, self.data(), static_cast<DWORD>(self.size())));
+  std::wstring command = L"\"" + self + L"\" --stalled-setup \"" + root.wstring() + L"\"";
+  STARTUPINFOW startup{sizeof(startup)};
+  PROCESS_INFORMATION process{};
+  if (!CreateProcessW(self.c_str(), command.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr,
+                      &startup, &process))
+    throw std::runtime_error("Cannot start the stalled setup");
+  CloseHandle(process.hThread);
+  return process.hProcess;
+}
+void Kill(Child child) {
+  TerminateProcess(child, 9);
+  WaitForSingleObject(child, INFINITE);
+  CloseHandle(child);
+}
+#else
+using Child = pid_t;
+Child StartStalledSetup(const fs::path &root) {
+  std::cout.flush();
+  const pid_t pid = fork();
+  if (pid < 0)
+    throw std::runtime_error("Cannot start the stalled setup");
+  if (pid == 0)
+    RunStalledSetup(root);
+  return pid;
+}
+void Kill(Child child) {
+  kill(child, SIGKILL);
+  int status = 0;
+  waitpid(child, &status, 0);
+}
+#endif
+
 int main() {
+#ifdef _WIN32
+  // The fixture path can hold any character, so read the wide command line.
+  int count = 0;
+  if (const auto args = CommandLineToArgvW(GetCommandLineW(), &count); args && count == 3 &&
+      std::wstring_view(args[1]) == L"--stalled-setup")
+    RunStalledSetup(args[2]);
+#endif
   int passed = 0;
   auto test = [&](const char *name, auto fn) {
     fn(); ++passed; std::cout << "PASS " << name << '\n';
@@ -262,10 +340,55 @@ int main() {
       Fails([&] { f.PrepareNow(); }, "not managed");
       Check(fs::exists(f.install / "game/keep"), "Unowned file removed");
     });
-    test("interrupted staging is preserved", [] {
-      Fixture f; Write(f.install / ".reblue-preparing/recovery");
-      Fails([&] { f.PrepareNow(); }, "interrupted");
-      Check(fs::exists(f.install / ".reblue-preparing/recovery"), "Recovery removed");
+    test("a leftover setup is removed and the next setup carries on", [] {
+      Fixture f; f.PrepareNow(); Write(f.install / "game/keep", "previous");
+      Write(f.install / ".reblue-preparing/new/game/partial");
+      RecoverSetup(f.install);
+      Check(!fs::exists(f.install / ".reblue-preparing"), "Leftover setup remains");
+      Check(fs::file_size(f.install / "game/keep") == 8, "Published game changed");
+      Write(f.install / ".reblue-preparing/new/game/partial"); f.PrepareNow();
+      Check(IsPrepared(f.install) && !fs::exists(f.install / ".reblue-preparing"), "Setup did not carry on");
+    });
+    test("a game moved aside by a stopped setup is put back", [] {
+      Fixture f; f.PrepareNow(); Write(f.install / "game/keep", "previous");
+      fs::create_directories(f.install / ".reblue-preparing/new/game");
+      fs::rename(f.install / "game", f.install / ".reblue-preparing/old");
+      RecoverSetup(f.install);
+      Check(fs::file_size(f.install / "game/keep") == 8 && IsPrepared(f.install), "Previous game not put back");
+      Check(!fs::exists(f.install / ".reblue-preparing"), "Leftover setup remains");
+      // Prepare recovers too: a failed extraction afterwards keeps the old game.
+      fs::create_directories(f.install / ".reblue-preparing");
+      fs::rename(f.install / "game", f.install / ".reblue-preparing/old");
+      f.extractor = [](const Sources &, const fs::path &, const Progress &) {
+        throw std::runtime_error("injected copy failure");
+      };
+      Fails([&] { f.PrepareNow(); }, "injected copy failure");
+      Check(fs::file_size(f.install / "game/keep") == 8, "Previous game lost");
+    });
+    test("a moved-aside game is dropped once the new game was published", [] {
+      Fixture f; f.PrepareNow();
+      Write(f.install / ".reblue-preparing/old/stale");
+      RecoverSetup(f.install);
+      Check(IsPrepared(f.install) && !fs::exists(f.install / ".reblue-preparing"), "Published game not kept");
+    });
+    test("setup killed mid-extraction runs again", [] {
+      Fixture f; f.PrepareNow(); Write(f.install / "game/keep", "previous");
+      auto child = StartStalledSetup(f.root);
+      const auto stalled = f.install / ".reblue-preparing/new/game/stalled";
+      for (int i = 0; i < 600 && !fs::exists(stalled); ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+      if (!fs::exists(stalled)) { Kill(child); throw std::runtime_error("Stalled setup never started"); }
+      // While it runs, its transaction is never touched.
+      Fails([&] { f.PrepareNow(); }, "running");
+      Fails([&] { RecoverSetup(f.install); }, "running");
+      Check(fs::exists(stalled), "Running setup disturbed");
+      Kill(child);
+      Check(fs::exists(stalled), "Kill left no unfinished setup behind");
+      f.PrepareNow();
+      Check(IsPrepared(f.install), "Setup after the kill did not publish");
+      Check(!fs::exists(f.install / "game/keep"), "Setup after the kill did not replace the game");
+      Check(!fs::exists(f.install / ".reblue-preparing"), "Killed setup remains");
+      Check(fs::file_size(f.install / "profiles/default/saves/player.sav") == 7, "Save changed");
     });
     test("source and destination overlap rejected", [] {
       Fixture f; f.install = f.images / "nested";

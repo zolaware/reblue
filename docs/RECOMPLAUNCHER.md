@@ -107,11 +107,16 @@ published as `game`. An existing `game` folder is replaced only if its
 `.reblue-content` marker identifies it as managed by this integration.
 Unowned game folders, source disc images, profiles, saves and settings are kept.
 If publishing fails, setup attempts to restore the previous game folder. If that
-restore fails, its files remain under `.reblue-preparing/old` for recovery.
+restore fails, its files remain under `.reblue-preparing/old` for the next setup.
 
-An interrupted setup can leave `.reblue-preparing`. Keep it for recovery
-or move it aside once all setup processes have stopped, then retry. It is never
-silently deleted by the next setup. Do not run preparation while re:Blue is open.
+A running setup holds an OS lock on `.reblue-preparing.lock`, which the system
+releases however the process ends. A setup stopped partway (RecompLauncher's
+Cancel, its stop after an hour without output, or the launcher closing) leaves
+`.reblue-preparing` behind; the next setup takes the lock, puts
+`.reblue-preparing/old` back as `game` if the previous game was moved aside and
+nothing replaced it, removes the rest and carries on. While another setup holds
+the lock, setup stops with a message to wait for it. Do not run preparation
+while re:Blue is open.
 
 These commands do not register or replace a global native installation record,
 copy or relaunch the application elsewhere, or invoke the graphical setup wizard.
