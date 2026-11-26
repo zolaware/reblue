@@ -29,6 +29,7 @@ set(reblue_d3d12_only
     gpu/shaders/shader_linker.h)
 
 set(reblue_installer_only
+    installer/disc_image.cpp
     installer/disc_install.cpp
     installer/disc_install.h
     installer/installer_wizard.cpp
