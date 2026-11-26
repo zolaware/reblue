@@ -31,8 +31,7 @@ using DLCValidator = std::function<std::string(const fs::path &)>;
 std::vector<DLCSource> ValidateDLC(const std::vector<fs::path> &input,
                                    const fs::path &install, const DLCValidator &validate);
 
-Sources FindDiscs(const fs::path &input, const Inspector &inspect);
-// Explicit slots must each contain exactly the requested disc; no sibling search.
+// Each slot must contain exactly the requested disc; no sibling search.
 Sources ValidateDiscs(const Sources &input, const Inspector &inspect);
 bool Overlaps(const fs::path &a, const fs::path &b);
 // True when game/ was made by this setup, at any content version.
@@ -48,9 +47,6 @@ bool IsPrepared(const fs::path &install);
 // Throws when another setup is running for this installation, or the leftover
 // cannot be removed. Prepare does this itself.
 void RecoverSetup(const fs::path &install);
-void Prepare(const fs::path &input, const fs::path &install,
-             const Inspector &inspect, const Extractor &extract,
-             const Progress &progress);
 void Prepare(const Sources &input, const fs::path &install,
              const Inspector &inspect, const Extractor &extract,
              const Progress &progress);

@@ -160,6 +160,6 @@ Linux-only packaging/entry checks.
 
 Pass `-DCMAKE_PREFIX_PATH=<SDK>` and `-DREBLUE_TEST_WITH_SDK=ON` to also compile the
 SDK startup adapter and strict installer, and build `disc_probe`. The optional
-`disc_probe <disc-image-folder>` runs the production title/disc checks against
+`disc_probe <DVD1.iso> <DVD2.iso> <DVD3.iso>` runs the production title/disc checks against
 your own images without extracting them or starting a renderer. The full game
 build still requires the normal SDK, guest-code generation and game assets.

@@ -5,13 +5,15 @@
 #include <iostream>
 
 int main(int argc, char **argv) {
-  if (argc != 2)
+  if (argc != 4)
     return 2;
   try {
-    const std::string input(argv[1]);
-    const auto sources = bd::launcher::FindDiscs(
-        std::filesystem::path(std::u8string(input.begin(), input.end())),
-        bd::launcher::InspectDiscSource);
+    bd::launcher::Sources input;
+    for (size_t i = 0; i < input.size(); ++i) {
+      const std::string path(argv[i + 1]);
+      input[i] = std::filesystem::path(std::u8string(path.begin(), path.end()));
+    }
+    const auto sources = bd::launcher::ValidateDiscs(input, bd::launcher::InspectDiscSource);
     for (size_t i = 0; i < sources.size(); ++i)
       std::cout << "DVD " << i + 1 << ": supported Blue Dragon XEX and disc marker found\n";
     return 0;

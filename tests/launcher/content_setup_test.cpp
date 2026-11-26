@@ -67,8 +67,14 @@ struct Fixture {
       Write(game / name);
     progress(0.5, "Extracting");
   };
+  Sources Discs() const {
+    Sources discs;
+    for (size_t i = 0; i < discs.size(); ++i)
+      discs[i] = images / ("arbitrary-name-" + std::to_string(i + 1) + ".ISO");
+    return discs;
+  }
   void PrepareNow() {
-    Prepare(images, install, inspector, extractor,
+    Prepare(Discs(), install, inspector, extractor,
             [&](double value, const std::string &) { progress.push_back(value); });
   }
 };
@@ -194,15 +200,6 @@ int main() {
       Fails([&] { ValidateDLC({path}, f.install, [](const fs::path &) { return "pack"; }); }, "separate");
       Check(fs::exists(path), "Overlapping source removed");
     });
-    test("three discs discovered by contents, with unicode and uppercase ISO names", [] {
-      Fixture f; auto discs = FindDiscs(f.images, f.inspector);
-      Check(discs[0].filename() == "arbitrary-name-1.ISO", "DVD1 not detected");
-      Check(discs[2].filename() == "arbitrary-name-3.ISO", "DVD3 not detected");
-    });
-    test("a selected ISO resolves its sibling discs", [] {
-      Fixture f; auto discs = FindDiscs(f.images / "arbitrary-name-1.ISO", f.inspector);
-      Check(!discs[2].empty(), "DVD3 not found");
-    });
     test("explicit discs from separate folders are validated in slot order without sibling discovery", [] {
       Fixture f; Sources input{};
       for (size_t i = 0; i < input.size(); ++i) {
@@ -298,13 +295,6 @@ int main() {
       Fixture f; fs::remove(f.images / "arbitrary-name-2.ISO");
       Fails([&] { f.PrepareNow(); }, "DVD 2");
       Check(!fs::exists(f.install / "game"), "Incomplete game published");
-    });
-    test("duplicate disc rejected", [] {
-      Fixture f; Write(f.images / "duplicate.iso", "1");
-      Fails([&] { f.PrepareNow(); }, "More than one");
-    });
-    test("unrelated ISO ignored", [] {
-      Fixture f; Write(f.images / "unrelated.iso", "x"); f.PrepareNow();
     });
     test("preparation publishes and preserves saves, preferences and sources", [] {
       Fixture f; f.PrepareNow();
