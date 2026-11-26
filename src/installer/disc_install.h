@@ -108,7 +108,8 @@ public:
   static std::thread
   RunAsync(const std::array<std::filesystem::path, kDiscCount> &sources,
            const std::filesystem::path &game_data_dest, bool repair,
-           const InstallSelection &selection, InstallProgress &progress);
+           const InstallSelection &selection, InstallProgress &progress,
+           bool require_complete = false);
 
   static std::thread AddLanguagesAsync(
       const std::array<std::filesystem::path, kDiscCount> &sources,
