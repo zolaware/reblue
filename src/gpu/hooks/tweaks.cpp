@@ -44,12 +44,10 @@ constexpr u32 kDOFPoolSlotDims[] = {0x268, 0x318};
 bool PostQualityChanged(u32 owner) {
   static std::unordered_map<u32, bd::gpu::PostQuality> applied;
   const bd::gpu::PostQuality quality = bd::gpu::GetPostQuality();
-  auto [it, inserted] = applied.try_emplace(owner, quality);
-  if (inserted)
-    return quality != bd::gpu::PostQuality::Medium;
-  if (it->second == quality)
+  auto &entry = applied.try_emplace(owner, quality).first->second;
+  if (entry == quality)
     return false;
-  it->second = quality;
+  entry = quality;
   return true;
 }
 
@@ -73,15 +71,9 @@ f64 BloomTargetScale() {
 }
 
 f64 DOFIntermediateScale() {
-  switch (bd::gpu::GetPostQuality()) {
-  case bd::gpu::PostQuality::Low:
-    return 0.5;
-  case bd::gpu::PostQuality::Medium:
-    return 1.0;
-  case bd::gpu::PostQuality::High:
-    break;
-  }
-  return 2.0;
+  return bd::gpu::GetPostQuality() == bd::gpu::PostQuality::Low
+             ? 0.5
+             : 1.0;
 }
 
 // The step is a constant over the target's logical dims, so a host scale of
