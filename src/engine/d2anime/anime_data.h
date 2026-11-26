@@ -10,7 +10,9 @@
 #pragma once
 
 #include <optional>
+#include <string>
 #include <string_view>
+#include <vector>
 
 #include <rex/types.h>
 
@@ -45,6 +47,10 @@ public:
   void SetFloat(const char *name, double value);
 
   std::optional<f32> Float(const char *name) const;
+
+  static std::vector<std::string> WrapText(std::string_view utf8,
+                                           int fontWidth, f32 maxWidth,
+                                           size_t maxLines);
 };
 
 } // namespace bd::engine

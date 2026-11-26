@@ -62,9 +62,11 @@ void ConfigMenu::UpdateDetailPanel(int index) {
                 info.version.empty() ? std::string("-") : info.version);
   task_.SetText("detail.Created",
                 info.created.empty() ? std::string("-") : info.created);
-  task_.SetText("detail.Desc", info.description.empty()
-                                   ? i18n::Text("menu.detail.no_description")
-                                   : WordWrap(info.description, 46));
+  SetPanelLines("detail.Desc",
+                info.description.empty()
+                    ? i18n::Text("menu.detail.no_description")
+                    : info.description,
+                DetailTemplate::kDescLines);
 
   if (info.image.empty()) {
     task_.SetFloat("detail.HasPreview", -1.0);
@@ -88,20 +90,19 @@ void ConfigMenu::UpdateDLCDetail(int index) {
   const auto &info = dlc.At(static_cast<size_t>(index));
 
   task_.SetFloat("dlcdetail.start", 1.0);
-  const std::string wrapped =
-      info.description.empty() ? "" : WordWrap(info.description, 46);
-  size_t pos = 0;
-  for (int i = 0; i < DlcDetailTemplate::kDescLines; ++i) {
-    std::string val;
-    if (pos < wrapped.size()) {
-      size_t nl = wrapped.find('\n', pos);
-      if (nl == std::string::npos)
-        nl = wrapped.size();
-      val = wrapped.substr(pos, nl - pos);
-      pos = nl + 1;
-    }
-    task_.SetText(std::format("dlcdetail.Desc{}", i).c_str(), val);
-  }
+  SetPanelLines("dlcdetail.Desc", info.description,
+                DlcDetailTemplate::kDescLines);
+}
+
+void ConfigMenu::SetPanelLines(const char *varPrefix, const std::string &text,
+                               int lineCount) {
+  const auto lines = AnimeData::WrapText(text, kPanelTextFontW,
+                                         static_cast<f32>(kPanelTextW),
+                                         static_cast<size_t>(lineCount));
+  for (int i = 0; i < lineCount; ++i)
+    task_.SetText(std::format("{}{}", varPrefix, i).c_str(),
+                  i < static_cast<int>(lines.size()) ? lines[i]
+                                                     : std::string());
 }
 
 void ConfigMenu::HideDLCDetail() { task_.SetFloat("dlcdetail.start", -1.0); }

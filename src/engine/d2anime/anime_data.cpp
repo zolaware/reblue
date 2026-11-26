@@ -36,6 +36,7 @@ REX_IMPORT(__imp__WString__Assign, WString_Assign, u32(u32, u32, u32));
 REX_IMPORT(__imp__AnimeVarTrack_Apply, AnimeVarTrack_Apply, void(u32, f64));
 REX_IMPORT(__imp__AnimeData_SyncDerivedVars, AnimeData_SyncDerivedVars,
            void(u32));
+REX_IMPORT(__imp__bdTextCalcWidth, TextCalcWidth, f64(f64, u32, u32, u32));
 
 namespace bd::engine {
 
@@ -43,6 +44,10 @@ namespace {
 
 constexpr u32 kMaxChainEntries = 4096;
 constexpr u32 kAnimeVarTrackCap = 512;
+
+constexpr u32 kDefaultFont = 1;
+constexpr u32 kWholeText = 0xFFFFFFFFu;
+constexpr std::u16string_view kEllipsis = u"...";
 
 struct AnimeData_t;
 
@@ -82,6 +87,78 @@ static_assert(offsetof(AnimeData_t, speed) == 0x154);
 static_assert(offsetof(AnimeData_t, childEnabled) == 0x160);
 static_assert(offsetof(AnimeData_t, activeChain) == 0x178);
 static_assert(sizeof(AnimeData_t) == 0x184);
+
+f32 TextWidth(std::u16string_view text, int fontWidth) {
+  rex::ppc::StackFrame frame;
+  const u32 addr = frame.PushWideString(text).GetGuestAddress();
+  return static_cast<f32>(TextCalcWidth(static_cast<f64>(fontWidth), addr,
+                                        kDefaultFont, kWholeText));
+}
+
+size_t FittingPrefix(std::u16string_view word, int fontWidth, f32 maxWidth) {
+  size_t fits = 1;
+  size_t tooLong = word.size() + 1;
+  while (tooLong - fits > 1) {
+    const size_t middle = (fits + tooLong) / 2;
+    if (TextWidth(word.substr(0, middle), fontWidth) <= maxWidth)
+      fits = middle;
+    else
+      tooLong = middle;
+  }
+  return fits;
+}
+
+void WrapParagraph(std::u16string_view paragraph, int fontWidth, f32 maxWidth,
+                   std::vector<std::u16string> &lines) {
+  std::u16string line;
+  size_t start = 0;
+  while (start <= paragraph.size()) {
+    size_t end = paragraph.find(u' ', start);
+    if (end == std::u16string_view::npos)
+      end = paragraph.size();
+    std::u16string_view word = paragraph.substr(start, end - start);
+    start = end + 1;
+
+    std::u16string joined = line;
+    if (!joined.empty())
+      joined += u' ';
+    joined += word;
+    if (TextWidth(joined, fontWidth) <= maxWidth) {
+      line = std::move(joined);
+      continue;
+    }
+    if (!line.empty())
+      lines.push_back(std::move(line));
+    while (TextWidth(word, fontWidth) > maxWidth) {
+      const size_t cut = FittingPrefix(word, fontWidth, maxWidth);
+      lines.emplace_back(word.substr(0, cut));
+      word.remove_prefix(cut);
+    }
+    line = std::u16string(word);
+  }
+  lines.push_back(std::move(line));
+}
+
+std::u16string FitWithEllipsis(std::u16string_view text, int fontWidth,
+                               f32 maxWidth) {
+  const auto shortened = [&](size_t length) {
+    std::u16string cut(text.substr(0, length));
+    while (!cut.empty() && cut.back() == u' ')
+      cut.pop_back();
+    cut += kEllipsis;
+    return cut;
+  };
+  size_t fits = 0;
+  size_t tooLong = text.size();
+  while (tooLong - fits > 1) {
+    const size_t middle = (fits + tooLong) / 2;
+    if (TextWidth(shortened(middle), fontWidth) <= maxWidth)
+      fits = middle;
+    else
+      tooLong = middle;
+  }
+  return shortened(fits);
+}
 
 } // namespace
 
@@ -185,6 +262,39 @@ void AnimeData::SetTextU16(const char *name, std::u16string_view text) {
 
 void AnimeData::SetText(const char *name, std::string_view utf8) {
   SetTextU16(name, rex::string::ToUTF16(utf8));
+}
+
+std::vector<std::string> AnimeData::WrapText(std::string_view utf8,
+                                             int fontWidth, f32 maxWidth,
+                                             size_t maxLines) {
+  const std::u16string text = rex::string::ToUTF16(utf8);
+  std::vector<std::u16string> lines;
+  size_t start = 0;
+  while (start <= text.size()) {
+    size_t end = text.find(u'\n', start);
+    if (end == std::u16string::npos)
+      end = text.size();
+    WrapParagraph(std::u16string_view(text).substr(start, end - start),
+                  fontWidth, maxWidth, lines);
+    start = end + 1;
+  }
+
+  if (maxLines > 0 && lines.size() > maxLines) {
+    std::u16string rest;
+    for (size_t i = maxLines - 1; i < lines.size(); ++i) {
+      if (!rest.empty())
+        rest += u' ';
+      rest += lines[i];
+    }
+    lines.resize(maxLines);
+    lines.back() = FitWithEllipsis(rest, fontWidth, maxWidth);
+  }
+
+  std::vector<std::string> out;
+  out.reserve(lines.size());
+  for (const std::u16string &line : lines)
+    out.push_back(rex::string::ToUTF8(line));
+  return out;
 }
 
 void AnimeData::SetColor(const char *name, u32 rgba) {

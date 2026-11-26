@@ -141,6 +141,8 @@ private:
 
   void UpdateDetailPanel(int cursor);
   void UpdateDLCDetail(int cursor);
+  void SetPanelLines(const char *varPrefix, const std::string &text,
+                     int lineCount);
   void UpdateLanguageDetail(int index);
   void ShowLanguageNotice(const std::string &text);
   void HideDetailPanel();
