@@ -15,6 +15,12 @@ namespace bd::launcher {
 namespace {
 constexpr const char *kSignature = "reblue-recomplauncher-v1";
 
+// path::string() throws on Windows for characters outside the ANSI code page.
+std::string Utf8(const fs::path &path) {
+  const auto value = path.u8string();
+  return {value.begin(), value.end()};
+}
+
 bool Linked(const fs::path &path) {
 #ifdef _WIN32
   const auto attributes = GetFileAttributesW(path.c_str());
@@ -55,7 +61,7 @@ Sources FindDiscs(const fs::path &input, const Inspector &inspect) {
   if (fs::is_regular_file(source))
     candidates.push_back(source);
   for (const auto &entry : fs::directory_iterator(directory)) {
-    auto extension = entry.path().extension().string();
+    auto extension = Utf8(entry.path().extension());
     std::transform(extension.begin(), extension.end(), extension.begin(),
                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     if (entry.is_regular_file() && extension == ".iso") {
@@ -127,7 +133,7 @@ void PrepareSources(const Sources &sources, const fs::path &root,
   const auto transaction = root / ".recomplauncher-preparing";
   if (!fs::create_directory(transaction))
     throw std::runtime_error("Setup is running or an interrupted setup remains in " +
-                             transaction.string() + ". Keep it for recovery or move it aside before retrying.");
+                             Utf8(transaction) + ". Keep it for recovery or move it aside before retrying.");
   bool moved_old = false, published = false, preserve = false;
   try {
     const auto staged = transaction / "new" / "game";
@@ -175,7 +181,7 @@ std::vector<DLCSource> ValidateDLC(const std::vector<fs::path> &input,
   const auto root = fs::weakly_canonical(fs::absolute(install));
   for (const auto &path : input) {
     if (!fs::is_regular_file(path))
-      throw std::runtime_error("DLC package not found: " + path.string());
+      throw std::runtime_error("DLC package not found: " + Utf8(path));
     const auto source = fs::canonical(path);
     if (Overlaps(root, source.parent_path()))
       throw std::runtime_error("Choose an installation folder separate from your DLC packages.");
