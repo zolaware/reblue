@@ -22,7 +22,6 @@ int main() {
                       {"reblue", "--recomplauncher-play"},
                       {"reblue", "--prepare-content", "--unexpected"},
                       {"reblue", "--recomplauncher-play", "--install-dir", "a", "--install-dir", "b"},
-                      {"reblue", "--prepare-content", "--install-dir", "out", "--disc1", "a", "--disc2", "b"},
                       {"reblue", "--prepare-content", "--install-dir", "out", "--disc1", "a", "--disc2", "b", "--disc3"},
                       {"reblue", "--prepare-content", "--install-dir", "out", "--disc1", "a", "--disc2", "b", "--disc3", "c", "--disc2", "d"},
                       {"reblue", "--prepare-content", "--install-dir", "out", "--game-dir", "folder", "--disc1", "a", "--disc2", "b", "--disc3", "c"},
@@ -34,7 +33,10 @@ int main() {
                       {"reblue", "--prepare-content", "--install-dir", "out", "--disc1", "--disc2", "b", "--disc3", "c"},
                       {"reblue", "--prepare-content", "--game-dir", "folder", "--install-dir", "out", "--dlc="},
                       {"reblue", "--prepare-content", "--game-dir", "folder", "--install-dir", "out", "--dlc", "pack"},
-                      {"reblue", "--recomplauncher-play", "--install-dir", "out", "--dlc=pack"}}) {
+                      {"reblue", "--recomplauncher-play", "--install-dir", "out", "--dlc=pack"},
+                      {"reblue", "--prepare-content", "--install-dir", "out", "--disc1=", "--disc2=b", "--disc3=c"},
+                      {"reblue", "--prepare-content", "--install-dir", "out", "--disc1=a", "--disc1", "a", "--disc2=b", "--disc3=c"},
+                      {"reblue", "--prepare-content", "--install-dir", "out", "--disc4=a"}}) {
       Check(Configure(args) == 2, "Invalid external arguments must return 2");
       ++cases;
     }
@@ -58,6 +60,13 @@ int main() {
     }
     std::vector<std::string> missing{"reblue", "--recomplauncher-play", "--install-dir", path};
     Check(Configure(missing) == 1, "Missing preparation must return 1"); ++cases;
+    for (auto args : {std::vector<std::string>{"reblue", "--prepare-content", "--install-dir", path},
+                      {"reblue", "--prepare-content", "--install-dir", path, "--disc2=" + path + "/b.iso", "--disc3=" + path + "/c.iso"}}) {
+      Check(Configure(args) == 1, "Setup without a build or all three discs must ask for the discs"); ++cases;
+    }
+    std::vector<std::string> joined{"reblue", "--prepare-content", "--disc1=" + path + "/DVD 1.iso",
+        "--disc2=" + path + "/DVD 2.iso", "--disc3=" + path + "/DVD 3.iso", "--install-dir", path + "/install"};
+    Check(Configure(joined) == 1, "Single-argument discs should reach the installer-disabled error"); ++cases;
     const auto game = root / "game";
     fs::create_directories(game);
     std::ofstream(game / kOwner) << "reblue-recomplauncher-v1\n";
@@ -69,6 +78,12 @@ int main() {
     Check(play == std::vector<std::string>{"reblue", "--game_data_root=" +
                std::string(game_bytes.begin(), game_bytes.end())}, "Unexpected launch overrides");
     Check(ExternalLaunch(), "External launch state not set"); ++cases;
+    // The launcher reruns setup after every release, with or without the discs.
+    for (auto args : {std::vector<std::string>{"reblue", "--prepare-content", "--install-dir", path},
+                      {"reblue", "--prepare-content", "--install-dir", path, "--disc2=" + path + "/gone.iso"},
+                      {"reblue", "--prepare-content", "--install-dir", path, "--dlc=" + path + "/deleted pack"}}) {
+      Check(Configure(args) == 0, "A finished build must be kept without the discs"); ++cases;
+    }
     fs::remove_all(root);
     std::cout << cases << " command-line integration cases passed\n";
     return 0;

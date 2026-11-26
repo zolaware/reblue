@@ -286,6 +286,14 @@ int main() {
     test("removed prepared executable rejected", [] {
       Fixture f; f.PrepareNow(); fs::remove(f.install / "game/default.xex");
       Fails([&] { PreparedGame(f.install); }, "Run content preparation");
+      Check(!IsPrepared(f.install), "Removed executable still counts as set up");
+    });
+    test("only a published managed build counts as set up", [] {
+      Fixture f; Check(!IsPrepared(f.install), "Empty install counts as set up");
+      Write(f.install / "game/default.xex"); Check(!IsPrepared(f.install), "Unowned content counts as set up");
+    });
+    test("a published build counts as set up", [] {
+      Fixture f; f.PrepareNow(); Check(IsPrepared(f.install), "Published build not recognised");
     });
 #ifndef _WIN32
     test("publication failure restores the previous game directory", [] {

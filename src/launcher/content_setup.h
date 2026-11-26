@@ -31,6 +31,8 @@ Sources ValidateDiscs(const Sources &input, const Inspector &inspect);
 bool Overlaps(const fs::path &a, const fs::path &b);
 bool Owned(const fs::path &game);
 fs::path PreparedGame(const fs::path &install);
+// True when a completed, managed game folder is already published.
+bool IsPrepared(const fs::path &install);
 void Prepare(const fs::path &input, const fs::path &install,
              const Inspector &inspect, const Extractor &extract,
              const Progress &progress);

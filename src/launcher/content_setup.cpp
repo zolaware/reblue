@@ -121,6 +121,15 @@ fs::path PreparedGame(const fs::path &install) {
   return game;
 }
 
+bool IsPrepared(const fs::path &install) {
+  try {
+    PreparedGame(install);
+    return true;
+  } catch (const std::exception &) {
+    return false;
+  }
+}
+
 namespace {
 void PrepareSources(const Sources &sources, const fs::path &root,
                     const Extractor &extract, const Progress &progress) {
