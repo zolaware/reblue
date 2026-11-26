@@ -358,10 +358,11 @@ int SettingItemTemplate::ButtonAt(f32 x, int optCount) {
   return -1;
 }
 
-bool SettingItemTemplate::SliderFractionAt(f32 x, double& fraction) {
+bool SettingItemTemplate::SliderFractionAt(f32 x, bool dragging,
+                                           double& fraction) {
     const f32 trackStart = static_cast<f32>(kTrackX + 2);
     const f32 trackEnd = trackStart + static_cast<f32>(kSliderWidth);
-    if (x < trackStart || x > trackEnd)
+    if (!dragging && (x < trackStart || x > trackEnd))
         return false;
     const double f =
         (static_cast<double>(x) - trackStart) / static_cast<double>(kSliderWidth);

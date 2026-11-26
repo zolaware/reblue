@@ -161,7 +161,7 @@ bool ConfigMenu::SetRowFromPointer(int row, f32 x, bool dragging) {
 
     if (ui == RowUi::Slider || ui == RowUi::SliderSteps) {
         double fraction = 0.0;
-        if (!SettingItemTemplate::SliderFractionAt(x, fraction))
+        if (!SettingItemTemplate::SliderFractionAt(x, dragging, fraction))
             return false;
 
         if (ui == RowUi::Slider) {

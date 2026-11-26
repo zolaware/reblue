@@ -179,8 +179,8 @@ public:
   static int ButtonAt(f32 x, int optCount);
 
   // Where a row-local x sits along the slider track, 0 at the empty end and 1
-  // at the full one. False when x is off the track entirely.
-  static bool SliderFractionAt(f32 x, double &fraction);
+  // at the full one. False when a click lands off the track.
+  static bool SliderFractionAt(f32 x, bool dragging, double &fraction);
 
 protected:
   void declareVars(CsvBuilder &b) override;
