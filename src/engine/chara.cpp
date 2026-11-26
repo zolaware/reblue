@@ -8,11 +8,15 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <unordered_set>
 
 #include <rex/kernel/types/memory.h>
 #include <rex/kernel/memory_view.h>
+#include <rex/ppc/context.h>
+#include <rex/ppc/midasm.h>
 
 #include "core/guest_global.h"
+#include "core/logging.h"
 #include "core/memory_helpers.h"
 
 namespace bd::engine {
@@ -310,6 +314,29 @@ std::vector<Chara::EffectEntry> ReadEffects(const rex::kernel::GuestVector<T> &v
   }
   return out;
 }
+
+struct EvtChara_t {
+  /* 0x00 */ be_u32 vtable;
+  /* 0x04 */ be_u32 chara;
+  /* 0x08 */ be_u32 owns;
+};
+static_assert(offsetof(EvtChara_t, chara) == 0x04);
+static_assert(offsetof(EvtChara_t, owns) == 0x08);
+
+struct IssActor_t {
+  /* 0x00 */ u8 _pad00[0x88];
+  /* 0x88 */ be_u32 borrowedTask;
+  /* 0x8C */ be_u32 fieldTask;
+  /* 0x90 */ be_u32 evtChara;
+  /* 0x94 */ u8 _pad94[0x9C - 0x94];
+  /* 0x9C */ char modelName[0x10];
+};
+static_assert(offsetof(IssActor_t, borrowedTask) == 0x88);
+static_assert(offsetof(IssActor_t, fieldTask) == 0x8C);
+static_assert(offsetof(IssActor_t, evtChara) == 0x90);
+static_assert(offsetof(IssActor_t, modelName) == 0x9C);
+
+std::unordered_set<u32> g_destroyedCharas;
 
 } // namespace
 
@@ -654,3 +681,34 @@ u32 Enemy::NextInGroupOffset() {
 }
 
 } // namespace bd::engine
+
+REX_MIDASM_HOOK(CharaConstructedHook, (PPCRegister &r31)) {
+  bd::engine::g_destroyedCharas.erase(r31.u32);
+}
+REX_MIDASM_AT(CharaConstructedHook, 0x822B7EB8, before, r31);
+
+REX_MIDASM_HOOK(CharaDestroyedHook, (PPCRegister &r31)) {
+  bd::engine::g_destroyedCharas.insert(r31.u32);
+}
+REX_MIDASM_AT(CharaDestroyedHook, 0x822B7FEC, before, r31);
+
+REX_MIDASM_BRANCH(issActorReleaseDestroyedCharaHook, (PPCRegister &r31)) {
+  auto *actor = bd::mem::at<bd::engine::IssActor_t>(r31.u32);
+  const auto *holder =
+      actor ? bd::mem::at<bd::engine::EvtChara_t>(actor->evtChara) : nullptr;
+  if (!holder || u32(holder->owns) != 0)
+    return false;
+  const u32 chara = holder->chara;
+  if (!bd::engine::g_destroyedCharas.contains(chara))
+    return false;
+  REXBD_DEBUG("issActor '{}' released after its borrowed Chara {:08X} was "
+              "destroyed, borrowedTask {:08X} fieldTask {:08X}",
+              bd::mem::cstr(r31.u32 +
+                                offsetof(bd::engine::IssActor_t, modelName),
+                            sizeof(actor->modelName)),
+              chara, u32(actor->borrowedTask), u32(actor->fieldTask));
+  actor->fieldTask = 0u;
+  return true;
+}
+REX_MIDASM_AT(issActorReleaseDestroyedCharaHook, 0x82408E50, before, 0x82409640,
+              r31);
