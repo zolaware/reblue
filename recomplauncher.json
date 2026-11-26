@@ -15,7 +15,7 @@
     "program": ["reblue.exe", "reblue.AppImage", "reblue", "reblue.app/Contents/MacOS/reblue"],
     "args": ["--prepare-content", "--disc1={input:disc1}", "--disc2={input:disc2}", "--disc3={input:disc3}", "--install-dir", "{install}", "--dlc={input:dlc1}", "--dlc={input:dlc2}", "--dlc={input:dlc3}"],
     "label": "Installing Blue Dragon discs and optional DLC",
-    "done": ["{install}/game/default.xex", "{install}/game/.recomplauncher-content"],
+    "done": ["{install}/game/default.xex", "{install}/game/.reblue-content"],
     "keeps_copy": true
   },
   "start": {

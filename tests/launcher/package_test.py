@@ -37,7 +37,7 @@ class PackageTests(unittest.TestCase):
         # Setup reruns after every release; a kept build needs no discs.
         self.assertTrue(profile['prepare']['keeps_copy'])
         self.assertEqual(profile['folders']['game'], [{'path': '{install}/game'}])
-        self.assertIn('{install}/game/.recomplauncher-content', profile['prepare']['done'])
+        self.assertIn('{install}/game/.reblue-content', profile['prepare']['done'])
 
     def test_dlc_inputs_are_optional_and_each_flag_contains_its_placeholder(self):
         profile = json.loads((ROOT / 'recomplauncher.json').read_text(encoding='utf-8'))

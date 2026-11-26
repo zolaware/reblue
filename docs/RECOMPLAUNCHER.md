@@ -48,6 +48,12 @@ can be omitted or moved after the first setup (`keeps_copy`). Newly selected DLC
 is still imported in that case; DLC paths that no longer exist are skipped. To
 extract the discs again, remove the `game` folder first.
 
+"Finished" means the `.reblue-content` marker carries the current content
+version (`kContentVersion` in `src/launcher/content_setup.h`, such as
+`reblue-content-v1`), not the release version. Bump it when what extraction
+produces changes; a build with a different or missing content version counts as
+not set up, so the next setup asks for the discs and extracts them again.
+
 When `RECOMPLAUNCHER=1` is set, re:Blue never checks for, offers, downloads or
 installs its own updates or content packs, and never offers to copy itself over
 another installation: the launcher installs every release.
@@ -96,14 +102,14 @@ reader and extraction plan as the wizard. Unlike the wizard's permissive repair
 path, this setup fails if the extraction plan is missing a required file.
 
 The installation folder must be separate from each selected disc-image folder. Files are
-prepared under `.recomplauncher-preparing/new/game`; only a successful setup is
+prepared under `.reblue-preparing/new/game`; only a successful setup is
 published as `game`. An existing `game` folder is replaced only if its
-`.recomplauncher-content` marker identifies it as managed by this integration.
+`.reblue-content` marker identifies it as managed by this integration.
 Unowned game folders, source disc images, profiles, saves and settings are kept.
 If publishing fails, setup attempts to restore the previous game folder. If that
-restore fails, its files remain under `.recomplauncher-preparing/old` for recovery.
+restore fails, its files remain under `.reblue-preparing/old` for recovery.
 
-An interrupted setup can leave `.recomplauncher-preparing`. Keep it for recovery
+An interrupted setup can leave `.reblue-preparing`. Keep it for recovery
 or move it aside once all setup processes have stopped, then retry. It is never
 silently deleted by the next setup. Do not run preparation while re:Blue is open.
 

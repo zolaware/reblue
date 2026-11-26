@@ -204,7 +204,7 @@ int main() {
       };
       Fails([&] { Prepare(input, f.install, f.inspector, fail, [](double, const std::string &) {}); }, "named failure");
       Check(fs::file_size(f.install / "game/keep") == 8, "Previous game changed");
-      Check(!fs::exists(f.install / ".recomplauncher-preparing"), "Failed staging remains");
+      Check(!fs::exists(f.install / ".reblue-preparing"), "Failed staging remains");
     });
     test("explicit preparation rejects overlap with any disc folder", [] {
       Fixture f; Sources input{};
@@ -236,7 +236,7 @@ int main() {
       Check(fs::file_size(f.install / "profiles/default/saves/player.sav") == 7, "Save changed");
       Check(fs::file_size(f.install / "profiles/default/reblue.toml") == 11, "Settings changed");
       Check(f.progress.front() == 0 && f.progress.back() == 1, "Progress incomplete");
-      Check(!fs::exists(f.install / ".recomplauncher-preparing"), "Staging remains");
+      Check(!fs::exists(f.install / ".reblue-preparing"), "Staging remains");
     });
     test("owned game can be replaced", [] {
       Fixture f; f.PrepareNow(); Write(f.install / "game/old.bin"); f.PrepareNow();
@@ -249,7 +249,7 @@ int main() {
       };
       Fails([&] { f.PrepareNow(); }, "injected copy failure");
       Check(fs::file_size(f.install / "game/keep") == 8, "Previous game changed");
-      Check(!fs::exists(f.install / ".recomplauncher-preparing"), "Failed staging remains");
+      Check(!fs::exists(f.install / ".reblue-preparing"), "Failed staging remains");
     });
     test("missing required output is never published", [] {
       Fixture f;
@@ -263,9 +263,9 @@ int main() {
       Check(fs::exists(f.install / "game/keep"), "Unowned file removed");
     });
     test("interrupted staging is preserved", [] {
-      Fixture f; Write(f.install / ".recomplauncher-preparing/recovery");
+      Fixture f; Write(f.install / ".reblue-preparing/recovery");
       Fails([&] { f.PrepareNow(); }, "interrupted");
-      Check(fs::exists(f.install / ".recomplauncher-preparing/recovery"), "Recovery removed");
+      Check(fs::exists(f.install / ".reblue-preparing/recovery"), "Recovery removed");
     });
     test("source and destination overlap rejected", [] {
       Fixture f; f.install = f.images / "nested";
@@ -294,6 +294,20 @@ int main() {
     });
     test("a published build counts as set up", [] {
       Fixture f; f.PrepareNow(); Check(IsPrepared(f.install), "Published build not recognised");
+      Check(Current(f.install / "game"), "Published build lacks the content version");
+    });
+    test("a build of another content version is not set up but is replaced", [] {
+      Fixture f; f.PrepareNow(); Write(f.install / "game/old.bin");
+      Write(f.install / "game" / kOwner, "reblue-content-v0\n");
+      Check(Owned(f.install / "game") && !Current(f.install / "game"), "Older version not recognised as ours");
+      Check(!IsPrepared(f.install), "Older content version counts as set up");
+      Fails([&] { PreparedGame(f.install); }, "set up again");
+      f.PrepareNow();
+      Check(IsPrepared(f.install) && !fs::exists(f.install / "game/old.bin"), "Older build not replaced");
+    });
+    test("a marker without a content version is not set up", [] {
+      Fixture f; f.PrepareNow(); Write(f.install / "game" / kOwner, "");
+      Check(!IsPrepared(f.install), "Marker without a version counts as set up");
     });
 #ifndef _WIN32
     test("publication failure restores the previous game directory", [] {
@@ -306,7 +320,7 @@ int main() {
         fs::permissions(game.parent_path(), fs::perms::owner_read | fs::perms::owner_exec);
       };
       Fails([&] { f.PrepareNow(); }, "");
-      fs::permissions(f.install / ".recomplauncher-preparing/new", fs::perms::owner_all);
+      fs::permissions(f.install / ".reblue-preparing/new", fs::perms::owner_all);
       Check(fs::file_size(f.install / "game/keep") == 8, "Previous game not restored");
       Check(Owned(f.install / "game"), "Previous ownership lost");
     });

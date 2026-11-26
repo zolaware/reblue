@@ -145,8 +145,9 @@ std::optional<int> Configure(std::vector<std::string> &args) {
     }
     if (prepare) {
       // Setup runs again after every new release, without the discs when the
-      // launcher kept the build. A published game folder is the finished
-      // build: its files come from the discs, not from this program's version.
+      // launcher kept the build. A published game folder of the current
+      // kContentVersion is the finished build: its files come from the discs,
+      // not from this program's release version.
       const bool built = IsPrepared(install);
       if (built)
         std::erase_if(dlc, [](const fs::path &path) { return !fs::exists(path); });

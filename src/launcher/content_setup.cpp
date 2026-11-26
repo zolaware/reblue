@@ -5,6 +5,7 @@
 #include <cctype>
 #include <fstream>
 #include <stdexcept>
+#include <string_view>
 #include <vector>
 
 #ifdef _WIN32
@@ -13,12 +14,20 @@
 
 namespace bd::launcher {
 namespace {
-constexpr const char *kSignature = "reblue-recomplauncher-v1";
+// Every kContentVersion starts with this, so an older version is still ours to replace.
+constexpr std::string_view kOwnerPrefix = "reblue-content-";
 
 // path::string() throws on Windows for characters outside the ANSI code page.
 std::string Utf8(const fs::path &path) {
   const auto value = path.u8string();
   return {value.begin(), value.end()};
+}
+
+std::string MarkerVersion(const fs::path &game) {
+  std::ifstream marker(game / kOwner);
+  std::string line;
+  std::getline(marker, line);
+  return line;
 }
 
 bool Linked(const fs::path &path) {
@@ -107,9 +116,11 @@ Sources ValidateDiscs(const Sources &input, const Inspector &inspect) {
 }
 
 bool Owned(const fs::path &game) {
-  std::ifstream marker(game / kOwner);
-  std::string line;
-  return std::getline(marker, line) && line == kSignature;
+  return MarkerVersion(game).starts_with(kOwnerPrefix);
+}
+
+bool Current(const fs::path &game) {
+  return MarkerVersion(game) == kContentVersion;
 }
 
 fs::path PreparedGame(const fs::path &install) {
@@ -118,6 +129,9 @@ fs::path PreparedGame(const fs::path &install) {
   if (!Owned(game) || !fs::is_regular_file(game / "default.xex") ||
       !fs::is_regular_file(game / "reblue_install.marker"))
     throw std::runtime_error("Run content preparation in RecompLauncher before starting re:Blue.");
+  if (!Current(game))
+    throw std::runtime_error("This re:Blue version needs its game files set up again. "
+                             "Run content preparation in RecompLauncher with your discs.");
   return game;
 }
 
@@ -139,7 +153,7 @@ void PrepareSources(const Sources &sources, const fs::path &root,
     if (Overlaps(root, disc))
       throw std::runtime_error("The disc images and installation must be in separate folders.");
   fs::create_directories(root);
-  const auto transaction = root / ".recomplauncher-preparing";
+  const auto transaction = root / ".reblue-preparing";
   if (!fs::create_directory(transaction))
     throw std::runtime_error("Setup is running or an interrupted setup remains in " +
                              Utf8(transaction) + ". Keep it for recovery or move it aside before retrying.");
@@ -154,7 +168,7 @@ void PrepareSources(const Sources &sources, const fs::path &root,
         throw std::runtime_error(std::string("Preparation did not produce ") + required);
     {
       std::ofstream marker(staged / kOwner, std::ios::trunc);
-      marker << kSignature << '\n';
+      marker << kContentVersion << '\n';
       marker.close();
       if (!marker)
         throw std::runtime_error("Cannot write the preparation ownership marker.");

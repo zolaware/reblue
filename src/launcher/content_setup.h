@@ -9,7 +9,13 @@
 
 namespace bd::launcher {
 namespace fs = std::filesystem;
-inline constexpr const char *kOwner = ".recomplauncher-content";
+// Marks game/ as made by this setup. Its first line is kContentVersion.
+inline constexpr const char *kOwner = ".reblue-content";
+// The version of what setup extracts into game/. Bump it whenever the files or
+// layout that extraction produces change, so existing installs count as not set
+// up and are extracted again. Keep it apart from the release version: every
+// release reruns setup, and an unchanged build must be kept.
+inline constexpr const char *kContentVersion = "reblue-content-v1";
 using Sources = std::array<fs::path, 3>;
 using Inspector = std::function<std::array<bool, 3>(const fs::path &)>;
 using Progress = std::function<void(double, const std::string &)>;
@@ -29,9 +35,13 @@ Sources FindDiscs(const fs::path &input, const Inspector &inspect);
 // Explicit slots must each contain exactly the requested disc; no sibling search.
 Sources ValidateDiscs(const Sources &input, const Inspector &inspect);
 bool Overlaps(const fs::path &a, const fs::path &b);
+// True when game/ was made by this setup, at any content version.
 bool Owned(const fs::path &game);
+// True when game/ was made by this setup at the current content version.
+bool Current(const fs::path &game);
 fs::path PreparedGame(const fs::path &install);
-// True when a completed, managed game folder is already published.
+// True when a completed, managed game folder of the current content version is
+// already published.
 bool IsPrepared(const fs::path &install);
 void Prepare(const fs::path &input, const fs::path &install,
              const Inspector &inspect, const Extractor &extract,

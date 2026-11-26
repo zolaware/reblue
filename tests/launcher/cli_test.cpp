@@ -69,7 +69,7 @@ int main() {
     Check(Configure(joined) == 1, "Single-argument discs should reach the installer-disabled error"); ++cases;
     const auto game = root / "game";
     fs::create_directories(game);
-    std::ofstream(game / kOwner) << "reblue-recomplauncher-v1\n";
+    std::ofstream(game / kOwner) << kContentVersion << '\n';
     std::ofstream(game / "default.xex") << "fixture";
     std::ofstream(game / "reblue_install.marker") << "installed";
     std::vector<std::string> play{"reblue", "--recomplauncher-play", "--install-dir", path};
