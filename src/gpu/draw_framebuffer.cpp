@@ -78,8 +78,12 @@ void BoundTargetScale(VideoState &s, float &kx, float &ky) {
   GuestTexture *ds = nullptr;
   ResolveEffectiveTargets(s, rt, ds);
   const GuestTexture *target = rt ? rt : ds;
-  kx = target ? target->scaleX : 1.0f;
-  ky = target ? target->scaleY : 1.0f;
+  kx = target && target->width
+           ? static_cast<float>(target->hostWidth) / target->width
+           : 1.0f;
+  ky = target && target->height
+           ? static_cast<float>(target->hostHeight) / target->height
+           : 1.0f;
 }
 
 namespace {
