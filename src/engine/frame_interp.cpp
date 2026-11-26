@@ -1054,11 +1054,13 @@ struct IssEvent_t {
   /* 0x08C */ u8 _pad08C[0x3EC - 0x8C];
   /* 0x3EC */ be_f32 speed;
   /* 0x3F0 */ rex::kernel::be_ptr<IssChild_t> childList;
+  /* 0x3F4 */ be_u32 issFrame;
 };
 static_assert(offsetof(IssEvent_t, frame) == 0x68);
 static_assert(offsetof(IssEvent_t, state) == 0x88);
 static_assert(offsetof(IssEvent_t, speed) == 0x3EC);
 static_assert(offsetof(IssEvent_t, childList) == 0x3F0);
+static_assert(offsetof(IssEvent_t, issFrame) == 0x3F4);
 
 struct IssChild_t {
   /* 0x00 */ be_u32 vtable;
@@ -1311,6 +1313,8 @@ IssEvent_t *DrivenEvent(u32 childEA) {
 }
 
 template <typename F> void ForEachEventChild(const IssEvent_t &evt, F &&visit) {
+  if (u32(evt.issFrame) == 0)
+    return;
   u32 childEA = evt.childList.GetAddress();
   auto *child = evt.childList.GetHost();
   for (int guard = 0; child && guard < kMaxEventChildren; ++guard) {
