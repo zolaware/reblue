@@ -36,9 +36,21 @@ asset. No game data is distributed with this project.
 The launcher invokes:
 
 ```text
-reblue --prepare-content --disc1 <DVD1.iso> --disc2 <DVD2.iso> --disc3 <DVD3.iso> --install-dir <installation>
+reblue --prepare-content --disc1=<DVD1.iso> --disc2=<DVD2.iso> --disc3=<DVD3.iso> --install-dir <installation>
 reblue --recomplauncher-play --install-dir <installation>
 ```
+
+Each disc is one `--discN=<path>` argument; the two-argument `--disc1 <path>`
+form is still accepted. RecompLauncher runs setup again after every new release.
+When `<installation>/game` is already a finished, managed build, setup prints
+`progress 1 Already set up` and exits 0 without reading any disc, so the discs
+can be omitted or moved after the first setup (`keeps_copy`). Newly selected DLC
+is still imported in that case; DLC paths that no longer exist are skipped. To
+extract the discs again, remove the `game` folder first.
+
+When `RECOMPLAUNCHER=1` is set, re:Blue never checks for, offers, downloads or
+installs its own updates or content packs, and never offers to copy itself over
+another installation: the launcher installs every release.
 
 DLC is optional. Select up to three of your own STFS packages in the DLC slots:
 Ultra Hard Mod, Six Treasures and Shuffle Dungeon. Package files need no extension.
@@ -47,7 +59,7 @@ unselected slot contributes no argument. Both preparation modes accept this flag
 repeatedly, for example:
 
 ```text
-reblue --prepare-content --disc1 <DVD1.iso> --disc2 <DVD2.iso> --disc3 <DVD3.iso> --install-dir <installation> --dlc=<package1> --dlc=<package2>
+reblue --prepare-content --disc1=<DVD1.iso> --disc2=<DVD2.iso> --disc3=<DVD3.iso> --install-dir <installation> --dlc=<package1> --dlc=<package2>
 ```
 
 All selected DLC is validated before disc extraction using the native STFS,

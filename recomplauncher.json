@@ -4,18 +4,19 @@
   "name": "re:Blue",
   "repo": "zolaware/reblue",
   "inputs": [
-    { "id": "disc1", "label": "Blue Dragon DVD 1 (Global US/EU)", "role": "disc", "formats": [{ "type": "file", "extensions": ["iso"] }] },
-    { "id": "disc2", "label": "Blue Dragon DVD 2 (Global US/EU)", "role": "disc", "formats": [{ "type": "file", "extensions": ["iso"] }] },
-    { "id": "disc3", "label": "Blue Dragon DVD 3 (Global US/EU)", "role": "disc", "formats": [{ "type": "file", "extensions": ["iso"] }] },
+    { "id": "disc1", "label": "Disc 1", "role": "disc", "formats": [{ "type": "file", "extensions": ["iso"] }], "check": { "ids": ["4D5307DF"] } },
+    { "id": "disc2", "label": "Disc 2", "role": "disc", "formats": [{ "type": "file", "extensions": ["iso"] }], "check": { "ids": ["4D5307DF"] } },
+    { "id": "disc3", "label": "Disc 3", "role": "disc", "formats": [{ "type": "file", "extensions": ["iso"] }], "check": { "ids": ["4D5307DF"] } },
     { "id": "dlc1", "label": "Blue Dragon DLC package 1", "role": "dlc", "optional": true, "formats": [{ "type": "file", "extensions": [] }] },
     { "id": "dlc2", "label": "Blue Dragon DLC package 2", "role": "dlc", "optional": true, "formats": [{ "type": "file", "extensions": [] }] },
     { "id": "dlc3", "label": "Blue Dragon DLC package 3", "role": "dlc", "optional": true, "formats": [{ "type": "file", "extensions": [] }] }
   ],
   "prepare": {
     "program": ["reblue.exe", "reblue.AppImage", "reblue", "reblue.app/Contents/MacOS/reblue"],
-    "args": ["--prepare-content", "--disc1", "{input:disc1}", "--disc2", "{input:disc2}", "--disc3", "{input:disc3}", "--install-dir", "{install}", "--dlc={input:dlc1}", "--dlc={input:dlc2}", "--dlc={input:dlc3}"],
+    "args": ["--prepare-content", "--disc1={input:disc1}", "--disc2={input:disc2}", "--disc3={input:disc3}", "--install-dir", "{install}", "--dlc={input:dlc1}", "--dlc={input:dlc2}", "--dlc={input:dlc3}"],
     "label": "Installing Blue Dragon discs and optional DLC",
-    "timeout": 3600
+    "done": ["{install}/game/default.xex", "{install}/game/.recomplauncher-content"],
+    "keeps_copy": true
   },
   "start": {
     "program": ["reblue.exe", "reblue.AppImage", "reblue", "reblue.app/Contents/MacOS/reblue"],
@@ -107,6 +108,7 @@
     }
   ],
   "folders": {
+    "game": [{ "path": "{install}/game" }],
     "saves": [{ "path": "{install}/profiles/default/saves" }],
     "logs": [{ "path": "{install}/logs" }]
   },

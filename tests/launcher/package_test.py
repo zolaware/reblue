@@ -21,7 +21,7 @@ class PackageTests(unittest.TestCase):
                 self.assertIn(program, profile[role]['program'])
             self.assertFalse(any('*' in name for name in profile[role]['program']))
 
-    def test_three_disc_inputs_are_required_and_passed_as_separate_paths(self):
+    def test_three_disc_inputs_are_required_and_each_flag_contains_its_placeholder(self):
         profile = json.loads((ROOT / 'recomplauncher.json').read_text(encoding='utf-8'))
         self.assertNotIn('game', profile)
         self.assertEqual([i['id'] for i in profile['inputs'][:3]], ['disc1', 'disc2', 'disc3'])
@@ -31,9 +31,13 @@ class PackageTests(unittest.TestCase):
             self.assertEqual(item['formats'], [{'type': 'file', 'extensions': ['iso']}])
             self.assertNotIn('destination', item)
         self.assertEqual(profile['prepare']['args'], [
-            '--prepare-content', '--disc1', '{input:disc1}', '--disc2', '{input:disc2}',
-            '--disc3', '{input:disc3}', '--install-dir', '{install}',
+            '--prepare-content', '--disc1={input:disc1}', '--disc2={input:disc2}',
+            '--disc3={input:disc3}', '--install-dir', '{install}',
             '--dlc={input:dlc1}', '--dlc={input:dlc2}', '--dlc={input:dlc3}'])
+        # Setup reruns after every release; a kept build needs no discs.
+        self.assertTrue(profile['prepare']['keeps_copy'])
+        self.assertEqual(profile['folders']['game'], [{'path': '{install}/game'}])
+        self.assertIn('{install}/game/.recomplauncher-content', profile['prepare']['done'])
 
     def test_dlc_inputs_are_optional_and_each_flag_contains_its_placeholder(self):
         profile = json.loads((ROOT / 'recomplauncher.json').read_text(encoding='utf-8'))
