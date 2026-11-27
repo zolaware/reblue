@@ -70,6 +70,7 @@ enum class Action : int {
   PrevPage,
   FirstItem,
   LastItem,
+  Start,
   NextLeader,
   PrevLeader,
   QuitMenu,

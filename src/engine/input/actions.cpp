@@ -60,6 +60,8 @@ constexpr ActionDesc kDescs[kActionCount] = {
      kInMenus, ActionKind::Mapped, -1, 12, AxisPair::None, "Z,Home,PadLT"},
     {"last_item", "settings.action.last_item", ActionContext::General,
      kInMenus, ActionKind::Mapped, -1, 13, AxisPair::None, "F,End,PadRT"},
+    {"start", "settings.action.start", ActionContext::General, kInMenu,
+     ActionKind::Mapped, -1, 4, AxisPair::None, "Return,PadStart"},
     {"next_leader", "settings.action.next_leader", ActionContext::CampMenu,
      kInCampTop, ActionKind::Mapped, -1, 15, AxisPair::None, "Q,PadRB"},
     {"prev_leader", "settings.action.prev_leader", ActionContext::CampMenu,
