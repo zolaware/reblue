@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <iterator>
 #include <mutex>
+#include <span>
 #include <vector>
 
 #include <rex/logging/log_category.h>
@@ -44,6 +45,7 @@ constexpr u32 kPadShoulderBase =
 constexpr u32 kPadShoulderButtons = 2;
 constexpr u32 kLibPadCellEnd =
     kPadShoulderBase + u32(kPadSetLast + 1) * kPadShoulderButtons;
+constexpr u32 kLibModCellBase = kLibPadCellEnd;
 
 constexpr const char *kMount = "ui:prompt-textures";
 
@@ -61,9 +63,7 @@ struct PromptCell {
 // every 64px prompt inks 38x40 at (13,15), and the QTE button inks 172x92 at
 // (42,14) of its 256x128. Matching those keeps a cap where the art it replaces
 // was, the position the surrounding layouts are laid out against.
-struct InkBox {
-  u32 x, y, w, h;
-};
+using InkBox = CapBox;
 
 constexpr InkBox kInk64 = {13, 15, 38, 40};
 constexpr InkBox kInkActEv = {42, 14, 172, 92};
@@ -86,21 +86,23 @@ constexpr PromptCell kCellB[] = {{Action::Cancel, false}};
 constexpr PromptCell kCellBPsh[] = {{Action::Cancel, true}};
 constexpr PromptCell kCellX[] = {{Action::Attack, false}};
 constexpr PromptCell kCellXPsh[] = {{Action::Attack, true}};
-constexpr PromptCell kCellY[] = {{Action::MainMenu, false}};
-constexpr PromptCell kCellYPsh[] = {{Action::MainMenu, true}};
+constexpr PromptCell kCellQteX[] = {{Action::QteAction1, false}};
+constexpr PromptCell kCellQteXPsh[] = {{Action::QteAction1, true}};
+constexpr PromptCell kCellQteY[] = {{Action::QteAction2, false}};
+constexpr PromptCell kCellQteYPsh[] = {{Action::QteAction2, true}};
 
-// The menu pager pair, LB then RB, which the menus page on through the field
-// skill binds.
-constexpr PromptCell kCellsPager[] = {{Action::FieldSkill2, false},
-                                      {Action::FieldSkill1, false}};
+// The menu pager pair, LB then RB.
+constexpr PromptCell kCellsPager[] = {{Action::PrevPage, false},
+                                      {Action::NextPage, false}};
 
-// ic_btn's own pos rows: posAnr, posApsh, posBnr, posBpsh and so on down the
-// four rows, normal in the left column and pressed in the right.
+// ic_btn's own pos rows, normal in the left column and pressed in the right:
+// posAnr and posApsh, then posBnr and posBpsh, the row kInteractRowButton
+// selects.
 constexpr PromptCell kCellsIcBtn[] = {
     {Action::Confirm, false}, {Action::Confirm, true},
-    {Action::Cancel, false},  {Action::Cancel, true},
-    {Action::Attack, false},  {Action::Attack, true},
-    {Action::MainMenu, false}, {Action::MainMenu, true}};
+    {Action::Interact, false}, {Action::Interact, true}};
+
+constexpr u32 kInteractRowButton = u32(Button::B);
 
 #define BD_PROMPT_TEX(path, w, h, cols, rows, ink, cells)                      \
   { path, w, h, cols, rows, ink, cells, u32(std::size(cells)) }
@@ -145,13 +147,13 @@ constexpr PromptTex kTextures[] = {
     BD_PROMPT_TEX("minigame\\actev\\d2anim\\res\\acv_btn_b_push.dds", 256, 128,
                   1, 1, kInkActEv, kCellBPsh),
     BD_PROMPT_TEX("minigame\\actev\\d2anim\\res\\acv_btn_x_nrm.dds", 256, 128, 1,
-                  1, kInkActEv, kCellX),
+                  1, kInkActEv, kCellQteX),
     BD_PROMPT_TEX("minigame\\actev\\d2anim\\res\\acv_btn_x_push.dds", 256, 128,
-                  1, 1, kInkActEv, kCellXPsh),
+                  1, 1, kInkActEv, kCellQteXPsh),
     BD_PROMPT_TEX("minigame\\actev\\d2anim\\res\\acv_btn_y_nrm.dds", 256, 128, 1,
-                  1, kInkActEv, kCellY),
+                  1, kInkActEv, kCellQteY),
     BD_PROMPT_TEX("minigame\\actev\\d2anim\\res\\acv_btn_y_push.dds", 256, 128,
-                  1, 1, kInkActEv, kCellYPsh),
+                  1, 1, kInkActEv, kCellQteYPsh),
 };
 
 #undef BD_PROMPT_TEX
@@ -281,61 +283,19 @@ CapRef PadCap(Action action, u32 set) {
   return {};
 }
 
-// Area-averaged sample of a library cell's ink rect. Nearly every destination
-// is a downscale, and point sampling a cap's outline at a third of its size
-// drops whole strokes out of it. A sheet cap drawn into a QTE button is the one
-// upscale, and comes out nearest-sampled.
-void DrawCap(std::vector<u8> &dst, u32 dstW, const CapLibrary &lib, u32 cell,
-             const InkBox &box, bool pressed) {
-  const InkBox &src = lib.ink[cell];
-  if (!src.w || !src.h)
-    return;
+CapImage LibImage(const CapLibrary &lib, u32 cell) {
+  const InkBox &ink = lib.ink[cell];
+  return {lib.rgba.data(), lib.width,
+          {(cell % lib.cols) * lib.cellPx + ink.x,
+           (cell / lib.cols) * lib.cellPx + ink.y, ink.w, ink.h}};
+}
 
-  // Fit preserving aspect, then center in the box, so a wide cap keeps its
-  // proportions instead of stretching to the shipped art's.
-  const float scale =
-      std::min(float(box.w) / float(src.w), float(box.h) / float(src.h));
-  const u32 outW = std::max(1u, u32(float(src.w) * scale + 0.5f));
-  const u32 outH = std::max(1u, u32(float(src.h) * scale + 0.5f));
-  const u32 left = box.x + (box.w - outW) / 2;
-  const u32 top = box.y + (box.h - outH) / 2;
-
-  const u32 cx = (cell % lib.cols) * lib.cellPx + src.x;
-  const u32 cy = (cell / lib.cols) * lib.cellPx + src.y;
-
-  for (u32 y = 0; y < outH; ++y) {
-    const u32 sy0 = src.h * y / outH;
-    const u32 sy1 = std::max(sy0 + 1, src.h * (y + 1) / outH);
-    for (u32 x = 0; x < outW; ++x) {
-      const u32 sx0 = src.w * x / outW;
-      const u32 sx1 = std::max(sx0 + 1, src.w * (x + 1) / outW);
-
-      u32 acc[4] = {0, 0, 0, 0};
-      u32 n = 0;
-      for (u32 sy = sy0; sy < sy1; ++sy) {
-        for (u32 sx = sx0; sx < sx1; ++sx) {
-          const u8 *px =
-              &lib.rgba[(size_t(cy + sy) * lib.width + cx + sx) * 4];
-          // Weight color by coverage so a transparent neighbor cannot wash a
-          // stroke's edge toward black.
-          acc[0] += u32(px[0]) * px[3];
-          acc[1] += u32(px[1]) * px[3];
-          acc[2] += u32(px[2]) * px[3];
-          acc[3] += px[3];
-          ++n;
-        }
-      }
-      if (!n || !acc[3])
-        continue;
-
-      u8 *out = &dst[(size_t(top + y) * dstW + left + x) * 4];
-      for (int c = 0; c < 3; ++c) {
-        const float v = float(acc[c]) / float(acc[3]);
-        out[c] = u8(std::min(255.0f, pressed ? v * kPressedDim : v));
-      }
-      out[3] = u8(acc[3] / n);
-    }
-  }
+void DrawCaps(std::vector<u8> &dst, u32 dstW,
+              std::span<const CapImage> caps, const InkBox &box,
+              bool pressed) {
+  const f32 dim = pressed ? kPressedDim : 1.0f;
+  if (!DrawCapRow(caps, dst.data(), dstW, box, dim))
+    DrawCapRow(caps.last(1), dst.data(), dstW, box, dim);
 }
 
 std::vector<u8> Compose(const PromptTex &tex) {
@@ -350,20 +310,32 @@ std::vector<u8> Compose(const PromptTex &tex) {
   const u32 cellH = tex.height / tex.rows;
 
   for (u32 i = 0; i < tex.cellCount; ++i) {
-    CapRef cap;
-    if (keyboard) {
-      const int key = BoundKeyIndex(tex.cells[i].action);
-      if (key >= 0)
-        cap = {lib, u32(key)};
-    } else {
-      cap = PadCap(tex.cells[i].action, u32(Glyphs::Get().Pad()));
-    }
-    if (!cap.lib || cap.cell >= cap.lib->ink.size())
-      continue;
     const InkBox box = {(i % tex.cols) * cellW + tex.ink.x,
                         (i / tex.cols) * cellH + tex.ink.y, tex.ink.w,
                         tex.ink.h};
-    DrawCap(rgba, tex.width, *cap.lib, cap.cell, box, tex.cells[i].pressed);
+    const bool pressed = tex.cells[i].pressed;
+    if (keyboard) {
+      const ChordCaps chord = BoundChord(tex.cells[i].action);
+      if (chord.key < 0 || u32(chord.key) >= lib->ink.size())
+        continue;
+      CapImage caps[kMaxChordModifiers + 1];
+      size_t count = 0;
+      for (int m = 0; m < chord.modCount; ++m) {
+        const u32 cell = kLibModCellBase + u32(chord.mods[m]);
+        if (cell < lib->ink.size() && lib->ink[cell].w)
+          caps[count++] = LibImage(*lib, cell);
+      }
+      if (count != u32(chord.modCount))
+        count = 0;
+      caps[count++] = LibImage(*lib, u32(chord.key));
+      DrawCaps(rgba, tex.width, {caps, count}, box, pressed);
+      continue;
+    }
+    const CapRef cap = PadCap(tex.cells[i].action, u32(Glyphs::Get().Pad()));
+    if (!cap.lib || cap.cell >= cap.lib->ink.size())
+      continue;
+    const CapImage image = LibImage(*cap.lib, cap.cell);
+    DrawCaps(rgba, tex.width, {&image, 1}, box, pressed);
   }
   return BuildGuestTexture(rgba, tex.width, tex.height);
 }
@@ -379,19 +351,6 @@ bool PadArtPresent(const CapLibrary &lib) {
       return false;
   }
   return true;
-}
-
-u32 PromptIconButton(u32 id) {
-  const auto isFace = [](u32 v) {
-    return v >= u32(Button::A) && v <= u32(Button::Y);
-  };
-  if (isFace(id))
-    return id;
-  for (const Source &s : Bindings::Get().Sources(Action::Interact)) {
-    if (s.type == SourceKind::kPadButton && isFace(s.code))
-      return s.code;
-  }
-  return u32(Button::A);
 }
 
 } // namespace
@@ -463,11 +422,9 @@ void PromptTextures::SetEnabled(bool on) {
 } // namespace bd::engine
 
 // ScriptMan's action icon and the carriage prompt switch on Interact's engine id
-// for their ic_btn row and know only the four face ids. A rebind that parts
-// Interact from Confirm leaves it on a spare id, and the switch's fall-through
-// leaves the row rect zeroed, which draws the whole sheet.
+// for their ic_btn row and know only the four face ids.
 REX_MIDASM_HOOK(bdPromptIconButtonHook, (PPCRegister &r11)) {
-  r11.u64 = bd::engine::PromptIconButton(r11.u32);
+  r11.u64 = bd::engine::kInteractRowButton;
 }
 REX_MIDASM_AT(bdPromptIconButtonHook, 0x8219EC88, before, r11);
 REX_MIDASM_AT(bdPromptIconButtonHook, 0x82228B68, before, r11);

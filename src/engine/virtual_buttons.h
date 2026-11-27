@@ -4,13 +4,16 @@
  */
 #pragma once
 
+#include "engine/input/actions.h"
+
 namespace bd::engine {
 
+InputOwner ActiveInputOwner();
+void PublishInputOwner(OwnerMask marked);
+
 // True while a d2anime menu has input focus. Published by the AnimeMenu_Update
-// hook and read by the button layer, so a key can mean one thing in the field
-// and another inside a menu.
+// hook.
 bool MenuOwnsInput();
-void SetMenuOwnsInput(bool owns);
 
 // True while one of reblue's own ImGui surfaces is up. Those need the system
 // pointer, and the SDK's input-active callback only knows about the overlays

@@ -138,7 +138,7 @@ void HoverFormationCells(u32 taskVA) {
   // formation grid is taking menu input, which nothing else on this screen
   // publishes, and it is what lets escape cancel here and hands the mouse back
   // from camera look for as long as the screen is up.
-  MenuMouse::Get().MarkInputOwned();
+  MenuMouse::Get().MarkInputOwned(InputOwner::Menu);
 
   if (PadIsSteering()) {
     MenuMouse::Get().SetMouseHasCursor(false);

@@ -49,6 +49,7 @@ namespace {
 
 // The two states that read the pad. Every other one is a transition.
 constexpr u32 kStateReduced = 1;
+constexpr u32 kStateClosing = 2;
 constexpr u32 kStateEnlarged = 4;
 
 constexpr int kLayoutCount = 2;
@@ -430,13 +431,8 @@ void AreaMap::SyncPrompts(bool available) {
     const u32 gen = Glyphs::Get().Generation();
     if (gen != glyphGen_) {
       glyphGen_ = gen;
-      for (const PromptGlyph &g : kPromptGlyphs) {
-        const UVRect r = Glyphs::Get().CellUV(g.helpName);
-        prompts_.SetFloat(g.uv.u0, r.u0);
-        prompts_.SetFloat(g.uv.v0, r.v0);
-        prompts_.SetFloat(g.uv.u1, r.u1);
-        prompts_.SetFloat(g.uv.v1, r.v1);
-      }
+      for (const PromptGlyph &g : kPromptGlyphs)
+        Glyphs::Get().PushChordCap(prompts_, g.posVar, g.uv, g.action);
     }
   }
 
@@ -507,17 +503,17 @@ bool AreaMap::Update(const MechattMapMainTask &screen) {
   if (!live) {
     // The screen has left the two states that read the pad, so whatever veil
     // the area view put on it has to come off with it.
-    if (active_)
+    if (active_ && state != kStateClosing)
       Leave();
     SyncPrompts(false);
     return false;
   }
 
   CollectFloors();
+  const bool available = !floors_.empty();
 
   if (!active_) {
-    const bool available = !floors_.empty();
-    if (available && CheckButton(Button::RT)) {
+    if (available && CheckAction(Action::AreaMap)) {
       Enter();
       SyncPrompts(available);
       return true;
@@ -526,8 +522,7 @@ bool AreaMap::Update(const MechattMapMainTask &screen) {
     return false;
   }
 
-  if (floors_.empty() || CheckButton(Button::LT)) {
-    const bool available = !floors_.empty();
+  if (!available || CheckAction(Action::AreaMap)) {
     Leave();
     if (available)
       sfx::Play(sfx::kCancel);
@@ -535,22 +530,17 @@ bool AreaMap::Update(const MechattMapMainTask &screen) {
     return true;
   }
 
-  // The footer keeps the screen's own cancel prompt, so cancel has to keep
-  // closing the screen. Standing down first hands the frame back intact.
   if (CheckAction(Action::Cancel)) {
-    Leave();
+    SyncPrompts(available);
     return false;
   }
 
-  // The wheel is the mouse's own zoom, and the only one a default keyboard
-  // layout has: the shoulder buttons carry it on a pad, and RB ships unbound.
-  int zoomStep = 0;
-  if (CheckButton(Button::RB))
+  // The wheel is the mouse's own zoom.
+  int zoomStep = MenuMouse::Get().TakeWheelDetents();
+  if (CheckAction(Action::ZoomIn))
     zoomStep = 1;
-  else if (CheckButton(Button::LB))
+  else if (CheckAction(Action::ZoomOut))
     zoomStep = -1;
-  else
-    zoomStep = MenuMouse::Get().TakeWheelDetents();
 
   const int zoomed = std::clamp(zoom_ + zoomStep, 0, kZoomCount - 1);
   if (zoomed != zoom_) {
@@ -742,6 +732,7 @@ void AreaMapTick() {
 
 void MechattMapMainTaskUpdate_hook(u32 screenVA) {
   const bd::engine::MechattMapMainTask screen(screenVA);
+  bd::engine::MenuMouse::Get().MarkInputOwned(bd::engine::InputOwner::Map);
   if (bd::engine::AreaMap::Get().Update(screen))
     return;
   MechattMapMainTaskUpdate(screenVA);

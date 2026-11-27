@@ -49,7 +49,7 @@ public:
   bool Reset(Action action);
   bool ResetContext(ActionContext context);
 
-  std::optional<Action> Conflict(Action action, const Source &source) const;
+  std::vector<Action> Conflicts(Action action, const Source &source) const;
 
   u32 Generation() const { return set_ ? set_->GetGeneration() : 0; }
 
@@ -58,8 +58,12 @@ public:
 private:
   Bindings() = default;
 
+  int Slot(Action action) const;
+
+  rex::hid::IInputSystem *input_ = nullptr;
   std::array<rex::hid::BindingConfig, kActionCount> descs_;
   std::array<std::string, kActionCount> descriptions_;
+  std::array<int, kActionCount> slot_ = {};
   std::unique_ptr<rex::hid::IBindingSet> set_;
   std::array<std::vector<Source>, kActionCount> frame_;
   u32 frame_generation_ = 0;

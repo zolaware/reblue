@@ -83,6 +83,7 @@ void GameGimmicksByType(std::string_view args);
 void GameGimmickPoints(std::string_view args);
 void GameEvents(std::string_view args);
 void InputBinds(std::string_view args);
+void InputResetBinds(std::string_view args);
 void InputSourcesDump(std::string_view args);
 void InputActionsDump(std::string_view args);
 void InputMap(std::string_view args);
@@ -254,6 +255,9 @@ public:
   REX_SETTING(bool, mouse_input, true,
               "Mouse input: raw mouse look in the field with the pointer "
               "locked, and the drawn cursor in menus.");
+  REX_SETTING(bool, keyboard_input, true,
+              "Keyboard input: keys drive every bind outside the System "
+              "section.");
   REX_SETTING(bool, mouse_cursor_sfx, true,
               "Play the cursor-move sound effect on a mouse-driven row "
               "change.");
@@ -371,6 +375,8 @@ public:
               Command(bd::commands::GameEvents));
   REX_COMMAND(input_binds, "Dump every action and the inputs bound to it",
               Command(bd::commands::InputBinds));
+  REX_COMMAND(input_reset_binds, "Reset every input bind to its default",
+              Command(bd::commands::InputResetBinds));
   REX_COMMAND(input_sources, "Dump the sampled physical input state",
               Command(bd::commands::InputSourcesDump));
   REX_COMMAND(input_actions, "Dump the resolved action state",

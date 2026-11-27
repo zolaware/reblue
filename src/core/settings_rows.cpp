@@ -784,6 +784,35 @@ constexpr SettingRow kControlsSettings[] = {
      .group = "menu.header.controller",
      .kind = SettingKind::Action,
      .action = SettingAction::Keybinds},
+    {.label = "settings.binds.mouse_input",
+     .group = "menu.header.controller",
+     .binding = {.get =
+                     [] {
+                       return bd::cvars::Get().mouse_input.Get() ? 1.0 : 0.0;
+                     },
+                 .set =
+                     [](double v) {
+                       return bd::cvars::Get()
+                           .mouse_input.Set(v != 0.0)
+                           .has_value();
+                     }},
+     .options = kOnOff,
+     .count = OptCount(kOnOff)},
+    {.label = "settings.binds.keyboard_input",
+     .group = "menu.header.controller",
+     .binding = {.get =
+                     [] {
+                       return bd::cvars::Get().keyboard_input.Get() ? 1.0
+                                                                    : 0.0;
+                     },
+                 .set =
+                     [](double v) {
+                       return bd::cvars::Get()
+                           .keyboard_input.Set(v != 0.0)
+                           .has_value();
+                     }},
+     .options = kOnOff,
+     .count = OptCount(kOnOff)},
     {.label = "settings.controls.vibration.label",
      .group = "menu.header.controller",
      .binding = {.get =

@@ -159,22 +159,32 @@ void ConfigMenu::UpdateFooter() {
     break;
   case State::MODLIST:
     if (ModCount() == 0)
-      SetFooter({.b = "footer.back", .back = "footer.install"});
+      SetFooter({.b = "footer.back",
+                 .back = "footer.install",
+                 .backBind = Action::InstallContent});
     else
       SetFooter({.a = "footer.reorder",
                  .b = "footer.back",
                  .x = "footer.delete",
                  .y = "footer.toggle",
-                 .back = "footer.install"});
+                 .back = "footer.install",
+                 .xBind = Action::DeleteContent,
+                 .yBind = Action::ToggleContent,
+                 .backBind = Action::InstallContent});
     break;
   case State::DLCLIST:
     if (DlcCount() == 0)
-      SetFooter({.b = "footer.back", .back = "footer.install_dlc"});
+      SetFooter({.b = "footer.back",
+                 .back = "footer.install_dlc",
+                 .backBind = Action::InstallContent});
     else
       SetFooter({.b = "footer.back",
                  .x = "footer.delete",
                  .y = "footer.toggle",
-                 .back = "footer.install_dlc"});
+                 .back = "footer.install_dlc",
+                 .xBind = Action::DeleteContent,
+                 .yBind = Action::ToggleContent,
+                 .backBind = Action::InstallContent});
     break;
   case State::LANGLIST: {
 #ifdef REBLUE_BUILD_INSTALLER
@@ -184,7 +194,9 @@ void ConfigMenu::UpdateFooter() {
                            LanguageRemovable(cursor);
     SetFooter({.b = "footer.back",
                .x = removable ? "footer.delete" : nullptr,
-               .back = "footer.install_language"});
+               .back = "footer.install_language",
+               .xBind = Action::DeleteContent,
+               .backBind = Action::InstallContent});
 #else
     SetFooter({.b = "footer.back"});
 #endif
@@ -218,10 +230,12 @@ void ConfigMenu::UpdateFooter() {
     SetFooter({.a = "footer.rebind",
                .b = "footer.back",
                .x = "footer.clear",
-               .back = "footer.reset_binds"});
+               .back = "footer.reset_binds",
+               .xBind = Action::ClearBinding,
+               .backBind = Action::ResetDefaults});
     break;
   case State::KEYBIND_CAPTURE:
-    SetFooter({});
+    SetFooter({.prompts = false});
     break;
   case State::REORDER:
     SetFooter({.a = "footer.place", .b = "footer.cancel"});
@@ -416,19 +430,30 @@ void ConfigMenu::RefreshKeybindVisuals() {
   AnimeMenu &list = bind_menu_;
   list.SetCursorShown(false);
 
-  int hoverRow = -1, hoverChip = -1;
-  f32 hoverX = 0.0f;
-  if (state_ == State::KEYBINDS && MenuMouse::Get().MouseHasCursor() &&
-      list.PointerRowX(hoverRow, hoverX))
-    hoverChip = KeybindItemTemplate::ChipAt(hoverX);
+  int selRow = -1, selChip = -1;
+  if (state_ == State::KEYBINDS) {
+    f32 hoverX = 0.0f;
+    if (!MenuMouse::Get().MouseHasCursor()) {
+      selRow = list.CursorIndex();
+      selChip = bind_chip_;
+    } else if (list.PointerRowX(selRow, hoverX)) {
+      selChip = KeybindItemTemplate::ChipAt(hoverX);
+    }
+  }
+
+  auto &layout = GetLayout();
+  for (int page = 0; page < kBindPageCount; ++page) {
+    layout.kbTabLabel[page].set(BindPageLabel(page));
+    layout.kbTabWnd[page].set(page == bind_page_ ? "BTN01_ON" : "BTN01_OF");
+  }
 
   const std::string keysCaption = i18n::Text("settings.binds.keys");
   const std::string padCaption = i18n::Text("settings.binds.pad");
 
   list.ForEachTemplate([&](int gridSlot, AnimeData vb) {
-    const BindEntry entry = BindGridEntry(gridSlot);
+    const BindEntry entry = BindAt(gridSlot);
     const bool header = entry.cell == BindCell::Header;
-    const bool row = !header && entry.cell != BindCell::Blank;
+    const bool row = entry.Bindable();
 
     vb.SetFloat("RowVis", row ? 1.0 : -1.0);
     vb.SetFloat("HdrVis", header ? 1.0 : -1.0);
@@ -453,8 +478,7 @@ void ConfigMenu::RefreshKeybindVisuals() {
       vb.SetFloat(vars.capVar, -1.0);
       vb.SetFloat(vars.pairVar, -1.0);
 
-      const bool mouseInput = entry.cell == BindCell::MouseInput;
-      if (!row || (mouseInput && chip > 0)) {
+      if (!row) {
         vb.SetString(vars.wndVar, "NOWINDOW");
         vb.SetText(vars.textVar, "");
         continue;
@@ -463,27 +487,21 @@ void ConfigMenu::RefreshKeybindVisuals() {
       const bool on = state_ == State::KEYBIND_CAPTURE &&
                       gridSlot == capture_slot_ && chip == capture_chip_;
       const bool fixed = BindChipFixed(entry, chip);
+      const bool selected =
+          !fixed && gridSlot == selRow && chip == selChip;
       const std::string token = BindChipToken(entry, chip);
-      vb.SetString(vars.wndVar, on ? "BTN01_ON" : "BTN01_OF");
+      vb.SetString(vars.wndVar, on || selected ? "BTN01_ON" : "BTN01_OF");
       vb.SetColor(vars.colorVar,
                   (on ? kHighlightYellow
-                      : fixed && !mouseInput ? kFixedGray : rex::ui::colors::kWhite)
+                      : fixed ? kFixedGray : rex::ui::colors::kWhite)
                       .ToARGB8());
 
       if (on) {
         vb.SetText(vars.textVar, kCapturing);
         continue;
       }
-      if (mouseInput) {
-        vb.SetText(vars.textVar,
-                   i18n::Text(bd::cvars::Get().mouse_input.Get() ? "opt.on"
-                                                            : "opt.off"));
-        continue;
-      }
       if (token.empty()) {
-        const bool offered =
-            !fixed && gridSlot == hoverRow && chip == hoverChip;
-        vb.SetText(vars.textVar, offered ? "+" : "");
+        vb.SetText(vars.textVar, selected ? "+" : "");
         continue;
       }
 
@@ -501,14 +519,11 @@ void ConfigMenu::RefreshKeybindVisuals() {
         continue;
       }
 
-      const size_t plus = token.find_last_of('+');
-      int key = KeyIndex(plus == std::string::npos
-                             ? std::string_view(token)
-                             : std::string_view(token).substr(plus + 1));
+      const auto source = bd::platform::HID().ParseInputSource(token);
+      int key = source ? KeyIndex(*source) : -1;
       int mod = -1;
-      if (key >= 0 && plus != std::string::npos) {
-        mod = Glyphs::ModifierIndex(
-            std::string_view(token).substr(0, plus + 1));
+      if (key >= 0 && source->modifiers != rex::KeyModifiers::kNone) {
+        mod = Glyphs::ModifierIndex(source->modifiers);
         if (mod < 0)
           key = -1;
       }

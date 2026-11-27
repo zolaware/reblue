@@ -91,13 +91,6 @@ bool NeedsId(Action action) {
   return desc.kind == ActionKind::Mapped && desc.axis == AxisPair::None;
 }
 
-int PadId(Action action) {
-  for (const Source &source : Bindings::Get().Sources(action))
-    if (source.type == SourceKind::kPadButton)
-      return static_cast<int>(source.code);
-  return -1;
-}
-
 Action Owner(const int (&id)[kActionCount], int wanted, Action except) {
   for (int i = 0; i < kActionCount; ++i) {
     const auto action = static_cast<Action>(i);
@@ -110,6 +103,21 @@ Action Owner(const int (&id)[kActionCount], int wanted, Action except) {
 bool SameSources(Action a, Action b) {
   return std::ranges::equal(Bindings::Get().Sources(a),
                             Bindings::Get().Sources(b));
+}
+
+bool NeverLiveTogether(Action a, Action b) {
+  return (Describe(a).owners & Describe(b).owners) == 0;
+}
+
+bool Clashes(const int (&id)[kActionCount], int wanted, Action action) {
+  for (int i = 0; i < kActionCount; ++i) {
+    const auto other = static_cast<Action>(i);
+    if (other == action || id[i] != wanted)
+      continue;
+    if (!NeverLiveTogether(action, other) && !SameSources(action, other))
+      return true;
+  }
+  return false;
 }
 
 void Assign(int (&id)[kActionCount]) {
@@ -128,21 +136,8 @@ void Assign(int (&id)[kActionCount]) {
     const auto action = static_cast<Action>(i);
     if (id[i] >= 0 || !NeedsId(action))
       continue;
-    const int pad = PadId(action);
-    if (pad < 0 || pad >= kIdEnd)
-      continue;
-    const Action owner = Owner(id, pad, action);
-    if (owner != Action::Count && !SameSources(action, owner))
-      continue;
-    id[i] = pad;
-  }
-
-  for (int i = 0; i < kActionCount; ++i) {
-    const auto action = static_cast<Action>(i);
-    if (id[i] >= 0 || !NeedsId(action))
-      continue;
     const int shipped = ButtonMap::ShippedId(action, 0);
-    if (shipped >= 0 && Owner(id, shipped, action) == Action::Count) {
+    if (shipped >= 0 && !Clashes(id, shipped, action)) {
       id[i] = shipped;
       continue;
     }

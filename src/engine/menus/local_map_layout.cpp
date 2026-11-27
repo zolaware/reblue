@@ -8,6 +8,7 @@
 #include "engine/menus/local_map_layout.h"
 
 #include "engine/d2anime/d2anime.h"
+#include "engine/glyph_set.h"
 
 namespace bd::engine {
 
@@ -95,15 +96,17 @@ constexpr UVRect kUvWrpHogan = {0.0f, 0.0f, 0.875f, 0.5f};
 constexpr UVRect kUvWrpMemoriYoko = {0.0f, 0.75f, 0.0625f, 1.0f};
 constexpr UVRect kUvWrpMemoriTate = {0.96875f, 0.0f, 1.0f, 0.5f};
 
-void Icon(CsvBuilder &b, const char *flag, int x, const HelpUv &uv) {
-  b.tex(AnimeTexAbs{.frameStart = flag,
-                    .x = x,
-                    .y = kIconY,
-                    .w = kIconSize,
-                    .h = kIconSize,
-                    .priority = 0,
-                    .file = kHelpTex,
-                    .helpUv = &uv});
+void Icon(CsvBuilder &b, const char *flag, int x, const PromptGlyph &glyph) {
+  Glyphs::EmitChordCap(b,
+                       AnimeTexAbs{.frameStart = flag,
+                                   .x = x,
+                                   .y = kIconY,
+                                   .w = kIconSize,
+                                   .h = kIconSize,
+                                   .priority = 0,
+                                   .file = kHelpTex,
+                                   .helpUv = &glyph.uv},
+                       glyph.posVar);
 }
 
 void LegendRow(CsvBuilder &b, int row) {
@@ -197,11 +200,13 @@ std::string BuildLocalMapPromptCSV() {
     b.var(StringV{kPromptLegendLabel[row], ""});
   }
   // The cap rects, written by local_map.cpp before the layout ever shows.
-  for (const PromptGlyph &g : kPromptGlyphs)
+  for (const PromptGlyph &g : kPromptGlyphs) {
     b.pos(AnimePos{g.posVar, 0, 0, 0, 0});
+    Glyphs::DeclareChordCap(b, g.posVar);
+  }
   b.blank();
 
-  Icon(b, kPromptOpenFlg, kOpenIconX, kPromptGlyphs[kPromptGlyphOpen].uv);
+  Icon(b, kPromptOpenFlg, kOpenIconX, kPromptGlyphs[kPromptGlyphOpen]);
   Label(b, kPromptOpenFlg, kOpenIconX + kLabelGap, kPromptOpenLabel);
   b.blank();
 
@@ -217,12 +222,12 @@ std::string BuildLocalMapPromptCSV() {
                     .file = kCompassTex});
   b.blank();
 
-  Icon(b, kPromptAreaFlg, kBackIconX, kPromptGlyphs[kPromptGlyphBack].uv);
+  Icon(b, kPromptAreaFlg, kBackIconX, kPromptGlyphs[kPromptGlyphBack]);
   Label(b, kPromptAreaFlg, kBackIconX + kLabelGap, kPromptBackLabel);
-  Icon(b, kPromptAreaFlg, kZoomIconX, kPromptGlyphs[kPromptGlyphZoomOut].uv);
-  Icon(b, kPromptAreaFlg, kZoomIconX2, kPromptGlyphs[kPromptGlyphZoomIn].uv);
+  Icon(b, kPromptAreaFlg, kZoomIconX, kPromptGlyphs[kPromptGlyphZoomOut]);
+  Icon(b, kPromptAreaFlg, kZoomIconX2, kPromptGlyphs[kPromptGlyphZoomIn]);
   Label(b, kPromptAreaFlg, kZoomIconX2 + kLabelGap, kPromptZoomLabel);
-  Icon(b, kPromptFloorFlg, kFloorIconX, kPromptGlyphs[kPromptGlyphFloor].uv);
+  Icon(b, kPromptFloorFlg, kFloorIconX, kPromptGlyphs[kPromptGlyphFloor]);
   Label(b, kPromptFloorFlg, kFloorIconX + kLabelGap, kPromptFloorLabel);
   b.blank();
 

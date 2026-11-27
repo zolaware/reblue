@@ -37,8 +37,6 @@ std::string PollKeyCapture() {
   return source ? bd::platform::HID().InputSourceToString(*source) : std::string();
 }
 
-bool KeyCapturePending() { return Capture().IsPending(); }
-
 bool KeyCaptureCanceled() { return Capture().WasCanceled(); }
 
 } // namespace bd::platform

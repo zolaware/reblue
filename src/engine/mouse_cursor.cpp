@@ -16,6 +16,7 @@
 #include "engine/d2anime/anime_mouse.h"
 #include "engine/guest_prim.h"
 #include "engine/guest_texlist.h"
+#include "engine/input/input_sources.h"
 #include "engine/mouse_cursor.h"
 #include "core/cvar_table.h"
 #include "engine/settings.h"
@@ -155,7 +156,7 @@ void MouseCursorTick() {
   // screen and the drawn one off it while the debug menu is up. The
   // title rows publish MenuOwnsInput now, so without this the pointer opening
   // that menu is the one the game is still holding.
-  const bool wanted = bd::cvars::Get().mouse_input.Get() && MenuOwnsInput() &&
+  const bool wanted = InputSources::Get().MouseEnabled() && MenuOwnsInput() &&
                       !HostOverlayOwnsPointer();
   // The pad takes the pointer off screen with it, mouse motion brings it back.
   g_visible.store(wanted && MenuMouse::Get().MouseHasCursor(),

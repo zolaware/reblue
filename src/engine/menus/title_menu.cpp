@@ -228,7 +228,7 @@ void HoverTitleRows(bd::engine::TitleTask title) {
   // else publishes it here, since these rows are not an AnimeMenu, which left
   // escape reading as the field's camp button and the arrow keys as the right
   // stick on the one screen that is nothing but a menu.
-  bd::engine::MenuMouse::Get().MarkInputOwned();
+  bd::engine::MenuMouse::Get().MarkInputOwned(bd::engine::InputOwner::Menu);
 
   if (!bd::engine::MenuMouse::Get().PointerActive())
     return;

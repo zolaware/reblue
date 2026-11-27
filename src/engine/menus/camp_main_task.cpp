@@ -19,6 +19,8 @@ REX_GUEST_GLOBAL(be_u32, kCampMainTask, 0x82DC9A34);
 
 namespace {
 
+constexpr size_t kTopMenuSlot = 2;
+
 struct CampMainTask_t {
   /* 0x0000 */ u8 _pad0000[0x78];
   /* 0x0078 */ be_u32 layouts[CampMainTask::kLayoutCount];
@@ -51,6 +53,8 @@ D2AnimeTask CampMainTask::Layout(size_t i) const {
     return D2AnimeTask();
   return D2AnimeTask(static_cast<u32>(self->layouts[i]));
 }
+
+D2AnimeTask CampMainTask::TopMenu() const { return Layout(kTopMenuSlot); }
 
 CampFtrTask CampMainTask::Ftr() const {
   const auto *self = Self<CampMainTask_t>();

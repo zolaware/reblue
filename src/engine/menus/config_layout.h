@@ -207,12 +207,67 @@ private:
   static constexpr int kTrackW = 306;
 };
 
-inline constexpr int kKeybindGridY = 104;
-inline constexpr int kKeybindRowH = 25;
-inline constexpr int kKeybindMaxRows = 20;
+inline constexpr int kScreenW = 1280;
+inline constexpr int kScreenH = 720;
+
+inline constexpr int kHeaderRuleY = 95;
+inline constexpr int kFooterRuleY = 617;
+inline constexpr int kRuleH = 2;
+
+inline constexpr int kFooterBandY = kFooterRuleY + kRuleH;
+inline constexpr int kFooterIconY = 639;
+inline constexpr int kFooterIconSize = 64;
+inline constexpr int kFooterLabelY = 654;
+inline constexpr int kFooterFontW = 27;
+inline constexpr int kFooterFontH = 30;
+
+inline constexpr int kKeybindHintX = kScreenW / 2;
+inline constexpr int kKeybindHintFontW = 15;
+inline constexpr int kKeybindHintFontH = 19;
+inline constexpr int kKeybindNoticeY =
+    kFooterBandY + (kFooterIconY - kFooterBandY - kKeybindHintFontH) / 2;
+inline constexpr int kKeybindCaptureY =
+    kFooterBandY + (kScreenH - kFooterBandY - kKeybindHintFontH) / 2;
+static_assert(kKeybindNoticeY >= kFooterBandY);
+static_assert(kKeybindNoticeY + kKeybindHintFontH <= kFooterIconY);
+static_assert(kKeybindCaptureY + kKeybindHintFontH <= kScreenH);
+
 inline constexpr int kKeybindGridX = 40;
 inline constexpr int kKeybindCellW = 590;
 inline constexpr int kKeybindColStride = 610;
+inline constexpr int kKeybindGridX1 =
+    kKeybindGridX + kKeybindColStride + kKeybindCellW;
+
+inline constexpr int kKeybindTabY = kHeaderRuleY + kRuleH + 2;
+inline constexpr int kKeybindTabH = 24;
+inline constexpr int kKeybindTabGap = 6;
+inline constexpr int kKeybindTabCapSize = 24;
+inline constexpr int kKeybindTabCapGap = 6;
+inline constexpr int kKeybindTabX =
+    kKeybindGridX + kKeybindTabCapSize + kKeybindTabCapGap;
+inline constexpr int kKeybindTabW =
+    (kKeybindGridX1 - kKeybindTabCapGap - kKeybindTabCapSize - kKeybindTabX -
+     (kBindPageCount - 1) * kKeybindTabGap) /
+    kBindPageCount;
+
+constexpr int KeybindTabX(int tab) {
+  return kKeybindTabX + tab * (kKeybindTabW + kKeybindTabGap);
+}
+
+inline constexpr int kKeybindPanelPad = 4;
+inline constexpr int kKeybindStripGap = 2;
+inline constexpr int kKeybindGridY =
+    kKeybindTabY + kKeybindTabH + kKeybindStripGap + kKeybindPanelPad;
+inline constexpr int kKeybindRowH = 23;
+inline constexpr int kKeybindMaxRows = 21;
+static_assert(kKeybindGridY + kKeybindMaxRows * kKeybindRowH +
+                  kKeybindPanelPad <=
+              kFooterRuleY);
+
+struct FooterCap {
+  const char *posVar;
+  HelpUv uv;
+};
 
 struct KeybindSlotVars {
   const char *comment;
@@ -291,6 +346,7 @@ public:
   StringV ftrX{"FtrX", ""};
   StringV ftrBack{"FtrBack", ""};
   FloatV ftrAVis{"FtrAVis", 1.0};
+  FloatV ftrBVis{"FtrBVis", 1.0};
   FloatV ftrXVis{"FtrXVis", -1.0};
   FloatV ftrYVis{"FtrYVis", -1.0};
   FloatV ftrBackVis{"FtrBackVis", -1.0};
@@ -299,14 +355,13 @@ public:
   // on screen while the keybind page rebinds the very keys its caps show, so
   // a uv. snapshot would go stale in front of the player. ConfigMenu rewrites
   // these on every glyph generation. Standalone only, like the icons.
-  static constexpr PromptGlyph kFooterGlyphs[] = {
-      {"FtrAUv", {"FtrAUv.x", "FtrAUv.y", "FtrAUv.w", "FtrAUv.h"}, "Help_A_Uv"},
-      {"FtrBUv", {"FtrBUv.x", "FtrBUv.y", "FtrBUv.w", "FtrBUv.h"}, "Help_B_Uv"},
-      {"FtrXUv", {"FtrXUv.x", "FtrXUv.y", "FtrXUv.w", "FtrXUv.h"}, "Help_X_Uv"},
-      {"FtrYUv", {"FtrYUv.x", "FtrYUv.y", "FtrYUv.w", "FtrYUv.h"}, "Help_Y_Uv"},
+  static constexpr FooterCap kFooterGlyphs[] = {
+      {"FtrAUv", {"FtrAUv.x", "FtrAUv.y", "FtrAUv.w", "FtrAUv.h"}},
+      {"FtrBUv", {"FtrBUv.x", "FtrBUv.y", "FtrBUv.w", "FtrBUv.h"}},
+      {"FtrXUv", {"FtrXUv.x", "FtrXUv.y", "FtrXUv.w", "FtrXUv.h"}},
+      {"FtrYUv", {"FtrYUv.x", "FtrYUv.y", "FtrYUv.w", "FtrYUv.h"}},
       {"FtrBackUv",
-       {"FtrBackUv.x", "FtrBackUv.y", "FtrBackUv.w", "FtrBackUv.h"},
-       "Help_BACK_Uv"},
+       {"FtrBackUv.x", "FtrBackUv.y", "FtrBackUv.w", "FtrBackUv.h"}},
   };
   // Yellow "Requires restart" footnote naming the color the restart-bound rows
   // are drawn in. Shown on settings pages that have one.
@@ -321,7 +376,23 @@ public:
   StringV rowDescC{"RowDescC", ""};
 
   StringV kbHint{"KbHint", ""};
+  StringV kbNotice{"KbNotice", ""};
   FloatV kbChromeVis{"KbChromeVis", -1.0};
+
+  StringV kbTabLabel[kBindPageCount]{{"KbTab0", ""}, {"KbTab1", ""}};
+  StringV kbTabWnd[kBindPageCount]{{"KbTabWnd0", "BTN01_OF"},
+                                   {"KbTabWnd1", "BTN01_OF"}};
+
+  static constexpr PromptGlyph kTabGlyphs[] = {
+      {"KbTabLUv",
+       {"KbTabLUv.x", "KbTabLUv.y", "KbTabLUv.w", "KbTabLUv.h"},
+       Action::PrevPage},
+      {"KbTabRUv",
+       {"KbTabRUv.x", "KbTabRUv.y", "KbTabRUv.w", "KbTabRUv.h"},
+       Action::NextPage},
+  };
+
+  static int BindTabAt(f32 x, f32 y);
 
   // Sections shown in the sidebar, in cursor order: the five settings pages
   // (SettingsPage 0..4), then Mods, Official DLC, Languages and Achievements.

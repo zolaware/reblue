@@ -12,6 +12,7 @@
 #include "engine/input/button_map.h"
 #include "engine/input/input_sources.h"
 #include "engine/input/pad_block.h"
+#include "engine/virtual_buttons.h"
 
 namespace bd::engine {
 
@@ -55,11 +56,15 @@ bool g_driving = false;
 PadWords ResolveWords() {
   const ButtonMap &map = ButtonMap::Get();
   const InputActions &actions = InputActions::Get();
+  const InputOwner active = ActiveInputOwner();
+  const OwnerMask owner = OwnerBit(active);
   PadWords out;
   for (int i = 0; i < kActionCount; ++i) {
     const auto action = static_cast<Action>(i);
     const u32 bit = map.Mask(action);
     if (!bit)
+      continue;
+    if (active != InputOwner::Capture && (Describe(action).owners & owner) == 0)
       continue;
     out.claimed |= bit;
     if (actions.Held(action))
@@ -80,12 +85,16 @@ bool DrivesAxis(const Source &source) {
 
 AxisState ResolveAxes() {
   const InputActions &actions = InputActions::Get();
+  const InputOwner active = ActiveInputOwner();
+  const OwnerMask owner = OwnerBit(active);
   AxisState out;
   for (int i = 0; i < kActionCount; ++i) {
     const auto action = static_cast<Action>(i);
     const ActionDesc &desc = Describe(action);
     const int pair = static_cast<int>(desc.axis);
     if (desc.kind != ActionKind::Mapped || pair < 0 || pair >= kAxisPairs)
+      continue;
+    if (active != InputOwner::Capture && (desc.owners & owner) == 0)
       continue;
     bool drives = false;
     for (const Source &source : Bindings::Get().FrameSources(action))

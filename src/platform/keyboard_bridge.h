@@ -5,7 +5,9 @@
 #pragma once
 
 #include <cstddef>
+#include <span>
 
+#include <rex/input_keys.h>
 #include <rex/kernel/memory_view.h>
 #include <rex/types.h>
 
@@ -29,16 +31,10 @@ REX_GUEST_GLOBAL(GuestKeyEntry, kGuestKeyBuffer, 0x82DDA6F0);
 // Called from a midasm hook at the top of bdMainGameStep.
 void PollKeyboardToGuest();
 
-// Edge-detected Ctrl+Alt+M. Detected here because the SDK bind registry is
-// single-key. The chord avoids colliding with guest debug F-key handlers.
-bool PollMindowsHotkey();
+void SetMindowsVisible(bool visible);
 
-// While Mindows is open its keys must not also drive the keyboard pad, so the
-// title reads idle pads until it closes.
-void HoldPadsForMindows(bool open);
-
-// True while Mindows holds the keyboard. Key binds then drive nothing but the
-// Mindows toggle.
-bool MindowsOwnsKeyboard();
+// The keys Mindows reads while it is on screen, empty while it is hidden. Key
+// binds on these drive nothing but Mindows.
+std::span<const rex::InputSource> MindowsKeys();
 
 } // namespace bd::platform

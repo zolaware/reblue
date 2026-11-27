@@ -32,17 +32,19 @@ inline constexpr const char *kPromptFloorFlg = "FloorFlg";
 // never reach a uv. snapshot. local_map.cpp rewrites these on every glyph
 // generation.
 inline constexpr PromptGlyph kPromptGlyphs[] = {
-    {"OpenUv", {"OpenUv.x", "OpenUv.y", "OpenUv.w", "OpenUv.h"}, "Help_RT_Uv"},
-    {"BackUv", {"BackUv.x", "BackUv.y", "BackUv.w", "BackUv.h"}, "Help_LT_Uv"},
+    {"OpenUv", {"OpenUv.x", "OpenUv.y", "OpenUv.w", "OpenUv.h"},
+     Action::AreaMap},
+    {"BackUv", {"BackUv.x", "BackUv.y", "BackUv.w", "BackUv.h"},
+     Action::AreaMap},
     {"ZoomOutUv",
      {"ZoomOutUv.x", "ZoomOutUv.y", "ZoomOutUv.w", "ZoomOutUv.h"},
-     "Help_LB_Uv"},
+     Action::ZoomOut},
     {"ZoomInUv",
      {"ZoomInUv.x", "ZoomInUv.y", "ZoomInUv.w", "ZoomInUv.h"},
-     "Help_RB_Uv"},
+     Action::ZoomIn},
     {"FloorUv",
      {"FloorUv.x", "FloorUv.y", "FloorUv.w", "FloorUv.h"},
-     "Help_CROSS_Uv"},
+     Action::Count},
 };
 inline constexpr int kPromptGlyphOpen = 0;
 inline constexpr int kPromptGlyphBack = 1;

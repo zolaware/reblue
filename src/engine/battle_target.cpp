@@ -112,7 +112,7 @@ void UpdateBattleTargetHover(u32 taskVA) {
   // gate below, which are about the pointer rather than about the keyboard, and
   // ahead of the region test, since an action that covers the whole field still
   // takes a confirm and a cancel.
-  MenuMouse::Get().MarkInputOwned();
+  MenuMouse::Get().MarkInputOwned(InputOwner::BattleTarget);
 
   const BattleTask task(taskVA);
   const auto *selection =

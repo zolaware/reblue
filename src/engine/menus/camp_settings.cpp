@@ -36,10 +36,6 @@ constexpr u32 kStateInert = 8;
 // time.
 constexpr size_t kCampHeaderSlot = 1;
 
-// Slot two is d2anime\camp\top\L_top.csv, the top menu itself: visible
-// exactly while the user is on the camp's main menu.
-constexpr size_t kCampTopSlot = 2;
-
 // Full opacity for one of the band's prompt slots.
 constexpr double kPromptShown = 255.0;
 constexpr double kPromptHidden = 0.0;
@@ -102,7 +98,7 @@ void CampSettings::Tick() {
   // into that load wedges it: the CSV read never runs and the loader never
   // finishes. The top menu on screen is the one signal that the load is over
   // and a user is on the camp menus.
-  D2AnimeTask top = camp.Layout(kCampTopSlot);
+  D2AnimeTask top = camp.TopMenu();
   if (!top.IsVisible())
     return;
   if (!camp_.Rebind(camp.Address()))

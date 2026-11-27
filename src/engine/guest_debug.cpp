@@ -19,6 +19,10 @@
 
 #include <atomic>
 #include <charconv>
+#include <cstddef>
+#include <mutex>
+#include <string>
+#include <string_view>
 
 #include <rex/ppc/hook.h>
 #include <rex/logging/log_category.h>
@@ -66,6 +70,39 @@ void ApplyDebugConfig() {
 
   cfg.SetDebugMindows(v);
   Game::Get().SetMindowsHidden(true);
+}
+
+constexpr i32 kStdout = 1;
+constexpr i32 kStderr = 2;
+constexpr size_t kMaxConsoleLine = 1024;
+
+struct ConsoleLine {
+  std::mutex mutex;
+  std::string text;
+};
+
+ConsoleLine g_consoleLines[2];
+
+void EmitConsoleLine(i32 fd, std::string_view line) {
+  if (!line.empty() && line.back() == '\r')
+    line.remove_suffix(1);
+  if (fd == kStdout)
+    REXBD_INFO("{}", line);
+  else
+    REXBD_WARN("{}", line);
+}
+
+void AppendConsole(i32 fd, std::string_view bytes) {
+  ConsoleLine &out = g_consoleLines[fd - kStdout];
+  std::lock_guard lock(out.mutex);
+  for (const char c : bytes) {
+    if (c != '\n')
+      out.text.push_back(c);
+    if (c == '\n' || out.text.size() >= kMaxConsoleLine) {
+      EmitConsoleLine(fd, out.text);
+      out.text.clear();
+    }
+  }
 }
 
 } // namespace
@@ -149,6 +186,20 @@ void bd::commands::PadLogPlay(std::string_view) {
   bd::engine::RequestPadLog(bd::engine::kPadLogPlayKey);
 }
 
+REX_DETOUR(crt_write, i32, (i32 fd, u32 buffer, u32 count)) {
+  using namespace bd::engine;
+  if (fd != kStdout && fd != kStderr)
+    return original(fd, buffer, count);
+  if (count == 0)
+    return 0;
+  const u8 *first = bd::mem::try_at<const u8>(buffer);
+  const u8 *last = bd::mem::try_at<const u8>(buffer + count - 1);
+  if (!first || !last || last - first != static_cast<std::ptrdiff_t>(count - 1))
+    return -1;
+  AppendConsole(fd, {reinterpret_cast<const char *>(first), count});
+  return static_cast<i32>(count);
+}
+
 // The engine runs this only while debugMindows is set, which devmode does.
 REX_DETOUR(bdPadLogDebugHandler, void, ()) {
   bd::engine::PressRequestedPadLogKey();
@@ -170,15 +221,13 @@ REX_MIDASM_HOOK(bdPostConfigInitHook, ()) {
 REX_MIDASM_AT(bdPostConfigInitHook, 0x820CE730, after);
 
 // The engine key buffer only feeds debug systems, so the poll is skipped outside
-// devmode to keep stray keystrokes out of the engine. Ctrl+Alt+M toggles the
-// Mindows overlay, and while it is hidden the bridge forwards nothing.
+// devmode to keep stray keystrokes out of the engine. While the Mindows overlay
+// is hidden the bridge forwards nothing.
 REX_MIDASM_HOOK(bdKeyboardPollHook, ()) {
   bd::audio::ApplyAudioDebugPokes();
   const bool devmode = bd::cvars::Get().devmode.Get();
-  if (devmode && bd::platform::PollMindowsHotkey())
-    bd::engine::Game::Get().ToggleMindows();
   const auto &game = bd::engine::Game::Get();
-  bd::platform::HoldPadsForMindows(devmode && game.IsReady() &&
+  bd::platform::SetMindowsVisible(devmode && game.IsReady() &&
                                    !game.MindowsHidden());
   if (devmode)
     bd::platform::PollKeyboardToGuest();

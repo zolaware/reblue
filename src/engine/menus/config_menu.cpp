@@ -34,6 +34,30 @@
 
 namespace bd::engine {
 
+namespace {
+
+static_assert(ConfigMenu::kFooterCaps ==
+              std::size(ConfigLayout::kFooterGlyphs));
+
+InputOwner HostOwner(ConfigMenu::State state) {
+  switch (state) {
+  case ConfigMenu::State::KEYBINDS:
+    return InputOwner::ConfigBinds;
+  case ConfigMenu::State::MODLIST:
+    return InputOwner::ConfigMods;
+  case ConfigMenu::State::DLCLIST:
+    return InputOwner::ConfigDLC;
+  case ConfigMenu::State::LANGLIST:
+    return InputOwner::ConfigLanguages;
+  case ConfigMenu::State::KEYBIND_CAPTURE:
+    return InputOwner::Capture;
+  default:
+    return InputOwner::Config;
+  }
+}
+
+} // namespace
+
 std::array<AnimeMenu *, ConfigMenu::kMenuCount> ConfigMenu::Menus() {
   std::array<AnimeMenu *, kMenuCount> all = {
       &section_menu_,  &modlist_menu_,  &dlclist_menu_,
@@ -209,11 +233,10 @@ void ConfigMenu::SetHeaders(const std::string &sections,
 
 void ConfigMenu::SetKeybindChrome(const char *hintKey) {
   auto &layout = GetLayout();
-  if (conflict_shown_)
-    layout.kbHint.set(
-        i18n::Fmt("menu.hint.conflict", BindRowLabel(conflict_action_)));
-  else
-    layout.kbHint.set(hintKey ? i18n::Text(hintKey) : std::string());
+  layout.kbNotice.set(conflict_shown_ ? i18n::Fmt("menu.hint.conflict",
+                                                  conflict_label_.c_str())
+                                       : std::string());
+  layout.kbHint.set(hintKey ? i18n::Text(hintKey) : std::string());
   layout.kbChromeVis.set(1.0);
 }
 
@@ -227,7 +250,13 @@ void ConfigMenu::SetFooter(const FooterLabels &f) {
   prompt(layout.ftrX, layout.ftrXVis, f.x);
   prompt(layout.ftrY, layout.ftrYVis, f.y);
   prompt(layout.ftrBack, layout.ftrBackVis, f.back);
-  // Always drawn, so it has no visibility variable to clear.
+  layout.ftrBVis.set(f.prompts ? 1.0 : -1.0);
+  const std::array<Action, kFooterCaps> binds = {
+      Action::Confirm, Action::Cancel, f.xBind, f.yBind, f.backBind};
+  if (binds != footer_binds_) {
+    footer_binds_ = binds;
+    glyph_gen_ = 0;
+  }
   if (f.b)
     layout.ftrB.set(i18n::Text(f.b));
 }
@@ -245,6 +274,7 @@ void ConfigMenu::Create(Task parent, Surface surface, PPCFunc *parentUpdate) {
   ResetInteraction();
   capture_chip_ = -1;
   last_bind_slot_ = 0;
+  bind_page_ = 0;
   settings_page_ = SettingsPage::Gameplay;
   glyph_gen_ = 0;
   ResetMenus();
@@ -485,6 +515,7 @@ void ConfigMenu::Transition(State next) {
   layout.rowDesc1.set("");
   layout.rowDescC.set("");
   layout.kbHint.set("");
+  layout.kbNotice.set("");
   layout.kbChromeVis.set(-1.0);
 
   // Brings up a list with its cursor on it, what every content state does
@@ -638,22 +669,15 @@ void ConfigMenu::Transition(State next) {
 
   case State::KEYBINDS:
     open(bind_menu_);
-    if (bind_menu_) {
-      const BindCell cell = BindGridEntry(bind_menu_.CursorIndex()).cell;
-      if (cell == BindCell::Header || cell == BindCell::Blank) {
-        int first = 0;
-        while (BindGridEntry(first).cell == BindCell::Header)
-          first += 2;
-        bind_menu_.SetCursorIndex(first);
-      }
-    }
+    if (bind_menu_ && !BindAt(bind_menu_.CursorIndex()).Bindable())
+      bind_menu_.SetCursorIndex(FirstBindSlot());
     last_bind_slot_ = bind_menu_.CursorIndex();
     HideDetailPanel();
     HideDLCDetail();
     RefreshKeybindVisuals();
     SetHeaders("", "", "");
     // The pointer interactions are the ones nothing on screen names.
-    SetKeybindChrome("menu.hint.binds");
+    SetKeybindChrome(nullptr);
     REXBD_DEBUG("config state -> KEYBINDS");
     break;
 
@@ -662,7 +686,7 @@ void ConfigMenu::Transition(State next) {
     SetKeybindChrome(capture_chip_ == kBindPadChip ? "menu.hint.capture_pad"
                                                    : "menu.hint.capture");
     REXBD_DEBUG("config state -> KEYBIND_CAPTURE ({} chip {})",
-             BindEntryLabel(BindGridEntry(capture_slot_)), capture_chip_);
+             BindEntryLabel(BindAt(capture_slot_)), capture_chip_);
     break;
 
   case State::REORDER:
@@ -708,7 +732,7 @@ void ConfigMenu::Transition(State next) {
   case State::CONFIRM_RESET_BINDS:
     // The list stays up behind the popup, so its section panels and titles,
     // which every transition clears, have to be put back with it.
-    SetKeybindChrome("menu.hint.binds");
+    SetKeybindChrome(nullptr);
     confirm_popup_.Create(task_, i18n::Text("menu.confirm.reset_binds").c_str(),
                           i18n::Text("menu.confirm.undone").c_str());
     ActivateOnly(nullptr);
@@ -800,13 +824,13 @@ void ConfigMenu::Update(PPCContext &ctx) {
     const u32 gen = Glyphs::Get().Generation();
     if (gen != glyph_gen_) {
       glyph_gen_ = gen;
-      for (const PromptGlyph &g : ConfigLayout::kFooterGlyphs) {
-        const UVRect r = Glyphs::Get().CellUV(g.helpName);
-        task_.SetFloat(g.uv.u0, r.u0);
-        task_.SetFloat(g.uv.v0, r.v0);
-        task_.SetFloat(g.uv.u1, r.u1);
-        task_.SetFloat(g.uv.v1, r.v1);
+      const Glyphs &glyphs = Glyphs::Get();
+      for (size_t i = 0; i < kFooterCaps; ++i) {
+        const FooterCap &cap = ConfigLayout::kFooterGlyphs[i];
+        glyphs.PushChordCap(task_, cap.posVar, cap.uv, footer_binds_[i]);
       }
+      for (const PromptGlyph &g : ConfigLayout::kTabGlyphs)
+        glyphs.PushChordCap(task_, g.posVar, g.uv, g.action);
     }
   }
 
@@ -965,6 +989,8 @@ void ConfigMenu::Update(PPCContext &ctx) {
   default:
     break;
   }
+
+  MenuMouse::Get().MarkInputOwned(HostOwner(state_));
 }
 
 } // namespace bd::engine

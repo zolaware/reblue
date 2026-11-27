@@ -860,15 +860,117 @@ u32 LerpToScratch(const FloatSnapshot &e, float a, u32 &scratch,
   return scratch;
 }
 
+struct DebugTextCtx_t {
+  u8 _pad00;
+  u8 writeIndex;
+  u8 _pad02[0x12];
+  be_u32 buffers[2];
+  be_u32 writeOffset;
+};
+static_assert(offsetof(DebugTextCtx_t, writeIndex) == 0x01);
+static_assert(offsetof(DebugTextCtx_t, buffers) == 0x14);
+static_assert(offsetof(DebugTextCtx_t, writeOffset) == 0x1C);
+
+struct DebugTextEntry_t {
+  be_u32 end;
+};
+
+REX_GUEST_GLOBAL(be_u32, kDebugTextCtx, 0x82DC99C0);
+
+constexpr u32 kDebugTextCap = 0x3FFC;
+
+struct DebugTextTick {
+  bool open = false;
+  u32 start = 0;
+  std::vector<u8> bytes;
+};
+
+DebugTextTick g_debugTextTick;
+
+DebugTextCtx_t *DebugTextCtx() {
+  return bd::mem::try_at<DebugTextCtx_t>(bd::mem::try_load<u32>(
+      kDebugTextCtx.GetAddress()));
+}
+
+u32 DebugTextWriteBuffer(const DebugTextCtx_t &ctx) {
+  return ctx.buffers[ctx.writeIndex & 1];
+}
+
+u8 *DebugTextBytes(u32 va, u32 length) {
+  u8 *first = bd::mem::try_at<u8>(va);
+  const u8 *last = bd::mem::try_at<const u8>(va + length - 1);
+  return first && last && last - first == std::ptrdiff_t(length - 1) ? first
+                                                                    : nullptr;
+}
+
+void BeginDebugTextTick() {
+  g_debugTextTick.bytes.clear();
+  const DebugTextCtx_t *ctx = DebugTextCtx();
+  g_debugTextTick.open = ctx != nullptr;
+  if (ctx)
+    g_debugTextTick.start = ctx->writeOffset;
+}
+
+void EndDebugTextTick() {
+  if (!g_debugTextTick.open)
+    return;
+  g_debugTextTick.open = false;
+  const DebugTextCtx_t *ctx = DebugTextCtx();
+  if (!ctx)
+    return;
+  const u32 start = g_debugTextTick.start;
+  const u32 end = ctx->writeOffset;
+  if (end <= start || end > kDebugTextCap)
+    return;
+  const u8 *src = DebugTextBytes(DebugTextWriteBuffer(*ctx) + start,
+                                 end - start);
+  if (src)
+    g_debugTextTick.bytes.assign(src, src + (end - start));
+}
+
+void ReplayDebugTextTick() {
+  const std::vector<u8> &bytes = g_debugTextTick.bytes;
+  DebugTextCtx_t *ctx = bytes.empty() ? nullptr : DebugTextCtx();
+  if (!ctx)
+    return;
+  const u32 size = u32(bytes.size());
+  const u32 at = ctx->writeOffset;
+  if (at > kDebugTextCap || size > kDebugTextCap - at)
+    return;
+  const u32 buffer = DebugTextWriteBuffer(*ctx);
+  u8 *dst = DebugTextBytes(buffer + at, size + sizeof(be_u32));
+  if (!dst)
+    return;
+
+  std::memcpy(dst, bytes.data(), size);
+  u32 entry = 0;
+  while (entry < size) {
+    auto *header = reinterpret_cast<DebugTextEntry_t *>(dst + entry);
+    const u32 next = u32(header->end) - g_debugTextTick.start;
+    if (next <= entry || next > size)
+      return;
+    header->end = at + next;
+    entry = next;
+  }
+  *reinterpret_cast<be_u32 *>(dst + size) = 0;
+  ctx->writeOffset = at + size;
+}
+
 } // namespace
 
 REX_MIDASM_BRANCH(bdLogicTickGateHook, (PPCRegister &r28)) {
-  if (bd::engine::TickDue())
+  if (bd::engine::TickDue()) {
+    BeginDebugTextTick();
     return false;
+  }
+  ReplayDebugTextTick();
   r28.u64 = 0xDEAD0000;
   return true;
 }
 REX_MIDASM_AT(bdLogicTickGateHook, 0x82126B78, before, 0x82126C20, r28);
+
+REX_MIDASM_HOOK(bdLogicTickEndHook, ()) { EndDebugTextTick(); }
+REX_MIDASM_AT(bdLogicTickEndHook, 0x82126C18, before);
 
 REX_MIDASM_BRANCH(bdFrameClockGateHook, ()) { return !bd::engine::TickDue(); }
 REX_MIDASM_AT(bdFrameClockGateHook, 0x82134DB4, before, 0x82134DB8);

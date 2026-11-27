@@ -10,13 +10,11 @@
 #include <algorithm>
 #include <format>
 
+#include "engine/glyph_set.h"
+
 namespace bd::engine {
 
 namespace {
-
-// The stock footer band this menu's prompts sit in.
-constexpr int kFooterIconY = 639, kFooterIconSize = 64;
-constexpr int kFooterLabelY = 654, kFooterFontW = 27, kFooterFontH = 30;
 
 // Header line above each of the three columns.
 constexpr int kHeaderY = 110, kHeaderFontW = 18, kHeaderFontH = 22;
@@ -25,7 +23,9 @@ constexpr int kHeaderPri = 4;
 constexpr int kSectionFontW = 19, kSectionFontH = 25;
 
 constexpr int kBindPanelPri = 4;
-constexpr int kBindPanelPad = 6;
+
+constexpr int kBindTabPri = 3;
+constexpr int kBindTabFontW = 14, kBindTabFontH = 18;
 
 // Longest list a settings page may carry before its rows run past the
 // row description line.
@@ -573,6 +573,17 @@ ConfigLayout::ConfigLayout() {
     settingsList[p] = PageList(kSettingsListNames[p], "l_modmgr_setting.csv");
 }
 
+int ConfigLayout::BindTabAt(f32 x, f32 y) {
+  if (y < kKeybindTabY || y > kKeybindTabY + kKeybindTabH)
+    return -1;
+  for (int tab = 0; tab < kBindPageCount; ++tab) {
+    const f32 tx = static_cast<f32>(KeybindTabX(tab));
+    if (x >= tx && x <= tx + static_cast<f32>(kKeybindTabW))
+      return tab;
+  }
+  return -1;
+}
+
 void ConfigLayout::SetSectionCount(int count) {
   sectionCount_ = std::clamp(count, 1, kSectionCount);
   sectionMenu.rows = sectionCount_;
@@ -653,23 +664,22 @@ void ConfigLayout::build(CsvBuilder &b) {
                   {815, hdrDetails.name()}};
 
   // The two rules bracketing the content area.
-  constexpr int kRuleY[] = {95, 617};
+  constexpr int kRuleY[] = {kHeaderRuleY, kFooterRuleY};
 
 
 
   // One footer prompt: its icon cell in res\cmn_help_menue and the two vars
-  // driving its visibility and label. B is always shown, so it gates on the
-  // layout's own 'start'.
+  // driving its visibility and label.
   const struct {
     const char *visVar, *labelVar;
     int iconX, labelX;
-    const HelpUv &uv;
+    const FooterCap &cap;
   } kFooter[] = {
-      {ftrAVis.name(), ftrA.name(), 115, 160, kFooterGlyphs[0].uv},
-      {"start", ftrB.name(), 335, 381, kFooterGlyphs[1].uv},
-      {ftrXVis.name(), ftrX.name(), 555, 601, kFooterGlyphs[2].uv},
-      {ftrYVis.name(), ftrY.name(), 755, 801, kFooterGlyphs[3].uv},
-      {ftrBackVis.name(), ftrBack.name(), 955, 1004, kFooterGlyphs[4].uv},
+      {ftrAVis.name(), ftrA.name(), 115, 160, kFooterGlyphs[0]},
+      {ftrBVis.name(), ftrB.name(), 335, 381, kFooterGlyphs[1]},
+      {ftrXVis.name(), ftrX.name(), 555, 601, kFooterGlyphs[2]},
+      {ftrYVis.name(), ftrY.name(), 755, 801, kFooterGlyphs[3]},
+      {ftrBackVis.name(), ftrBack.name(), 955, 1004, kFooterGlyphs[4]},
   };
 
   // Centered on the 1280-wide screen, clear of the tenth list row above and,
@@ -709,8 +719,11 @@ void ConfigLayout::build(CsvBuilder &b) {
 
   b.comment("variable definitions").vars(start, alpha);
   Declare(b, title, hdrSections, hdrMods, hdrDetails, ftrA, ftrB, ftrX, ftrY,
-          ftrBack, ftrAVis, ftrXVis, ftrYVis, ftrBackVis, restartVis,
-          restartNote, rowDesc0, rowDesc1, rowDescC, kbHint, kbChromeVis);
+          ftrBack, ftrAVis, ftrBVis, ftrXVis, ftrYVis, ftrBackVis, restartVis,
+          restartNote, rowDesc0, rowDesc1, rowDescC, kbHint, kbNotice,
+          kbChromeVis);
+  for (int tab = 0; tab < kBindPageCount; ++tab)
+    Declare(b, kbTabLabel[tab], kbTabWnd[tab]);
   b.blank();
 
   if (standalone_)
@@ -743,10 +756,11 @@ void ConfigLayout::build(CsvBuilder &b) {
   for (int c = 0; c < 2; ++c)
     b.frame(AnimeFrame{.frameStart = kbChromeVis.name(),
                        .x = kKeybindGridX + c * kKeybindColStride -
-                            kBindPanelPad,
-                       .y = kKeybindGridY - kBindPanelPad,
-                       .w = kKeybindCellW + 2 * kBindPanelPad,
-                       .h = bindList.rows * kKeybindRowH + 2 * kBindPanelPad,
+                            kKeybindPanelPad,
+                       .y = kKeybindGridY - kKeybindPanelPad,
+                       .w = kKeybindCellW + 2 * kKeybindPanelPad,
+                       .h = bindList.rows * kKeybindRowH +
+                            2 * kKeybindPanelPad,
                        .priority = kBindPanelPri,
                        .alphaRef = "alpha-200",
                        .r = 0,
@@ -755,18 +769,70 @@ void ConfigLayout::build(CsvBuilder &b) {
                        .tag = "#panel"});
 
   b.blank().comment(kColsMessage);
-  b.message(AnimeMessageAbs{.frameStart = kbChromeVis.name(),
-                            .x = kKeybindGridX + kKeybindColStride +
-                                 kKeybindCellW,
-                            .y = 68,
-                            .fontW = 15,
-                            .fontH = 19,
-                            .alpha = 200,
-                            .r = 190,
-                            .g = 190,
-                            .b = 190,
-                            .contentVar = kbHint.name(),
-                            .posType = "right"});
+  const auto keybindLine = [this](int y, const char *var) {
+    return AnimeMessageAbs{.frameStart = kbChromeVis.name(),
+                           .x = kKeybindHintX,
+                           .y = y,
+                           .fontW = kKeybindHintFontW,
+                           .fontH = kKeybindHintFontH,
+                           .alpha = 200,
+                           .r = 190,
+                           .g = 190,
+                           .b = 190,
+                           .contentVar = var,
+                           .posType = "center"};
+  };
+  b.message(keybindLine(kKeybindNoticeY, kbNotice.name()));
+  b.message(keybindLine(kKeybindCaptureY, kbHint.name()));
+
+  constexpr int capY =
+      kKeybindTabY + (kKeybindTabH - kKeybindTabCapSize) / 2;
+  constexpr int capX[] = {
+      KeybindTabX(0) - kKeybindTabCapGap - kKeybindTabCapSize,
+      KeybindTabX(kBindPageCount - 1) + kKeybindTabW + kKeybindTabCapGap};
+  static_assert(std::size(capX) == std::size(kTabGlyphs));
+
+  b.blank().comment("binding page tabs").comment(kColsWindow);
+  for (int tab = 0; tab < kBindPageCount; ++tab)
+    b.window(AnimeWindow{.frameStart = kbChromeVis.name(),
+                         .x = KeybindTabX(tab),
+                         .y = kKeybindTabY,
+                         .w = kKeybindTabW,
+                         .h = kKeybindTabH,
+                         .priority = kBindTabPri,
+                         .wndTypeVar = kbTabWnd[tab].name(),
+                         .alpha = 128});
+  b.comment(kColsMessage);
+  for (int tab = 0; tab < kBindPageCount; ++tab)
+    b.message(AnimeMessageAbs{
+        .frameStart = kbChromeVis.name(),
+        .x = KeybindTabX(tab) + kKeybindTabW / 2,
+        .y = kKeybindTabY + (kKeybindTabH - kBindTabFontH) / 2,
+        .fontW = kBindTabFontW,
+        .fontH = kBindTabFontH,
+        .priority = 1,
+        .contentVar = kbTabLabel[tab].name(),
+        .posType = "center",
+        .font = "meiryo"});
+  b.comment("binding page tab cap rects, written by ConfigMenu");
+  for (const PromptGlyph &g : kTabGlyphs) {
+    b.pos(AnimePos{g.posVar, 0, 0, 0, 0});
+    Glyphs::DeclareChordCap(b, g.posVar);
+  }
+  b.comment(kColsTex);
+  for (size_t i = 0; i < std::size(kTabGlyphs); ++i)
+    Glyphs::EmitChordCap(b,
+                         AnimeTexAbs{.frameStart = kbChromeVis.name(),
+                                     .x = capX[i],
+                                     .y = capY,
+                                     .w = kKeybindTabCapSize,
+                                     .h = kKeybindTabCapSize,
+                                     .priority = 1,
+                                     .alpha = 255,
+                                     .uv = {},
+                                     .file = kHelpSheetTex,
+                                     .helpUv = &kTabGlyphs[i].uv},
+                         kTabGlyphs[i].posVar);
   b.blank().blank();
 
   for (const auto &l : kLists) {
@@ -789,7 +855,7 @@ void ConfigLayout::build(CsvBuilder &b) {
                          .x = 0,
                          .y = y,
                          .w = 1280,
-                         .h = 2,
+                         .h = kRuleH,
                          .priority = 4,
                          .alphaRef = "alpha-127",
                          .tag = "#line"});
@@ -828,20 +894,24 @@ void ConfigLayout::build(CsvBuilder &b) {
   // (d2anime\L_ftr.csv) has slots for two, so CampSettings blanks them and
   // this takes over the band it already ruled off.
   b.blank().comment("footer cap rects, written by ConfigMenu");
-  for (const PromptGlyph &g : kFooterGlyphs)
+  for (const FooterCap &g : kFooterGlyphs) {
     b.pos(AnimePos{g.posVar, 0, 0, 0, 0});
+    Glyphs::DeclareChordCap(b, g.posVar);
+  }
   b.blank().comment("footer button icons").comment(kColsTex);
   for (const auto &f : kFooter)
-      b.tex(AnimeTexAbs{.frameStart = f.visVar,
-                        .x = f.iconX,
-                        .y = kFooterIconY,
-                        .w = kFooterIconSize,
-                        .h = kFooterIconSize,
-                        .priority = 0,
-                        .alpha = 255,
-                        .uv = {},
-                        .file = kHelpSheetTex,
-                        .helpUv = &f.uv });
+    Glyphs::EmitChordCap(b,
+                         AnimeTexAbs{.frameStart = f.visVar,
+                                     .x = f.iconX,
+                                     .y = kFooterIconY,
+                                     .w = kFooterIconSize,
+                                     .h = kFooterIconSize,
+                                     .priority = 0,
+                                     .alpha = 255,
+                                     .uv = {},
+                                     .file = kHelpSheetTex,
+                                     .helpUv = &f.cap.uv},
+                         f.cap.posVar);
   b.blank();
 
   b.comment("footer labels").comment(kColsMessage);

@@ -16,6 +16,7 @@
 #include "engine/d2anime/d2anime.h"
 #include "engine/sfx.h"
 #include "engine/game_options.h"
+#include "engine/glyph_set.h"
 #include "engine/input/binding_registry.h"
 #include "engine/input/input_sources.h"
 #include "engine/menus/config_layout.h"
@@ -24,6 +25,8 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <string>
+#include <utility>
 
 #include <rex/types.h>
 
@@ -31,24 +34,26 @@ namespace bd::engine {
 
 namespace {
 
-bool IsBind(const BindEntry &entry) {
-  return entry.cell != BindCell::Header && entry.cell != BindCell::Blank;
-}
-
-bool PadPressed(Action action) {
-  for (const Source &source : Bindings::Get().Sources(action)) {
-    if (source.type == SourceKind::kPadButton &&
-        InputSources::Get().Active(source))
-      return true;
+int SelectableChip(const BindEntry &entry, int chip, int step) {
+  for (int c = chip; c >= 0 && c < kBindChipCount; c += step) {
+    if (!BindChipFixed(entry, c))
+      return c;
   }
-  return false;
+  return -1;
 }
 
-bool PadHeld(Button button) {
-  Source source;
-  source.type = SourceKind::kPadButton;
-  source.code = static_cast<u16>(button);
-  return InputSources::Get().Active(source);
+bool LeftButtonDown() {
+  Source button;
+  button.type = SourceKind::kKey;
+  button.code = static_cast<u16>(rex::VirtualKey::kLButton);
+  return InputSources::Get().Active(button);
+}
+
+int SettleChip(const BindEntry &entry, int chip) {
+  if (const int down = SelectableChip(entry, chip, -1); down >= 0)
+    return down;
+  const int up = SelectableChip(entry, chip, 1);
+  return up >= 0 ? up : 0;
 }
 
 } // namespace
@@ -304,8 +309,12 @@ void ConfigMenu::HandleSettings() {
           sfx::Play(sfx::kDisabled);
           return;
       }
-      if (SettingsRowAction(page, row) == SettingAction::Keybinds)
+      if (SettingsRowAction(page, row) == SettingAction::Keybinds) {
+        bind_chip_ = Glyphs::Get().Resolved() == GlyphSet::Keyboard
+                         ? 0
+                         : kBindPadChip;
         Transition(State::KEYBINDS);
+      }
       return;
     }
 
@@ -345,9 +354,51 @@ void ConfigMenu::HandleSettings() {
     Transition(State::SECTION);
 }
 
+int ConfigMenu::FirstBindSlot() const {
+  constexpr int kCols = 2;
+  const int slots = BindGridRows() * kCols;
+  for (int col = 0; col < kCols; ++col)
+    for (int slot = col; slot < slots; slot += kCols)
+      if (BindAt(slot).Bindable())
+        return slot;
+  return 0;
+}
+
+void ConfigMenu::ShowBindPage(int page) {
+  if (page == bind_page_ || page < 0 || page >= kBindPageCount)
+    return;
+  bind_page_ = page;
+  bind_menu_.SetCursorIndex(FirstBindSlot());
+  last_bind_slot_ = bind_menu_.CursorIndex();
+  conflict_shown_ = false;
+  sfx::Play(sfx::kCursor);
+  RefreshKeybindVisuals();
+  SetKeybindChrome(nullptr);
+  GetLayout().SyncVars(task_.AnimeData());
+}
+
+bool ConfigMenu::HandleBindTabs() {
+  if (CheckAction(Action::PrevPage)) {
+    ShowBindPage((bind_page_ + kBindPageCount - 1) % kBindPageCount);
+    return true;
+  }
+  if (CheckAction(Action::NextPage)) {
+    ShowBindPage((bind_page_ + 1) % kBindPageCount);
+    return true;
+  }
+  f32 x = 0.0f, y = 0.0f;
+  if (!MenuMouse::Get().MouseHasCursor() || !CursorInMenuSpace(x, y))
+    return false;
+  const int tab = ConfigLayout::BindTabAt(x, y);
+  if (tab < 0 || !CheckAction(Action::Confirm))
+    return false;
+  ShowBindPage(tab);
+  return true;
+}
+
 bool ConfigMenu::SkipBindSpacer() {
   const int slot = bind_menu_.CursorIndex();
-  if (IsBind(BindGridEntry(slot)))
+  if (BindAt(slot).Bindable())
     return false;
 
   constexpr int kCols = 2;
@@ -359,13 +410,13 @@ bool ConfigMenu::SkipBindSpacer() {
     if (std::abs(delta) > kCols)
       step = -step;
     for (int s = slot + step; s >= 0 && s < slots && to < 0; s += step)
-      if (IsBind(BindGridEntry(s)))
+      if (BindAt(s).Bindable())
         to = s;
   } else {
     for (int d = kCols; d < slots && to < 0; d += kCols) {
-      if (slot - d >= 0 && IsBind(BindGridEntry(slot - d)))
+      if (slot - d >= 0 && BindAt(slot - d).Bindable())
         to = slot - d;
-      else if (slot + d < slots && IsBind(BindGridEntry(slot + d)))
+      else if (slot + d < slots && BindAt(slot + d).Bindable())
         to = slot + d;
     }
   }
@@ -378,37 +429,55 @@ bool ConfigMenu::SkipBindSpacer() {
 
 void ConfigMenu::HandleKeybinds() {
   AnimeMenu &list = bind_menu_;
+  const int step = CheckAction(Action::NavRight)  ? 1
+                   : CheckAction(Action::NavLeft) ? -1
+                                                  : 0;
+  if (step != 0)
+    MenuMouse::Get().SetMouseHasCursor(false);
   const bool pointer = MenuMouse::Get().MouseHasCursor();
 
-  const int cursor = list.CursorIndex();
-  const BindEntry current = BindGridEntry(cursor);
-  if (IsBind(current))
+  int cursor = list.CursorIndex();
+  const BindEntry was = BindAt(last_bind_slot_);
+  if (step != 0 && !pointer && was.Bindable()) {
+    const int chip = SelectableChip(was, bind_chip_ + step, step);
+    if (chip >= 0) {
+      bind_chip_ = chip;
+      if (cursor != last_bind_slot_) {
+        list.SetCursorIndex(last_bind_slot_);
+        cursor = last_bind_slot_;
+      }
+    } else if (cursor != last_bind_slot_) {
+      bind_chip_ = step > 0 ? 0 : kBindPadChip;
+    }
+  }
+
+  const BindEntry current = BindAt(cursor);
+  if (current.Bindable()) {
     last_bind_slot_ = cursor;
-  else if (!pointer && SkipBindSpacer())
+    bind_chip_ = SettleChip(current, bind_chip_);
+  } else if (!pointer && SkipBindSpacer()) {
     return;
+  }
 
   int hoverRow = -1, hoverChip = -1;
   f32 hoverX = 0.0f;
   if (pointer && list.PointerRowX(hoverRow, hoverX))
     hoverChip = KeybindItemTemplate::ChipAt(hoverX);
-  const BindEntry hovered = BindGridEntry(hoverRow);
+  const BindEntry hovered = BindAt(hoverRow);
+  const bool hovering = hovered.Bindable() && hoverChip >= 0;
+  if (hovering && !BindChipFixed(hovered, hoverChip))
+    bind_chip_ = hoverChip;
+
+  if (HandleBindTabs())
+    return;
 
   if (CheckAction(Action::Confirm)) {
-    const int slot = pointer ? hoverRow : cursor;
-    int chip = 0;
-    if (pointer)
-      chip = std::max(hoverChip, 0);
-    else if (PadPressed(Action::Confirm))
-      chip = kBindPadChip;
-    const BindEntry entry = BindGridEntry(slot);
-    if (entry.cell == BindCell::MouseInput) {
-      if (ToggleMouseInput()) {
-        sfx::Play(sfx::kToggle);
-        settings_dirty_ = true;
-      }
+    if (pointer && !hovering && LeftButtonDown())
       return;
-    }
-    if (!IsBind(entry))
+    const int slot = hovering ? hoverRow : cursor;
+    const int chip = hovering ? hoverChip : bind_chip_;
+    const BindEntry entry = BindAt(slot);
+    if (!entry.Bindable())
       return;
     if (BindChipFixed(entry, chip)) {
       sfx::Play(sfx::kDisabled);
@@ -422,29 +491,15 @@ void ConfigMenu::HandleKeybinds() {
     return;
   }
 
-  const bool delDown =
-      bd::platform::HID().IsKeyDown(rex::VirtualKey::kDelete);
-  if (delDown && !del_held_ && IsBind(hovered) && hoverChip >= 0) {
-    const bool cleared = hovered.cell == BindCell::MouseInput
-                             ? ClearBindEntry(hovered)
-                             : ClearBindChip(hovered, hoverChip);
-    if (cleared)
+  if (CheckAction(Action::ClearBinding)) {
+    const BindEntry &entry = hovering ? hovered : current;
+    const int chip = hovering ? hoverChip : bind_chip_;
+    if (entry.Bindable() && ClearBindChip(entry, chip))
       settings_dirty_ = true;
-  }
-  del_held_ = delDown;
-
-  if (CheckButton(Button::X)) {
-    if (IsBind(current)) {
-      const bool cleared = PadHeld(Button::X)
-                               ? ClearBindChip(current, kBindPadChip)
-                               : ClearBindEntry(current);
-      if (cleared)
-        settings_dirty_ = true;
-    }
     return;
   }
 
-  if (CheckButton(Button::Back)) {
+  if (CheckAction(Action::ResetDefaults)) {
     Transition(State::CONFIRM_RESET_BINDS);
     return;
   }
@@ -459,7 +514,7 @@ void ConfigMenu::HandleModlist() {
     return;
   }
 
-  if (CheckButton(Button::Y)) {
+  if (CheckAction(Action::ToggleContent)) {
     const int cursor = modlist_menu_.CursorIndex();
     FlipMod(cursor);
     dirty_ = true;
@@ -467,14 +522,14 @@ void ConfigMenu::HandleModlist() {
     return;
   }
 
-  if (CheckButton(Button::X) && ModCount() > 0) {
+  if (CheckAction(Action::DeleteContent) && ModCount() > 0) {
     delete_index_ = modlist_menu_.CursorIndex();
     delete_kind_ = DeleteKind::Mod;
     Transition(State::CONFIRM_DELETE);
     return;
   }
 
-  if (CheckButton(Button::Back)) {
+  if (CheckAction(Action::InstallContent)) {
     if (InstallMod()) {
       // Same as DLC install: list structure is baked into the generated CSV,
       // so a count change needs a menu restart. Destroy() saves and reloads.
@@ -491,7 +546,7 @@ void ConfigMenu::HandleModlist() {
 }
 
 void ConfigMenu::HandleDLCList() {
-  if (CheckButton(Button::Y) && DlcCount() > 0) {
+  if (CheckAction(Action::ToggleContent) && DlcCount() > 0) {
     const int cursor = dlclist_menu_.CursorIndex();
     ToggleDLC(cursor);
     RefreshDLCVisuals();
@@ -499,14 +554,14 @@ void ConfigMenu::HandleDLCList() {
     return;
   }
 
-  if (CheckButton(Button::X) && DlcCount() > 0) {
+  if (CheckAction(Action::DeleteContent) && DlcCount() > 0) {
     delete_index_ = dlclist_menu_.CursorIndex();
     delete_kind_ = DeleteKind::DLC;
     Transition(State::CONFIRM_DELETE);
     return;
   }
 
-  if (CheckButton(Button::Back)) {
+  if (CheckAction(Action::InstallContent)) {
     if (InstallDLC()) {
       // Row count and item template are baked into the generated CSV at task
       // load, so a count change requires a menu restart to pick them up.
@@ -523,7 +578,7 @@ void ConfigMenu::HandleDLCList() {
 
 void ConfigMenu::HandleLangList() {
 #ifdef REBLUE_BUILD_INSTALLER
-  if (CheckButton(Button::X)) {
+  if (CheckAction(Action::DeleteContent)) {
     const int cursor = langlist_menu_.CursorIndex();
     if (cursor >= 0 && cursor < static_cast<int>(LanguageCount()) &&
         LanguageRemovable(cursor)) {
@@ -534,7 +589,7 @@ void ConfigMenu::HandleLangList() {
     return;
   }
 
-  if (CheckButton(Button::Back)) {
+  if (CheckAction(Action::InstallContent)) {
     lang_prompt_.clear();
     Transition(State::LANGADD);
     return;
@@ -657,14 +712,14 @@ void ConfigMenu::HandleLangNotice() {
 void ConfigMenu::HandleKeybindCapture() {
   const std::string token = bd::platform::PollKeyCapture();
   if (!token.empty()) {
-    const BindEntry entry = BindGridEntry(capture_slot_);
-    Action owner = entry.action;
+    const BindEntry entry = BindAt(capture_slot_);
+    std::string conflict;
     if (!BindChipAccepts(capture_chip_, token)) {
       sfx::Play(sfx::kDisabled);
-    } else if (SetBindChip(entry, capture_chip_, token, &owner)) {
+    } else if (SetBindChip(entry, capture_chip_, token, &conflict)) {
       settings_dirty_ = true;
-      conflict_action_ = owner;
-      conflict_shown_ = owner != entry.action;
+      conflict_shown_ = !conflict.empty();
+      conflict_label_ = std::move(conflict);
     }
     capture_slot_ = -1;
     capture_chip_ = -1;
@@ -672,8 +727,7 @@ void ConfigMenu::HandleKeybindCapture() {
     return;
   }
 
-  if (bd::platform::KeyCaptureCanceled() ||
-      (!bd::platform::KeyCapturePending() && CheckAction(Action::Cancel))) {
+  if (bd::platform::KeyCaptureCanceled()) {
     capture_slot_ = -1;
     capture_chip_ = -1;
     Transition(State::KEYBINDS);

@@ -7,6 +7,7 @@
 #include "engine/d2anime/anime_input.h"
 #include "core/guest_global.h"
 #include "core/memory_helpers.h"
+#include "engine/input/action_state.h"
 #include "engine/input/button_map.h"
 #include "reblue_init.h"
 #include <rex/types.h>
@@ -45,11 +46,15 @@ Button ActionButton(Action action) {
 }
 
 bool CheckAction(Action action) {
+  if (Describe(action).kind == ActionKind::Host)
+    return InputActions::Get().Pressed(action);
   const int btn = ButtonMap::Get().Id(action);
   return btn >= 0 && CheckButton(static_cast<Button>(btn));
 }
 
 bool ActionHeld(Action action) {
+  if (Describe(action).kind == ActionKind::Host)
+    return InputActions::Get().Held(action);
   const int btn = ButtonMap::Get().Id(action);
   return btn >= 0 && ButtonHeld(static_cast<Button>(btn));
 }

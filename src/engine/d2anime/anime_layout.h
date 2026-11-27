@@ -10,6 +10,7 @@
 #pragma once
 
 #include "engine/d2anime/anime_data.h"
+#include "engine/input/actions.h"
 
 #include <string>
 #include <variant>
@@ -153,11 +154,11 @@ inline constexpr HelpUv kHelpUvStart = BD_HELP_UV("Help_STARTUv");
 // The engine copies a uv. reference at parse rather than linking it, so a
 // layout that outlives a rebind or a device switch declares a pos var per cap,
 // references its fields from the tex row, and has its owner rewrite the var
-// from Glyphs::CellUV on every glyph generation.
+// from Glyphs::ActionUV on every glyph generation.
 struct PromptGlyph {
-  const char *posVar;   // the CSV element var carrying the cap's UV rect
-  HelpUv uv;            // its four fields, as the tex rows reference them
-  const char *helpName; // the Uv.csv prompt this cap stands for
+  const char *posVar; // the CSV element var carrying the cap's UV rect
+  HelpUv uv;          // its four fields, as the tex rows reference them
+  Action action;      // the bind this cap stands for
 };
 
 struct AnimeMessage {

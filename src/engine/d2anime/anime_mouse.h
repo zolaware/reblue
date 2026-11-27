@@ -14,6 +14,7 @@
 
 #include "engine/d2anime/anime_menu.h"
 #include "engine/d2anime/command_select_task.h"
+#include "engine/input/actions.h"
 #include "engine/task.h"
 
 namespace bd::engine {
@@ -35,22 +36,22 @@ public:
   void Observe(u32 menuVA);
   void ObserveCommandSelect(u32 taskVA);
 
-  // Once per engine frame from bdInputSystemUpdate. Publishes whether a menu
-  // is on screen, then applies whatever the previous frame observed.
+  // Once per engine frame from bdInputSystemUpdate. Publishes the input
+  // owner, then applies whatever the previous frame observed.
   void BeginFrame();
 
   // Whether the pointer, rather than the pad, currently owns the cursor. The
   // pad takes it back through the setter.
-  bool MouseHasCursor() const { return mouseHasCursor_; }
+  bool MouseHasCursor() const;
   void SetMouseHasCursor(bool has) { mouseHasCursor_ = has; }
 
   // Pointer menus are on and the pointer holds the cursor. Every screen that
   // acts on a click opens with this.
   bool PointerActive() const;
 
-  // For a selection surface that is neither list, so escape and right-click
-  // still read as cancel. The battle's target step is the case.
-  void MarkInputOwned() { sawAnyMenu_ = true; }
+  // For a surface that is neither list, naming the owner its input belongs
+  // to. The battle's target step is the case.
+  void MarkInputOwned(InputOwner owner) { owned_ |= OwnerBit(owner); }
 
   // A list whose entries are not all selectable installs this and the pointer
   // refuses to park on one it rejects. The settings pages are the case: their
@@ -107,7 +108,7 @@ private:
   MenuMouse &operator=(const MenuMouse &) = delete;
 
   RowFilter rowFilter_;
-  bool sawAnyMenu_ = false;
+  OwnerMask owned_ = 0;
   bool mouseHasCursor_ = false;
   int wheel_ = 0;
 

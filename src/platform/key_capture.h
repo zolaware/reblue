@@ -52,11 +52,6 @@ void BeginKeyCapture();
 // because nothing is reserved. Ends the capture on a hit.
 std::string PollKeyCapture();
 
-// True from the hit's key-down until PollKeyCapture reports it. The pad's
-// cancel has to stand down through this window: the driver may synthesize a
-// cancel press out of the very key being captured.
-bool KeyCapturePending();
-
 bool KeyCaptureCanceled();
 
 } // namespace bd::platform

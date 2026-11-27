@@ -20,6 +20,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -190,23 +191,47 @@ constexpr KeyAlias kKeyAliases[] = {
     {"WheelDown", "Wheel Dn"},
 };
 
-constexpr engine::ActionContext kBindColumnSections[][3] = {
-    {engine::ActionContext::Field},
-    {engine::ActionContext::Menu, engine::ActionContext::Mechat,
-     engine::ActionContext::System},
-};
-constexpr int kBindColumnSectionCounts[] = {1, 3};
-constexpr int kBindColumns = static_cast<int>(std::size(kBindColumnSections));
+using Ctx = engine::ActionContext;
 
-const char *BindSectionKey(engine::ActionContext context) {
+constexpr int kBindColumns = 2;
+
+constexpr Ctx kField[] = {Ctx::Field};
+constexpr Ctx kBattleAndMechat[] = {Ctx::Battle, Ctx::Mechat};
+constexpr Ctx kMenus[] = {Ctx::General, Ctx::CampMenu, Ctx::MapMenu};
+constexpr Ctx kConfigMiscSystem[] = {Ctx::Config, Ctx::Misc, Ctx::System};
+
+using BindColumnSpec = std::span<const Ctx>;
+
+constexpr BindColumnSpec kBindPages[][kBindColumns] = {
+    {kField, kBattleAndMechat},
+    {kMenus, kConfigMiscSystem},
+};
+static_assert(static_cast<int>(std::size(kBindPages)) == kBindPageCount);
+
+constexpr const char *kBindPageLabelKeys[kBindPageCount] = {
+    "settings.binds.tab_exploration", "settings.binds.tab_menus"};
+
+using BindPage = std::array<std::vector<BindEntry>, kBindColumns>;
+
+const char *BindSectionKey(Ctx context) {
   switch (context) {
-  case engine::ActionContext::Field:
+  case Ctx::Field:
     return "settings.binds.field";
-  case engine::ActionContext::Menu:
-    return "settings.binds.menu";
-  case engine::ActionContext::Mechat:
+  case Ctx::General:
+    return "settings.binds.general";
+  case Ctx::CampMenu:
+    return "settings.binds.camp_menu";
+  case Ctx::MapMenu:
+    return "settings.binds.map_menu";
+  case Ctx::Battle:
+    return "settings.binds.battle";
+  case Ctx::Misc:
+    return "settings.binds.misc";
+  case Ctx::Config:
+    return "settings.binds.config";
+  case Ctx::Mechat:
     return "settings.binds.mechat";
-  case engine::ActionContext::System:
+  case Ctx::System:
     return "settings.binds.system";
   }
   return "";
@@ -215,11 +240,67 @@ const char *BindSectionKey(engine::ActionContext context) {
 constexpr const char *kAxisDirectionKeys[rex::hid::kAxisDirections] = {
     "settings.binds.axis_up", "settings.binds.axis_down",
     "settings.binds.axis_left", "settings.binds.axis_right"};
+struct AxisKeyLabel {
+  engine::Action action;
+  int direction;
+  const char *key;
+};
+
+constexpr AxisKeyLabel kAxisKeyLabels[] = {
+    {engine::Action::Move, 0, "settings.binds.move_forward"},
+    {engine::Action::Move, 1, "settings.binds.move_backward"},
+};
+
 constexpr const char *kStickDirectionNames[rex::hid::kAxisDirections] = {
     "Up", "Down", "Left", "Right"};
 
-void AppendBindSection(std::vector<BindEntry> &column,
-                       engine::ActionContext context) {
+struct OverlayBind {
+  const char *setting;
+  const char *labelKey;
+};
+
+constexpr OverlayBind kOverlayBinds[] = {
+    {"ui.bind.console", "settings.action.console"},
+    {"ui.bind.settings", "settings.action.settings_overlay"},
+    {"ui.bind.achievements", "settings.action.achievements_overlay"},
+};
+
+constexpr int kOverlayBindCount = static_cast<int>(std::size(kOverlayBinds));
+
+const OverlayBind *OverlayOf(const BindEntry &entry) {
+  if (entry.cell != BindCell::Overlay || entry.overlay < 0 ||
+      entry.overlay >= kOverlayBindCount)
+    return nullptr;
+  return &kOverlayBinds[entry.overlay];
+}
+
+std::optional<engine::Source> OverlaySource(const OverlayBind &bind) {
+  const std::string text = CvarGet(bind.setting);
+  if (text.empty())
+    return std::nullopt;
+  const auto source = bd::platform::HID().ParseInputSource(text);
+  if (!source)
+    return std::nullopt;
+  return *source;
+}
+
+int OverlayHolding(const engine::Source &source, int except) {
+  for (int i = 0; i < kOverlayBindCount; ++i) {
+    if (i == except)
+      continue;
+    const auto held = OverlaySource(kOverlayBinds[i]);
+    if (held && rex::IsSameInput(*held, source))
+      return i;
+  }
+  return -1;
+}
+
+std::string SourceText(const engine::Source *source) {
+  return source ? bd::platform::HID().InputSourceToString(*source)
+                : std::string();
+}
+
+void AppendBindSection(std::vector<BindEntry> &column, Ctx context) {
   column.push_back({.cell = BindCell::Header, .context = context});
   for (int i = 0; i < engine::kActionCount; ++i) {
     const auto action = static_cast<engine::Action>(i);
@@ -238,22 +319,24 @@ void AppendBindSection(std::vector<BindEntry> &column,
                         .context = context,
                         .action = action,
                         .direction = dir});
-    if (desc.axis == engine::AxisPair::Right)
-      column.push_back({.cell = BindCell::MouseInput,
-                        .context = context,
-                        .action = action});
   }
+  if (context != Ctx::System)
+    return;
+  for (int i = 0; i < kOverlayBindCount; ++i)
+    column.push_back(
+        {.cell = BindCell::Overlay, .context = context, .overlay = i});
 }
 
-const std::array<std::vector<BindEntry>, kBindColumns> &BindColumns() {
-  static const auto columns = [] {
-    std::array<std::vector<BindEntry>, kBindColumns> out;
-    for (int c = 0; c < kBindColumns; ++c)
-      for (int k = 0; k < kBindColumnSectionCounts[c]; ++k)
-        AppendBindSection(out[c], kBindColumnSections[c][k]);
+const BindPage &BindPageAt(int page) {
+  static const auto pages = [] {
+    std::array<BindPage, kBindPageCount> out;
+    for (int p = 0; p < kBindPageCount; ++p)
+      for (int c = 0; c < kBindColumns; ++c)
+        for (const Ctx context : kBindPages[p][c])
+          AppendBindSection(out[p][c], context);
     return out;
   }();
-  return columns;
+  return pages[static_cast<size_t>(std::clamp(page, 0, kBindPageCount - 1))];
 }
 
 bool PadSource(const engine::Source &source) {
@@ -261,25 +344,23 @@ bool PadSource(const engine::Source &source) {
          source.type == engine::SourceKind::kPadAxes;
 }
 
-void SwapInto(engine::Action owner, const engine::Source &taken,
-              const engine::Source *given) {
+void RemoveSource(engine::Action owner, const engine::Source &taken) {
   engine::Bindings &binds = engine::Bindings::Get();
-  const auto owned = binds.Sources(owner);
-  std::vector<engine::Source> sources(owned.begin(), owned.end());
-  for (size_t i = 0; i < sources.size(); ++i) {
-    if (!rex::IsSameInput(sources[i], taken))
-      continue;
-    if (given && !binds.Conflict(owner, *given)) {
-      const u8 slot = sources[i].axis_slot;
-      sources[i] = *given;
-      sources[i].axis_slot = slot;
-    } else {
-      sources.erase(sources.begin() + static_cast<std::ptrdiff_t>(i));
-    }
-    break;
+  std::vector<engine::Source> kept;
+  for (const engine::Source &held : binds.Sources(owner)) {
+    if (!rex::IsSameInput(held, taken))
+      kept.push_back(held);
   }
-  binds.SetSources(owner, sources);
-  REXBD_DEBUG("config {} swapped out of its bind", engine::ToString(owner));
+  binds.SetSources(owner, kept);
+  REXBD_DEBUG("config {} lost {}", engine::ToString(owner), SourceText(&taken));
+}
+
+void NoteRemoved(std::string *notice, const char *label) {
+  if (!notice)
+    return;
+  if (!notice->empty())
+    notice->append(", ");
+  notice->append(label);
 }
 
 int ChipSource(const BindEntry &entry, int chip) {
@@ -607,6 +688,42 @@ int NextEnabledOption(const SettingRow &s, int cur, int dir) {
   return cur;
 }
 
+bool SetOverlayBind(const BindEntry &entry, const engine::Source &source,
+                    std::string *removed) {
+  const OverlayBind &bind = *OverlayOf(entry);
+  const int other = OverlayHolding(source, entry.overlay);
+  if (!CvarSet(bind.setting, SourceText(&source))) {
+    REXBD_WARN("config failed to bind {} to {}", SourceText(&source),
+               bind.setting);
+    return false;
+  }
+  REXBD_DEBUG("config {} = {}", bind.setting, SourceText(&source));
+  if (other >= 0) {
+    CvarSet(kOverlayBinds[other].setting, "");
+    NoteRemoved(removed, Localized(kOverlayBinds[other].labelKey));
+  }
+  engine::Bindings &binds = engine::Bindings::Get();
+  for (int i = 0; i < engine::kActionCount; ++i) {
+    const auto action = static_cast<engine::Action>(i);
+    for (const engine::Source &held : binds.Sources(action)) {
+      if (!rex::IsSameInput(held, source))
+        continue;
+      RemoveSource(action, source);
+      NoteRemoved(removed, BindRowLabel(action));
+      break;
+    }
+  }
+  return true;
+}
+
+bool ClearOverlayBind(const BindEntry &entry) {
+  const OverlayBind &bind = *OverlayOf(entry);
+  if (!OverlaySource(bind))
+    return false;
+  REXBD_DEBUG("config {} cleared", bind.setting);
+  return CvarSet(bind.setting, "");
+}
+
 } // namespace
 
 const char *SettingsPageLabel(SettingsPage page) {
@@ -685,15 +802,23 @@ std::string SettingsValueText(SettingsPage page, int index) {
 
 int BindGridRows() {
   size_t rows = 0;
-  for (const auto &column : BindColumns())
-    rows = std::max(rows, column.size());
+  for (int page = 0; page < kBindPageCount; ++page)
+    for (const auto &column : BindPageAt(page))
+      rows = std::max(rows, column.size());
   return static_cast<int>(rows);
 }
 
-BindEntry BindGridEntry(int slot) {
+std::string BindPageLabel(int page) {
+  if (page < 0 || page >= kBindPageCount)
+    return {};
+  return Localized(kBindPageLabelKeys[page]);
+}
+
+BindEntry BindGridEntry(int page, int slot) {
   if (slot < 0)
     return {};
-  const auto &column = BindColumns()[static_cast<size_t>(slot % kBindColumns)];
+  const auto &column =
+      BindPageAt(page)[static_cast<size_t>(slot % kBindColumns)];
   const size_t row = static_cast<size_t>(slot / kBindColumns);
   return row < column.size() ? column[row] : BindEntry{};
 }
@@ -705,10 +830,14 @@ std::string BindEntryLabel(const BindEntry &entry) {
   case BindCell::Button:
     return BindRowLabel(entry.action);
   case BindCell::AxisKey:
+    for (const AxisKeyLabel &label : kAxisKeyLabels) {
+      if (label.action == entry.action && label.direction == entry.direction)
+        return Localized(label.key);
+    }
     return i18n::Fmt(kAxisDirectionKeys[entry.direction],
                      BindRowLabel(entry.action));
-  case BindCell::MouseInput:
-    return i18n::Text("settings.binds.mouse_input");
+  case BindCell::Overlay:
+    return Localized(OverlayOf(entry)->labelKey);
   default:
     return {};
   }
@@ -719,6 +848,10 @@ const char *BindRowLabel(engine::Action action) {
 }
 
 std::string BindChipToken(const BindEntry &entry, int chip) {
+  if (const OverlayBind *bind = OverlayOf(entry)) {
+    const auto source = OverlaySource(*bind);
+    return chip == 0 && source ? SourceText(&*source) : std::string();
+  }
   const std::vector<engine::Source> sources =
       engine::Bindings::Get().Sources(entry.action);
   if (entry.cell == BindCell::AxisKey && chip == kBindPadChip) {
@@ -745,9 +878,11 @@ std::string BindChipLegend(const BindEntry &entry, int chip) {
 bool BindChipFixed(const BindEntry &entry, int chip) {
   switch (entry.cell) {
   case BindCell::Button:
-    return false;
+    return chip == kBindPadChip && engine::Describe(entry.action).fixedPad;
   case BindCell::AxisKey:
     return chip == kBindPadChip;
+  case BindCell::Overlay:
+    return chip != 0;
   default:
     return true;
   }
@@ -911,9 +1046,9 @@ bool SetSliderValue(SettingsPage page, int index, double value) {
 }
 
 bool SetBindChip(const BindEntry &entry, int chip, const std::string &token,
-                 engine::Action *conflict) {
-  if (conflict)
-    *conflict = entry.action;
+                 std::string *removed) {
+  if (removed)
+    removed->clear();
   if (chip < 0 || chip >= kBindChipCount || BindChipFixed(entry, chip))
     return false;
 
@@ -923,9 +1058,17 @@ bool SetBindChip(const BindEntry &entry, int chip, const std::string &token,
     return false;
   }
   engine::Source source = *parsed;
+  if (entry.cell == BindCell::Overlay)
+    return SetOverlayBind(entry, source, removed);
   engine::Bindings &binds = engine::Bindings::Get();
-  const std::optional<engine::Action> other =
-      binds.Conflict(entry.action, source);
+  const std::vector<engine::Action> others =
+      binds.Conflicts(entry.action, source);
+  if (PadSource(source) &&
+      std::ranges::any_of(others, [](engine::Action other) {
+        return engine::Describe(other).fixedPad;
+      }))
+    return false;
+  const int overlay = PadSource(source) ? -1 : OverlayHolding(source, -1);
   if (entry.cell == BindCell::AxisKey)
     source.axis_slot = rex::hid::GetAxisSlot(static_cast<u8>(entry.direction),
                                             static_cast<u8>(chip));
@@ -953,15 +1096,21 @@ bool SetBindChip(const BindEntry &entry, int chip, const std::string &token,
   }
   REXBD_DEBUG("config {} chip {} = {}", engine::ToString(entry.action), chip,
            token);
-  if (other) {
-    SwapInto(*other, source, at < 0 ? nullptr : &current[size_t(at)]);
-    if (conflict)
-      *conflict = *other;
+  for (const engine::Action other : others) {
+    RemoveSource(other, source);
+    NoteRemoved(removed, BindRowLabel(other));
+  }
+  if (overlay >= 0) {
+    const OverlayBind &bind = kOverlayBinds[overlay];
+    CvarSet(bind.setting, "");
+    NoteRemoved(removed, Localized(bind.labelKey));
   }
   return true;
 }
 
 bool ClearBindChip(const BindEntry &entry, int chip) {
+  if (entry.cell == BindCell::Overlay)
+    return chip == 0 && ClearOverlayBind(entry);
   const int at = ChipSource(entry, chip);
   if (at < 0 || BindChipFixed(entry, chip))
     return false;
@@ -974,15 +1123,16 @@ bool ClearBindChip(const BindEntry &entry, int chip) {
 }
 
 bool ClearBindEntry(const BindEntry &entry) {
-  if (entry.cell == BindCell::MouseInput)
-    return bd::cvars::Get().mouse_input.Get() &&
-           bd::cvars::Get().mouse_input.Set(false).has_value();
+  if (entry.cell == BindCell::Overlay)
+    return ClearOverlayBind(entry);
   engine::Bindings &binds = engine::Bindings::Get();
   const auto held = binds.Sources(entry.action);
   std::vector<engine::Source> kept(held.begin(), held.end());
   switch (entry.cell) {
   case BindCell::Button:
-    kept.clear();
+    std::erase_if(kept, [&](const engine::Source &s) {
+      return !BindChipFixed(entry, PadSource(s) ? kBindPadChip : 0);
+    });
     break;
   case BindCell::AxisKey:
     std::erase_if(kept, [&](const engine::Source &s) {
@@ -999,18 +1149,14 @@ bool ClearBindEntry(const BindEntry &entry) {
   return binds.SetSources(entry.action, kept);
 }
 
-bool ToggleMouseInput() {
-  auto &mouse = bd::cvars::Get().mouse_input;
-  return mouse.Set(!mouse.Get()).has_value();
-}
-
 bool ResetAllKeybinds() {
-  bool any = !bd::cvars::Get().mouse_input.Get() &&
-             bd::cvars::Get().mouse_input.Set(true).has_value();
-  for (int c = 0; c < kBindColumns; ++c)
-    for (int k = 0; k < kBindColumnSectionCounts[c]; ++k)
-      any = engine::Bindings::Get().ResetContext(kBindColumnSections[c][k]) ||
-            any;
+  bool any = false;
+  for (const auto &page : kBindPages)
+    for (const BindColumnSpec column : page)
+      for (const Ctx context : column)
+        any = engine::Bindings::Get().ResetContext(context) || any;
+  for (const OverlayBind &bind : kOverlayBinds)
+    any = CvarReset(bind.setting) || any;
   return any;
 }
 

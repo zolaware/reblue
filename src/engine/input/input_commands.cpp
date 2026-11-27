@@ -4,11 +4,13 @@
 #include "core/cvar_table.h"
 
 #include "core/logging.h"
+#include "core/settings_model.h"
 #include "engine/input/action_state.h"
 #include "engine/input/binding_registry.h"
 #include "engine/input/button_map.h"
 #include "platform/hid.h"
 #include "engine/input/input_sources.h"
+#include "platform/platform.h"
 
 void bd::commands::InputBinds(std::string_view) {
   auto &b = bd::engine::Bindings::Get();
@@ -28,6 +30,44 @@ void bd::commands::InputBinds(std::string_view) {
   }
 }
 
+
+void bd::commands::InputResetBinds(std::string_view args) {
+  constexpr std::string_view kSpace = " 	";
+  const size_t first = args.find_first_not_of(kSpace);
+  const std::string_view name =
+      first == std::string_view::npos
+          ? std::string_view()
+          : args.substr(first, args.find_last_not_of(kSpace) - first + 1);
+
+  bool changed = false;
+  if (name.empty()) {
+    changed = bd::ResetAllKeybinds();
+  } else {
+    int found = -1;
+    for (int i = 0; i < bd::engine::kActionCount; ++i) {
+      if (name == bd::engine::ToString(static_cast<bd::engine::Action>(i)))
+        found = i;
+    }
+    if (found < 0) {
+      REXBD_ERROR("input no action named '{}'", name);
+      return;
+    }
+    changed = bd::engine::Bindings::Get().Reset(
+        static_cast<bd::engine::Action>(found));
+  }
+
+  const std::string_view what = name.empty() ? "every bind" : name;
+  if (!changed) {
+    REXBD_INFO("input {} already at its default", what);
+    return;
+  }
+  if (auto saved = bd::SaveConfig(bd::platform::ConfigFilePath()); !saved) {
+    REXBD_WARN("input {} reset but the config save failed: {}", what,
+               saved.error().message);
+    return;
+  }
+  REXBD_INFO("input {} reset to its default", what);
+}
 
 void bd::commands::InputSourcesDump(std::string_view) {
   const auto &s = bd::engine::InputSources::Get();

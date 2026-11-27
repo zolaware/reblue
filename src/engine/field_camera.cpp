@@ -22,6 +22,7 @@
 #include "engine/frame_interp.h"
 #include "engine/game.h"
 #include "engine/input/action_state.h"
+#include "engine/input/input_sources.h"
 #include "engine/object.h"
 #include "engine/script.h"
 #include "engine/script_man_task.h"
@@ -262,7 +263,7 @@ void MouseLook(u32 camera, u32 activityBefore) {
     dy = 0.0f;
   }
 
-  const bool enabled = bd::cvars::Get().mouse_input.Get() &&
+  const bool enabled = InputSources::Get().MouseEnabled() &&
                        Game::Get().FieldPlayerEntity().HasControl();
   const InputActions &actions = InputActions::Get();
   if (!enabled || actions.Axis(AxisPair::Right, 1) != 0.0f ||

@@ -1,8 +1,13 @@
 #include "engine/input/input_sources.h"
 
+#include <algorithm>
+
+#include <rex/hid/pad.h>
 #include <rex/input_keys.h>
 
+#include "core/cvar_table.h"
 #include "core/memory_helpers.h"
+#include "engine/frame_clock.h"
 #include "engine/input/actions.h"
 #include "engine/input/pad_block.h"
 #include "engine/virtual_buttons.h"
@@ -11,6 +16,8 @@
 namespace bd::engine {
 
 namespace {
+
+constexpr size_t kMaxPendingTaps = 32;
 
 constexpr u32 kPadButtonBits[24] = {
     1u << 0,   1u << 1,   1u << 2,   1u << 3,  1u << 4,  1u << 5,
@@ -24,6 +31,30 @@ u32 PadButtonBit(u16 id) {
   constexpr u16 kCount = sizeof(kPadButtonBits) / sizeof(kPadButtonBits[0]);
   return id < kCount ? kPadButtonBits[id] : 0u;
 }
+
+constexpr u32 kPadUser = 0;
+
+struct PadPress {
+  u16 button;
+  rex::PadInput input;
+};
+
+constexpr PadPress kPadPresses[] = {
+    {rex::hid::kPadDPadUp, rex::PadInput::kDpadUp},
+    {rex::hid::kPadDPadDown, rex::PadInput::kDpadDown},
+    {rex::hid::kPadDPadLeft, rex::PadInput::kDpadLeft},
+    {rex::hid::kPadDPadRight, rex::PadInput::kDpadRight},
+    {rex::hid::kPadStart, rex::PadInput::kStart},
+    {rex::hid::kPadBack, rex::PadInput::kBack},
+    {rex::hid::kPadLeftThumb, rex::PadInput::kLeftStickPress},
+    {rex::hid::kPadRightThumb, rex::PadInput::kRightStickPress},
+    {rex::hid::kPadLeftShoulder, rex::PadInput::kLeftShoulder},
+    {rex::hid::kPadRightShoulder, rex::PadInput::kRightShoulder},
+    {rex::hid::kPadA, rex::PadInput::kA},
+    {rex::hid::kPadB, rex::PadInput::kB},
+    {rex::hid::kPadX, rex::PadInput::kX},
+    {rex::hid::kPadY, rex::PadInput::kY},
+};
 
 struct MouseKey {
   rex::VirtualKey key;
@@ -42,6 +73,21 @@ rex::MouseButton MouseKeyButton(u16 code) {
     if (entry.key == key)
       return entry.button;
   return rex::MouseButton::kNone;
+}
+
+rex::VirtualKey MouseButtonKey(rex::MouseButton button) {
+  for (const MouseKey &entry : kMouseKeys)
+    if (entry.button == button)
+      return entry.key;
+  return rex::VirtualKey::kNone;
+}
+
+u32 PadPressBits(u16 pressed) {
+  u32 bits = 0;
+  for (const PadPress &press : kPadPresses)
+    if (pressed & press.button)
+      bits |= PadButtonBit(static_cast<u16>(press.input));
+  return bits;
 }
 
 bool IsMouse(const Source &source) {
@@ -80,19 +126,63 @@ void InputSources::Sample(u32 padBlock) {
   }
 
   wheel_ = platform::HID().GetWheel();
+
+  const u64 tick = TickCount();
+  const bool unbroken = tick == sampledTick_ || tick == sampledTick_ + 1;
+  sampledTick_ = tick;
+
+  const u16 pressed = platform::HID().TakePadPresses(kPadUser).value_or(0);
+  if (unbroken)
+    padHeld_ |= PadPressBits(pressed);
+
+  std::lock_guard lock(tapMutex_);
+  taps_.clear();
+  if (unbroken)
+    taps_.swap(pendingTaps_);
+  pendingTaps_.clear();
+}
+
+void InputSources::OnInputEvent(const rex::InputEvent &event) {
+  using Type = rex::InputEvent::Type;
+  rex::VirtualKey key = rex::VirtualKey::kNone;
+  if (event.type == Type::kKeyDown && !event.repeat && !event.handled)
+    key = event.key;
+  else if (event.type == Type::kButtonDown)
+    key = MouseButtonKey(event.button);
+  if (key == rex::VirtualKey::kNone)
+    return;
+
+  Source tap;
+  tap.type = SourceKind::kKey;
+  tap.code = static_cast<u16>(key);
+  tap.modifiers = event.modifiers;
+  std::lock_guard lock(tapMutex_);
+  if (pendingTaps_.size() < kMaxPendingTaps &&
+      std::ranges::find(pendingTaps_, tap) == pendingTaps_.end())
+    pendingTaps_.push_back(tap);
+}
+
+bool InputSources::Tapped(const Source &source) const {
+  const bool mouse = MouseKeyButton(source.code) != rex::MouseButton::kNone;
+  const u8 mods = static_cast<u8>(source.modifiers);
+  for (const Source &tap : taps_) {
+    const bool match =
+        mouse ? tap.code == source.code &&
+                    (static_cast<u8>(tap.modifiers) & mods) == mods
+              : rex::IsSameInput(tap, source);
+    if (match)
+      return true;
+  }
+  return false;
 }
 
 bool InputSources::Active(const Source &source) const {
-  if (source.type == SourceKind::kKey && platform::MindowsOwnsKeyboard())
-    return false;
-  return ActiveUnheld(source);
-}
-
-bool InputSources::ActiveUnheld(const Source &source) const {
   if (MouseTaken(source))
     return false;
   switch (source.type) {
   case SourceKind::kKey: {
+    if (Tapped(source))
+      return true;
     const u8 held = static_cast<u8>(platform::HID().GetModifiers());
     const u8 mods = static_cast<u8>(source.modifiers);
     const rex::MouseButton button = MouseKeyButton(source.code);
@@ -139,6 +229,22 @@ f32 InputSources::Axis(const Source &source, int component) const {
     return 0.0f;
   const bool positive = direction == 0 || direction == 3;
   return positive ? 1.0f : -1.0f;
+}
+
+bool InputSources::KeyboardEnabled() const {
+  return bd::cvars::Get().keyboard_input.Get();
+}
+
+bool InputSources::MouseEnabled() const {
+  return bd::cvars::Get().mouse_input.Get();
+}
+
+bool InputSources::DeviceEnabled(const Source &source) const {
+  if (IsMouse(source))
+    return MouseEnabled();
+  if (source.type == SourceKind::kKey)
+    return KeyboardEnabled();
+  return true;
 }
 
 f32 InputSources::PadAnalog(int slot) const {

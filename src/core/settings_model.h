@@ -112,21 +112,30 @@ bool SetSelectedOption(SettingsPage page, int index, int option);
 // range). Returns true on success.
 bool SetSliderValue(SettingsPage page, int index, double value);
 
-enum class BindCell : u8 { Blank, Header, Button, AxisKey, MouseInput };
+enum class BindCell : u8 { Blank, Header, Button, AxisKey, Overlay };
 
 struct BindEntry {
   BindCell cell = BindCell::Blank;
   engine::ActionContext context{};
   engine::Action action{};
   int direction = -1;
+  int overlay = -1;
+
+  bool Bindable() const {
+    return cell == BindCell::Button || cell == BindCell::AxisKey ||
+           cell == BindCell::Overlay;
+  }
 };
 
 inline constexpr int kBindKeyChips = 2;
 inline constexpr int kBindPadChip = kBindKeyChips;
 inline constexpr int kBindChipCount = kBindKeyChips + 1;
 
+inline constexpr int kBindPageCount = 2;
+
 int BindGridRows();
-BindEntry BindGridEntry(int slot);
+std::string BindPageLabel(int page);
+BindEntry BindGridEntry(int page, int slot);
 std::string BindEntryLabel(const BindEntry &entry);
 const char *BindRowLabel(engine::Action action);
 
@@ -136,10 +145,9 @@ bool BindChipFixed(const BindEntry &entry, int chip);
 bool BindChipAccepts(int chip, const std::string &token);
 
 bool SetBindChip(const BindEntry &entry, int chip, const std::string &token,
-                 engine::Action *conflict);
+                 std::string *removed);
 bool ClearBindChip(const BindEntry &entry, int chip);
 bool ClearBindEntry(const BindEntry &entry);
-bool ToggleMouseInput();
 bool ResetAllKeybinds();
 
 } // namespace bd

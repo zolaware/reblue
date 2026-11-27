@@ -14,6 +14,7 @@
 #include "engine/d2anime/anime_hittest.h"
 #include "engine/d2anime/anime_input.h"
 #include "engine/d2anime/anime_mouse.h"
+#include "engine/input/input_sources.h"
 #include "engine/menus/field_encounter_menu.h"
 #include "core/cvar_table.h"
 #include "engine/settings.h"
@@ -69,11 +70,11 @@ void DriveEncounterMouse(FieldEncounterMenu menu) {
   // Reaching here at all means the encounter menu is up: escape and
   // right-click have to read as cancel, the arrow keys have to reach the
   // pad, and mouse look has to stand down so there is a pointer at all.
-  mm.MarkInputOwned();
+  mm.MarkInputOwned(InputOwner::Encounter);
 
   if (!menu)
     return;
-  if (!bd::cvars::Get().mouse_input.Get())
+  if (!InputSources::Get().MouseEnabled())
     return;
 
   if (PadMovedCursor()) {

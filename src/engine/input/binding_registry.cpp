@@ -7,6 +7,7 @@
 #include <vector>
 
 #include <rex/input_keys.h>
+#include <rex/settings_registry.h>
 #include <rex/string/text.h>
 
 #include "core/cvar_table.h"
@@ -87,6 +88,11 @@ int DefaultPadButton(std::span<const Source> sources) {
 
 constexpr std::string_view kRetiredMouseLook = "MouseXY";
 
+bool CanConflict(Action a, Action b) {
+  return (Describe(a).owners & Describe(b).owners) != 0 &&
+         !SharesByDesign(a, b);
+}
+
 std::string CvarName(Action action) {
   return std::string("bind.") + Describe(action).name;
 }
@@ -165,22 +171,45 @@ Bindings &Bindings::Get() {
 }
 
 void Bindings::Init(rex::hid::IInputSystem &input) {
-  for (int i = 0; i < kActionCount; ++i) {
-    const ActionDesc &desc = Describe(static_cast<Action>(i));
-    descriptions_[i] =
-        std::string("Inputs bound to the '") + desc.name + "' action";
-    descs_[i] = {.name = desc.name,
-                 .defaults = desc.defaults,
-                 .description = descriptions_[i],
-                 .group = static_cast<u32>(desc.context),
-                 .axes = ToPadAxes(desc.axis)};
-  }
-  set_ = input.CreateBindingSet(descs_, "bind");
+  input_ = &input;
+  for (int i = 0; i < kActionCount; ++i)
+    descriptions_[i] = std::string("Inputs bound to the '") +
+                       Describe(static_cast<Action>(i)).name + "' action";
 }
 
 void Bindings::Register() {
-  if (auto added = set_->Register(rex::GetSettingsRegistry()); !added)
-    REXBD_WARN("input binds not registered: {}", added.error().message);
+  if (!input_)
+    return;
+  rex::SettingsRegistry &registry = rex::GetSettingsRegistry();
+  size_t count = 0;
+  for (int i = 0; i < kActionCount; ++i) {
+    const auto action = static_cast<Action>(i);
+    const std::string name = CvarName(action);
+    slot_[i] = -1;
+    if (registry.IsAlias(name) || registry.Find(name)) {
+      REXBD_ERROR("[input] {} not registered, the name is already taken",
+                  name);
+      continue;
+    }
+    const ActionDesc &desc = Describe(action);
+    slot_[i] = static_cast<int>(count);
+    descs_[count++] = {.name = desc.name,
+                       .defaults = desc.defaults,
+                       .description = descriptions_[i],
+                       .group = static_cast<u32>(desc.context),
+                       .axes = ToPadAxes(desc.axis)};
+  }
+  set_ = input_->CreateBindingSet(
+      std::span<const rex::hid::BindingConfig>(descs_.data(), count), "bind");
+  if (auto added = set_->Register(registry); !added) {
+    REXBD_ERROR("[input] binds not registered: {}", added.error().message);
+    set_.reset();
+  }
+}
+
+int Bindings::Slot(Action action) const {
+  const int i = static_cast<int>(action);
+  return set_ && i >= 0 && i < kActionCount ? slot_[i] : -1;
 }
 
 void Bindings::Unregister() {
@@ -199,7 +228,8 @@ void Bindings::Migrate() {
     return;
 
   for (int i = 0; i < kActionCount; ++i) {
-    if (CvarIsSet(CvarName(static_cast<Action>(i)))) {
+    const auto action = static_cast<Action>(i);
+    if (Slot(action) >= 0 && CvarIsSet(CvarName(action))) {
       migrated_ = true;
       return;
     }
@@ -237,14 +267,14 @@ void Bindings::Migrate() {
   for (int i = 0; i < kActionCount; ++i) {
     const auto action = static_cast<Action>(i);
     const ActionDesc &desc = Describe(action);
-    if (desc.kind != ActionKind::Mapped)
+    if (desc.kind == ActionKind::Dispatched || Slot(action) < 0)
       continue;
 
     std::string value;
     if (desc.axis != AxisPair::None) {
       if (!AxisKeys(desc.axis, value))
         continue;
-      for (const Source &source : set_->GetSources(i)) {
+      for (const Source &source : Sources(action)) {
         if (source.type != SourceKind::kPadAxes)
           continue;
         const std::string token = bd::platform::HID().InputSourceToString(source);
@@ -254,7 +284,7 @@ void Bindings::Migrate() {
     } else {
       const int stock = desc.fixedId >= 0
                             ? int(desc.fixedId)
-                            : DefaultPadButton(set_->GetSources(i));
+                            : DefaultPadButton(Sources(action));
       const int chosen = rowId[i] >= 0 ? rowId[i] : stock;
       if (chosen < 0)
         continue;
@@ -271,7 +301,7 @@ void Bindings::Migrate() {
           value += ",";
         value += token;
       }
-      for (const Source &source : set_->GetSources(i)) {
+      for (const Source &source : Sources(action)) {
         if (source.type == SourceKind::kKey && !MouseSource(source))
           continue;
         Source moved = source;
@@ -299,10 +329,8 @@ void Bindings::Migrate() {
 }
 
 std::vector<Source> Bindings::Sources(Action action) const {
-  if (!set_)
-    return {};
-  const int i = static_cast<int>(action);
-  return set_->GetSources((i < 0 || i >= kActionCount) ? 0 : size_t(i));
+  const int slot = Slot(action);
+  return slot < 0 ? std::vector<Source>() : set_->GetSources(size_t(slot));
 }
 
 std::span<const Source> Bindings::FrameSources(Action action) const {
@@ -317,47 +345,67 @@ void Bindings::Reload() {
   if (generation == frame_generation_)
     return;
   for (size_t i = 0; i < kActionCount; ++i)
-    frame_[i] = set_->GetSources(i);
+    frame_[i] = Sources(static_cast<Action>(i));
   frame_generation_ = generation;
 }
 
 bool Bindings::SetSource(Action action, int slot, const Source &source) {
-  if (slot < 0)
+  const int at = Slot(action);
+  if (slot < 0 || at < 0)
     return false;
-  const bool ok = set_->SetSource(static_cast<size_t>(action),
-                                  static_cast<size_t>(slot), source);
+  const bool ok =
+      set_->SetSource(size_t(at), static_cast<size_t>(slot), source);
   ReportParseErrors();
   return ok;
 }
 
 bool Bindings::SetSources(Action action, std::span<const Source> sources) {
-  const bool ok = set_->SetSources(static_cast<size_t>(action), sources);
+  const int at = Slot(action);
+  if (at < 0)
+    return false;
+  const bool ok = set_->SetSources(size_t(at), sources);
   ReportParseErrors();
   return ok;
 }
 
 bool Bindings::Reset(Action action) {
-  const bool ok = set_->Reset(static_cast<size_t>(action));
+  const int at = Slot(action);
+  if (at < 0)
+    return false;
+  const bool ok = set_->Reset(size_t(at));
   ReportParseErrors();
   return ok;
 }
 
 bool Bindings::ResetContext(ActionContext context) {
+  if (!set_)
+    return false;
   const bool ok = set_->ResetGroup(static_cast<u32>(context));
   ReportParseErrors();
   return ok;
 }
 
-std::optional<Action> Bindings::Conflict(Action action,
-                                         const Source &source) const {
-  if (const auto other =
-          set_->FindConflict(static_cast<size_t>(action), source))
-    return static_cast<Action>(*other);
-  return std::nullopt;
+std::vector<Action> Bindings::Conflicts(Action action,
+                                        const Source &source) const {
+  std::vector<Action> out;
+  for (int i = 0; i < kActionCount; ++i) {
+    const auto other = static_cast<Action>(i);
+    if (other == action || !CanConflict(action, other))
+      continue;
+    for (const Source &held : Sources(other)) {
+      if (rex::IsSameInput(held, source)) {
+        out.push_back(other);
+        break;
+      }
+    }
+  }
+  return out;
 }
 
 // The retired mouse look token is dropped silently, as it always was.
 void Bindings::ReportParseErrors() {
+  if (!set_)
+    return;
   for (const std::string &msg : set_->TakeParseErrors()) {
     if (msg.find(kRetiredMouseLook) != std::string::npos)
       continue;

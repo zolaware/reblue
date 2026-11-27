@@ -837,7 +837,9 @@ void ReblueApp::MaybeShowUpdatePrompt() {
   update_prompt_guard_ = GetUI().AddDialog(*update_prompt_);
 }
 
-void ReblueApp::OnInputEvent(rex::InputEvent &) {}
+void ReblueApp::OnInputEvent(rex::InputEvent &event) {
+  bd::engine::InputSources::Get().OnInputEvent(event);
+}
 
 void ReblueApp::OnUIEvent(const rex::ui::UIEvent &event) {
   using Type = rex::ui::UIEvent::Type;

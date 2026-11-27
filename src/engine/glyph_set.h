@@ -8,9 +8,12 @@
  */
 #pragma once
 
+#include <mutex>
+#include <span>
 #include <string_view>
 #include <vector>
 
+#include <rex/input_keys.h>
 #include <rex/types.h>
 
 #include "engine/d2anime/anime_layout.h"
@@ -18,6 +21,8 @@
 #include "engine/live_texture_stamp.h"
 
 namespace bd::engine {
+
+class D2AnimeTask;
 
 // Auto follows whichever device the player last used. The other two pin the
 // sheet, for a player recording video or reading a guide.
@@ -43,11 +48,31 @@ inline constexpr i32 kPadSetLast = static_cast<i32>(PadSet::SteamDeck);
 const char *ToString(GlyphSet set);
 const char *ToString(PadSet set);
 
-int BoundKeyIndex(Action action);
+inline constexpr int kMaxChordModifiers = 3;
 
-// The same lookup for a bare key name ("Up", "LMB"), with any modifier prefix
-// already stripped.
-int KeyIndex(std::string_view keyName);
+struct ChordCaps {
+  int key = -1;
+  int mods[kMaxChordModifiers] = {};
+  int modCount = 0;
+};
+
+ChordCaps BoundChord(Action action);
+
+struct CapBox {
+  u32 x, y, w, h;
+};
+
+struct CapImage {
+  const u8 *rgba;
+  u32 pitchPx;
+  CapBox ink;
+};
+
+bool DrawCapRow(std::span<const CapImage> caps, u8 *dst, u32 dstPitchPx,
+                const CapBox &box, f32 dim);
+
+// The same lookup for one source, ignoring its modifiers.
+int KeyIndex(const rex::InputSource &source);
 
 // Publishes the button glyph set. The eleven Help_*_Uv globals are pinned to
 // the sheet's pad cells once per bag, since the shipped rects assume the
@@ -85,11 +110,18 @@ public:
   // linking it, so an already-parsed CSV cannot follow the bag.
   u32 Generation() const { return generation_; }
 
-  // UV rect of one of the eleven prompts, named the way Uv.csv names it
-  // ("Help_RT_Uv"): always the pad cell, whose texels carry whatever the
-  // resolved set stamped there. What a re:Blue layout writes into its own
-  // vars in place of the snapshot the parse took.
-  UVRect CellUV(const char *helpName) const;
+  // UV rect of the sheet cell showing one bind's art in the resolved set, or
+  // the D-pad cross for Action::Count. What a re:Blue layout writes into its
+  // own vars in place of the snapshot the parse took.
+  UVRect ActionUV(Action action) const;
+
+  bool ChordUV(Action action, UVRect &mod, UVRect &key) const;
+
+  static void DeclareChordCap(CsvBuilder &b, const char *posVar);
+  static void EmitChordCap(CsvBuilder &b, const AnimeTexAbs &single,
+                           const char *posVar);
+  void PushChordCap(D2AnimeTask &task, const char *posVar, const HelpUv &uv,
+                    Action action) const;
 
   // The ink band of one key's cap, cut clear of the cell's transparent
   // margins, for a surface that scales the cap well below the footers' 64px.
@@ -108,9 +140,14 @@ public:
   static constexpr u32 kSheetRows = 32;
   static constexpr u32 kSheetCellPx = 64;
 
-  // Position of a bind's modifier prefix ("Shift+", "Ctrl+", "Alt+", with or
-  // without the plus) in the sheet's modifier run, or -1 for anything else.
-  static int ModifierIndex(std::string_view prefix);
+  static constexpr u32 kKeyInkX0Px = 6;
+  static constexpr u32 kKeyInkX1Px = 44;
+  static constexpr u32 kInkY0Px = 12;
+  static constexpr u32 kInkY1Px = 52;
+  static constexpr u32 kModInkX0Px = 4;
+  static constexpr u32 kModInkX1Px = 60;
+
+  static int ModifierIndex(rex::KeyModifiers mods);
 
   // The ink band of one modifier cap. The modifier cells ink wider than the
   // key cells, so this is not KeyArtUV over a different index.
@@ -130,6 +167,8 @@ private:
 
   // a keyboard. Serves fresh loads and restamps live instances alike.
   std::vector<u8> ComposeSheet() const;
+  void ComposeChordCell(u8 *payload, size_t bytes, int cell,
+                        const ChordCaps &chord) const;
 
   u32 vars_[kHelpCells] = {};
   u32 nameBlock_ = 0;
@@ -143,6 +182,8 @@ private:
   PadSet pad_ = PadSet::Xbox360;
   u32 generation_ = 0;
   LiveTextureStamp sheetStamp_;
+  mutable std::mutex sheetMutex_;
+  mutable std::vector<u8> sheetRgba_;
   u32 bindGeneration_ = 0;
 };
 

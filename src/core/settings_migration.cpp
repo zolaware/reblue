@@ -121,6 +121,10 @@ constexpr std::pair<std::string_view, std::string_view> kSdkRenames[] = {
 constexpr std::string_view kReblueBareKeys[] = {"profile", "config_version",
                                                 "no_installer"};
 
+constexpr std::string_view kRetiredBackBind = "back";
+constexpr std::string_view kBackBindHeirs[] = {"quit_menu", "reset_defaults",
+                                               "install_content"};
+
 // The scoped spelling of a flat key, or empty when the key is dropped.
 std::string ScopedName(std::string_view key) {
   if (key.find('.') != std::string_view::npos)
@@ -212,6 +216,18 @@ void SettingsMigration::RewriteFile(const std::filesystem::path &file) {
           scope->insert_or_assign("bloom_quality", value);
         });
       scope->erase("post_quality");
+      moved = true;
+    }
+  }
+  if (toml::table *scope = out["bind"].as_table()) {
+    if (const toml::node *back = scope->get(kRetiredBackBind)) {
+      for (std::string_view heir : kBackBindHeirs) {
+        if (!scope->contains(heir))
+          back->visit([&](auto &value) {
+            scope->insert_or_assign(std::string(heir), value);
+          });
+      }
+      scope->erase(kRetiredBackBind);
       moved = true;
     }
   }

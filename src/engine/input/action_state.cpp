@@ -9,6 +9,8 @@
 #include "engine/input/binding_registry.h"
 #include "engine/input/dispatch.h"
 #include "engine/input/input_sources.h"
+#include "engine/virtual_buttons.h"
+#include "platform/platform.h"
 
 namespace bd::engine {
 
@@ -24,9 +26,9 @@ constexpr f32 kRepeatRearm = 0.001f;
 
 constexpr int kMaxConsumed = 16;
 
-bool Consumed(const Source *list, int count, const Source &source) {
-  for (int i = 0; i < count; ++i) {
-    if (rex::IsSameInput(list[i], source))
+bool Consumed(std::span<const Source> list, const Source &source) {
+  for (const Source &taken : list) {
+    if (rex::IsSameInput(taken, source))
       return true;
   }
   return false;
@@ -46,23 +48,33 @@ void InputActions::Resolve() {
   for (int i = 0; i < kActionCount; ++i)
     prevHeld_[i] = held_[i];
 
+  const std::span<const Source> mindows = platform::MindowsKeys();
+  const OwnerMask owner = OwnerBit(ActiveInputOwner());
   Source consumed[kMaxConsumed];
   int consumedCount = 0;
   for (int i = 0; i < kActionCount; ++i) {
     const auto action = static_cast<Action>(i);
-    if (Describe(action).kind != ActionKind::Dispatched)
+    const ActionDesc &desc = Describe(action);
+    if (desc.kind != ActionKind::Dispatched)
       continue;
     const std::span<const Source> sources = binds.FrameSources(action);
     const auto active = [&](const Source &s) {
-      return action == Action::Mindows ? in.ActiveUnheld(s) : in.Active(s);
+      return in.Active(s) &&
+             (action == Action::Mindows || !Consumed(mindows, s));
     };
-    bool held = false;
+    bool down = false;
     for (const Source &s : sources) {
       if (active(s)) {
-        held = true;
+        down = true;
         break;
       }
     }
+    const bool live = (desc.owners & owner) != 0;
+    if (!down)
+      carried_[i] = false;
+    else if (!live)
+      carried_[i] = true;
+    const bool held = down && live && !carried_[i];
     held_[i] = held;
     repeat_[i] = false;
     if (!held) {
@@ -83,18 +95,25 @@ void InputActions::Resolve() {
 
   for (int i = 0; i < kActionCount; ++i) {
     const auto action = static_cast<Action>(i);
-    if (Describe(action).kind != ActionKind::Mapped)
+    const ActionDesc &desc = Describe(action);
+    if (desc.kind == ActionKind::Dispatched)
       continue;
-    bool held = false;
+    bool down = false;
     for (const Source &s : binds.FrameSources(action)) {
-      if (Consumed(consumed, consumedCount, s))
+      if (Consumed({consumed, size_t(consumedCount)}, s) ||
+          Consumed(mindows, s) || !in.DeviceEnabled(s))
         continue;
       if (in.Active(s)) {
-        held = true;
+        down = true;
         break;
       }
     }
-    held_[i] = held;
+    const bool live = (desc.owners & owner) != 0;
+    if (!down)
+      carried_[i] = false;
+    else if (!live)
+      carried_[i] = true;
+    held_[i] = down && live && !carried_[i];
   }
 
   anyForced_ = false;
@@ -109,7 +128,7 @@ void InputActions::Resolve() {
   bool anyHeld = false;
   bool anyPressed = false;
   for (int i = 0; i < kActionCount; ++i) {
-    if (Describe(static_cast<Action>(i)).kind != ActionKind::Mapped)
+    if (Describe(static_cast<Action>(i)).kind == ActionKind::Dispatched)
       continue;
     repeat_[i] = false;
     if (!held_[i])
@@ -136,7 +155,7 @@ void InputActions::Resolve() {
 
   if (fireHeld || firePressed) {
     for (int i = 0; i < kActionCount; ++i) {
-      if (Describe(static_cast<Action>(i)).kind != ActionKind::Mapped)
+      if (Describe(static_cast<Action>(i)).kind == ActionKind::Dispatched)
         continue;
       if (!held_[i])
         continue;
@@ -151,10 +170,12 @@ void InputActions::Resolve() {
   for (int i = 0; i < kActionCount; ++i) {
     const auto action = static_cast<Action>(i);
     const ActionDesc &desc = Describe(action);
-    if (desc.axis == AxisPair::None)
+    if (desc.axis == AxisPair::None || (desc.owners & owner) == 0)
       continue;
     const int pair = static_cast<int>(desc.axis);
     for (const Source &s : binds.FrameSources(action)) {
+      if (!in.DeviceEnabled(s) || Consumed(mindows, s))
+        continue;
       for (int c = 0; c < 2; ++c) {
         const f32 value = in.Axis(s, c);
         if (std::abs(value) > std::abs(axis_[pair][c]))

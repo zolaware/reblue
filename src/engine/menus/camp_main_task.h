@@ -39,6 +39,8 @@ public:
 
   D2AnimeTask Layout(size_t i) const;
 
+  D2AnimeTask TopMenu() const;
+
   CampFtrTask Ftr() const;
 };
 

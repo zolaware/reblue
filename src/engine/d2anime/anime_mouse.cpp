@@ -10,12 +10,15 @@
 #include <cmath>
 
 #include <rex/ppc/hook.h>
+#include <rex/ppc/midasm.h>
 #include <rex/types.h>
 
 #include "engine/d2anime/anime_hittest.h"
+#include "engine/d2anime/anime_input.h"
 #include "engine/d2anime/anime_menu.h"
 #include "engine/d2anime/command_select_task.h"
 #include "engine/input/action_state.h"
+#include "engine/input/input_sources.h"
 #include "engine/sfx.h"
 #include "core/cvar_table.h"
 #include "engine/settings.h"
@@ -44,6 +47,15 @@ constexpr u32 kCursorSlide = 0;
 // Room either side of the ten-pixel track, in design canvas units. The bar is
 // too thin to ask a pointer to land on exactly.
 constexpr f32 kScrollbarGrabPad = 6.0f;
+
+enum class ScriptWindowState : u32 {
+  Hidden,
+  Opening,
+  Closing,
+  Shown,
+  Confirmed,
+  ShownNoWait,
+};
 
 // Reads both lists through one struct, so arbitration, edge scrolling and the
 // deferred apply stay written once.
@@ -89,9 +101,11 @@ MenuMouse &MenuMouse::Get() {
   return s;
 }
 
-bool MenuMouse::PointerActive() const {
-  return mouseHasCursor_ && bd::cvars::Get().mouse_input.Get();
+bool MenuMouse::MouseHasCursor() const {
+  return mouseHasCursor_ && InputSources::Get().MouseEnabled();
 }
+
+bool MenuMouse::PointerActive() const { return MouseHasCursor(); }
 
 int MenuMouse::TakeWheelDetents() {
   const int detents = wheel_;
@@ -115,7 +129,7 @@ void MenuMouse::Observe(u32 menuVA) {
   // exactly this test. A frame with no focused menu is a frame where nothing
   // can consume a cancel, so escape belongs to the field. Set before the
   // remaining gates, which are about the pointer rather than about the menu.
-  sawAnyMenu_ = true;
+  MarkInputOwned(InputOwner::Menu);
   focusedMenu_ = menu;
 
   // Above the hit test, not below it: edge scrolling runs off a pointer parked
@@ -150,7 +164,7 @@ void MenuMouse::ObserveCommandSelect(u32 taskVA) {
   if (!task || !task.HasFocus())
     return;
 
-  sawAnyMenu_ = true;
+  MarkInputOwned(InputOwner::Menu);
   focusedSelect_ = task;
 
   if ((task.InputBits() & kCmdSelectDirectionBits) != 0 &&
@@ -289,6 +303,7 @@ int MenuMouse::SelectableNear(u32 va, int index, int lo, int hi) const {
 // click before the drag had claimed it.
 void MenuMouse::ScrollbarDrag(u32 va) {
   const bool down =
+      InputSources::Get().MouseEnabled() &&
       platform::HID().IsButtonDown(rex::MouseButton::kLeft) &&
       !HostOverlayOwnsPointer();
   const bool pressed = down && !buttonWasDown_;
@@ -410,8 +425,8 @@ void MenuMouse::Apply(u32 va, int index, bool commandSelect) {
 }
 
 void MenuMouse::BeginFrame() {
-  SetMenuOwnsInput(sawAnyMenu_);
-  sawAnyMenu_ = false;
+  PublishInputOwner(owned_);
+  owned_ = 0;
 
   const AnimeMenu focusedMenu = focusedMenu_;
   const CommandSelectTask focusedSelect = focusedSelect_;
@@ -423,7 +438,11 @@ void MenuMouse::BeginFrame() {
   // motion and every menu after it saw a still mouse. Drained either way: a
   // reblue ImGui surface takes the pointer outright, and motion aimed at its
   // window is not aimed at whatever engine list sits behind it.
-  if (platform::HID().TakePointerMoved() && !HostOverlayOwnsPointer()) {
+  const bool mouse = InputSources::Get().MouseEnabled();
+  if (!mouse)
+    mouseHasCursor_ = false;
+  if (platform::HID().TakePointerMoved() && mouse &&
+      !HostOverlayOwnsPointer()) {
     // While the wheel guard stands, only a deliberate move reclaims the
     // cursor for hover, the pixel of drift a wheel spin causes does not.
     constexpr f32 kWheelReclaimPx = 12.0f;
@@ -443,6 +462,8 @@ void MenuMouse::BeginFrame() {
   // Overwritten, not accumulated: a spin made while nothing reads the wheel
   // belongs to that frame, not to whatever screen opens next.
   wheel_ = platform::HID().TakeWheel();
+  if (!mouse)
+    wheel_ = 0;
 
   // A held bar owns the pointer outright. Hover, the edge bands and the wheel
   // all walk the cursor to where the pointer is, and a bar is dragged past
@@ -467,8 +488,7 @@ void MenuMouse::BeginFrame() {
   // A spin walks the focused AnimeMenu directly. The command selects stay on
   // their hover bands, and with no focused menu the detents stay banked for
   // the area map's zoom.
-  if (wheel_ != 0 && !focusedSelect && focusedMenu &&
-      bd::cvars::Get().mouse_input.Get()) {
+  if (wheel_ != 0 && !focusedSelect && focusedMenu) {
     WheelScroll(focusedMenu.Address(), TakeWheelDetents());
     pendingMenu_.Reset();
     pendingIndex_ = -1;
@@ -508,3 +528,71 @@ REX_DETOUR(CommandSelectTask__Update, void, (u32 task)) {
   original(task);
   bd::engine::MenuMouse::Get().ObserveCommandSelect(task);
 }
+
+REX_MIDASM_HOOK(bdMinigamePauseCheckHook, ()) {
+  bd::engine::MenuMouse::Get().MarkInputOwned(
+      bd::engine::InputOwner::Minigame);
+}
+REX_MIDASM_AT(bdMinigamePauseCheckHook, 0x820D252C, before);
+REX_MIDASM_AT(bdMinigamePauseCheckHook, 0x82434BE0, before);
+REX_MIDASM_AT(bdMinigamePauseCheckHook, 0x82436EE4, before);
+REX_MIDASM_AT(bdMinigamePauseCheckHook, 0x82438C90, before);
+REX_MIDASM_AT(bdMinigamePauseCheckHook, 0x8243AD58, before);
+REX_MIDASM_AT(bdMinigamePauseCheckHook, 0x8243D5A8, before);
+REX_MIDASM_AT(bdMinigamePauseCheckHook, 0x8243F9FC, before);
+REX_MIDASM_AT(bdMinigamePauseCheckHook, 0x824423F8, before);
+
+REX_MIDASM_HOOK(bdMechatPlayerUpdateHook, ()) {
+  bd::engine::MenuMouse::Get().MarkInputOwned(bd::engine::InputOwner::Mechat);
+}
+REX_MIDASM_AT(bdMechatPlayerUpdateHook, 0x820F3B40, before);
+
+REX_MIDASM_HOOK(bdScriptWindowStateHook, (PPCRegister & r11)) {
+  using bd::engine::ScriptWindowState;
+  const auto value = static_cast<ScriptWindowState>(r11.u32);
+  if (value == ScriptWindowState::Shown ||
+      value == ScriptWindowState::Confirmed)
+    bd::engine::MenuMouse::Get().MarkInputOwned(
+        bd::engine::InputOwner::ScriptWindow);
+}
+REX_MIDASM_AT(bdScriptWindowStateHook, 0x821A626C, before, r11);
+
+REX_MIDASM_HOOK(bdMessWinUpdateHook, ()) {
+  bd::engine::MenuMouse::Get().MarkInputOwned(bd::engine::InputOwner::MessWin);
+}
+REX_MIDASM_AT(bdMessWinUpdateHook, 0x82383E58, before);
+
+REX_MIDASM_HOOK(bdDebugMenuUpdateHook, ()) {
+  bd::engine::MenuMouse::Get().MarkInputOwned(bd::engine::InputOwner::Menu);
+}
+REX_MIDASM_AT(bdDebugMenuUpdateHook, 0x821273C0, before);
+REX_MIDASM_AT(bdDebugMenuUpdateHook, 0x821D1338, before);
+REX_MIDASM_AT(bdDebugMenuUpdateHook, 0x82389890, before);
+REX_MIDASM_AT(bdDebugMenuUpdateHook, 0x823E3A50, before);
+REX_MIDASM_AT(bdDebugMenuUpdateHook, 0x823C0A18, before);
+REX_MIDASM_AT(bdDebugMenuUpdateHook, 0x823D77F0, before);
+REX_MIDASM_AT(bdDebugMenuUpdateHook, 0x823D2630, before);
+REX_MIDASM_AT(bdDebugMenuUpdateHook, 0x823D4220, before);
+REX_MIDASM_AT(bdDebugMenuUpdateHook, 0x823D6A18, before);
+REX_MIDASM_AT(bdDebugMenuUpdateHook, 0x823D7398, before);
+REX_MIDASM_AT(bdDebugMenuUpdateHook, 0x823CA880, before);
+REX_MIDASM_AT(bdDebugMenuUpdateHook, 0x823DA4E0, before);
+REX_MIDASM_AT(bdDebugMenuUpdateHook, 0x823BC7C0, before);
+REX_MIDASM_AT(bdDebugMenuUpdateHook, 0x823D5EC0, before);
+REX_MIDASM_AT(bdDebugMenuUpdateHook, 0x823B9D60, before);
+REX_MIDASM_AT(bdDebugMenuUpdateHook, 0x823C31D0, before);
+REX_MIDASM_AT(bdDebugMenuUpdateHook, 0x8229D7E0, before);
+REX_MIDASM_AT(bdDebugMenuUpdateHook, 0x8238B500, before);
+REX_MIDASM_AT(bdDebugMenuUpdateHook, 0x8238D5C0, before);
+REX_MIDASM_AT(bdDebugMenuUpdateHook, 0x8238E310, before);
+REX_MIDASM_AT(bdDebugMenuUpdateHook, 0x823AC4E8, before);
+REX_MIDASM_AT(bdDebugMenuUpdateHook, 0x821D7038, before);
+REX_MIDASM_AT(bdDebugMenuUpdateHook, 0x823EE930, before);
+REX_MIDASM_AT(bdDebugMenuUpdateHook, 0x820CD8F0, before);
+REX_MIDASM_AT(bdDebugMenuUpdateHook, 0x82258448, before);
+
+REX_MIDASM_HOOK(bdSequenceDebugSelectHook, (PPCRegister & r3)) {
+  if (!r3.u32 && bd::engine::CheckAction(bd::engine::Action::Confirm))
+    r3.u64 = 1;
+}
+REX_MIDASM_AT(bdSequenceDebugSelectHook, 0x821273F8, before, r3);

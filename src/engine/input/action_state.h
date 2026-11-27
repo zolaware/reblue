@@ -33,6 +33,7 @@ private:
   bool repeat_[kActionCount] = {};
   bool forced_[kActionCount] = {};
   bool claiming_[kActionCount] = {};
+  bool carried_[kActionCount] = {};
   bool anyForced_ = false;
   f32 repeatTimer_ = 0.0f;
   f32 axis_[2][2] = {};

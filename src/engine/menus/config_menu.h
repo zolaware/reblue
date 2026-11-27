@@ -77,6 +77,8 @@ public:
 
   u32 TaskAddr() const { return task_.Address(); }
 
+  static constexpr size_t kFooterCaps = 5;
+
 private:
   // Footer prompts for a state, as i18n catalog keys. A null key hides its
   // button, B has no visibility variable of its own, so a null there leaves
@@ -87,6 +89,10 @@ private:
     const char *x = nullptr;
     const char *y = nullptr;
     const char *back = nullptr;
+    Action xBind = Action::Count;
+    Action yBind = Action::Count;
+    Action backBind = Action::Count;
+    bool prompts = true;
   };
 
   void Transition(State next);
@@ -133,6 +139,12 @@ private:
   int HeldStep(int cursor);
   void HandleKeybinds();
   bool SkipBindSpacer();
+  BindEntry BindAt(int slot) const {
+    return BindGridEntry(bind_page_, slot);
+  }
+  int FirstBindSlot() const;
+  void ShowBindPage(int page);
+  bool HandleBindTabs();
   void HandleKeybindCapture();
   void HandleReorder();
   void HandleConfirmDelete();
@@ -180,8 +192,9 @@ private:
   State resume_state_ = State::SECTION;
 
   D2AnimeTask task_;
-  // Last glyph generation pushed into the footer cap vars (see kFooterGlyphs).
+  // Last glyph generation pushed into the cap vars (see kFooterGlyphs).
   u32 glyph_gen_ = 0;
+  std::array<Action, kFooterCaps> footer_binds_{};
   AnimeMenu section_menu_;
   AnimeMenu modlist_menu_;
   AnimeMenu dlclist_menu_;
@@ -194,11 +207,10 @@ private:
   int capture_slot_ = -1;
   int capture_chip_ = -1;
   int last_bind_slot_ = 0;
-  Action conflict_action_ = Action::Confirm;
+  int bind_chip_ = 0;
+  int bind_page_ = 0;
+  std::string conflict_label_;
   bool conflict_shown_ = false;
-  // Edge detector for the keybind screen's hover-Delete, a host key with no
-  // engine button to edge-gate it.
-  bool del_held_ = false;
   int last_settings_slot_ = 0;
   // Held-direction auto-repeat on bar rows, counted in menu frames: a short
   // delay so a tap still moves one step, then a step every other frame.
