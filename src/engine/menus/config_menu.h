@@ -46,11 +46,12 @@ public:
     SETTINGS,            // a settings page list active, sidebar stays visible
     KEYBINDS,
     KEYBIND_CAPTURE,
-    REORDER,             // reorder mode (mod list only)
-    CONFIRM_DELETE,      // delete confirmation popup active
-    CONFIRM_REBOOT,      // restart-to-apply confirmation popup active
-    CONFIRM_RESET_BINDS, // reset-every-bind confirmation popup active
-    CLOSING,             // exit sequence
+    REORDER,              // reorder mode (mod list only)
+    CONFIRM_DELETE,       // delete confirmation popup active
+    CONFIRM_REBOOT,       // restart-to-apply confirmation popup active
+    CONFIRM_RESET_BINDS,  // reset-every-bind confirmation popup active
+    CONFIRM_RESET_CHEATS, // reset-all-cheats confirmation popup active
+    CLOSING,              // exit sequence
   };
 
   // 'parentUpdate' is the host hook's original, which Update runs at the point
@@ -137,6 +138,7 @@ private:
   void HandleConfirmDelete();
   void HandleConfirmReboot();
   void HandleConfirmResetBinds();
+  void HandleConfirmResetCheats();
 
   void UpdateDetailPanel(int cursor);
   void UpdateDLCDetail(int cursor);

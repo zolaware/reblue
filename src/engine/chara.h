@@ -252,9 +252,11 @@ public:
   CharaStats Stats() const;
   u32 StatusFlags() const;
   bool HasStatus(CharaStatus bit) const;
+  bool SetStatusFlags(u32 v);
 
   // 0..kResistImmune, above which the matching status cannot be applied.
   u32 StatusResist(CharaResist which) const;
+  bool SetStatusResist(CharaResist which, u32 v);
   u32 ElementDefense(CharaElement which) const;
 
   // Derived from the equipped skills, cleared and rebuilt by every
@@ -269,6 +271,8 @@ public:
   // set.
   u32 ParalyzeTurns() const;
   u32 StunTurns() const;
+  bool SetParalyzeTurns(u32 v);
+  bool SetStunTurns(u32 v);
 
   Vec3 Position() const;
   Vec3 Rotation() const;
@@ -299,9 +303,11 @@ public:
   u32 EquipCount() const;
   u32 Equipment(u32 slot) const;
   u32 UnlockedClasses() const; // ClassBit(CharaClass) per unlocked job
+  bool SetUnlockedClasses(u32 mask);
   bool IsClassUnlocked(CharaClass c) const;
   u32 ClassRank(CharaClass c) const;
   u32 ClassSP(CharaClass c) const;
+  bool SetClassSP(CharaClass c, u32 v);
 
   // The stat block every class record is raised against, index below
   // kCharaBlockStatCount.
@@ -320,6 +326,7 @@ public:
   std::optional<CharaClass> ActiveClass() const;
 
   u32 PermanentBonus(engine::PermanentBonus which) const;
+  bool SetPermanentBonus(engine::PermanentBonus which, u32 v);
 
   // Petrified members are skipped by the camp leader cycle and by the field
   // party walk when it picks a replacement leader.

@@ -27,9 +27,10 @@ enum class SettingsPage : int {
   Graphics = 2,
   Audio = 3,
   Controls = 4,
+  Cheats = 5,
 };
-inline constexpr int kSettingsPageCount = 5;
-inline constexpr int kSettingsSectionCount = 5; // pages shown in the sidebar
+inline constexpr int kSettingsPageCount = 6;
+inline constexpr int kSettingsSectionCount = 6; // pages shown in the sidebar
 
 
 // How a row is rendered and driven.
@@ -40,7 +41,7 @@ enum class RowUi : int {
   Action,
 };
 
-enum class SettingAction { None, Keybinds };
+enum class SettingAction { None, Keybinds, ResetCheats };
 
 const char *SettingsPageLabel(SettingsPage page);
 

@@ -417,6 +417,14 @@ u32 Chara::StatusFlags() const {
   return self ? static_cast<u32>(self->params.statusFlags) : 0;
 }
 
+bool Chara::SetStatusFlags(u32 v) {
+  auto *self = Self<Chara_t>();
+  if (!self)
+    return false;
+  self->params.statusFlags = v;
+  return true;
+}
+
 bool Chara::HasStatus(CharaStatus bit) const {
   return engine::HasStatus(StatusFlags(), bit);
 }
@@ -427,6 +435,17 @@ u32 Chara::StatusResist(CharaResist which) const {
     return 0;
   const auto *self = Self<Chara_t>();
   return self ? static_cast<u32>(self->params.statusResist[i]) : 0;
+}
+
+bool Chara::SetStatusResist(CharaResist which, u32 v) {
+  const u32 i = static_cast<u32>(which);
+  if (i >= kCharaResistCount)
+    return false;
+  auto *self = Self<Chara_t>();
+  if (!self)
+    return false;
+  self->params.statusResist[i] = static_cast<u8>(v);
+  return true;
 }
 
 u32 Chara::ElementDefense(CharaElement which) const {
@@ -457,6 +476,22 @@ u32 Chara::ParalyzeTurns() const {
 u32 Chara::StunTurns() const {
   const auto *self = Self<Chara_t>();
   return self ? static_cast<u32>(self->params.stunTurns) : 0;
+}
+
+bool Chara::SetParalyzeTurns(u32 v) {
+  auto *self = Self<Chara_t>();
+  if (!self)
+    return false;
+  self->params.paralyzeTurns = v;
+  return true;
+}
+
+bool Chara::SetStunTurns(u32 v) {
+  auto *self = Self<Chara_t>();
+  if (!self)
+    return false;
+  self->params.stunTurns = v;
+  return true;
 }
 
 Vec3 Chara::Position() const {
@@ -549,6 +584,14 @@ u32 Player::UnlockedClasses() const {
   return self ? static_cast<u32>(self->unlockedClasses) : 0;
 }
 
+bool Player::SetUnlockedClasses(u32 mask) {
+  auto *self = Self<PlayerChara_t>();
+  if (!self)
+    return false;
+  self->unlockedClasses = mask;
+  return true;
+}
+
 bool Player::IsClassUnlocked(CharaClass c) const {
   return (UnlockedClasses() & ClassBit(c)) != 0;
 }
@@ -561,6 +604,17 @@ u32 Player::ClassRank(CharaClass c) const {
 u32 Player::ClassSP(CharaClass c) const {
   const auto *self = Self<PlayerChara_t>();
   return self ? static_cast<u32>(self->classes[static_cast<u32>(c)].sp) : 0;
+}
+
+bool Player::SetClassSP(CharaClass c, u32 v) {
+  const u32 i = static_cast<u32>(c);
+  if (i >= kCharaClassCount)
+    return false;
+  auto *self = Self<PlayerChara_t>();
+  if (!self)
+    return false;
+  self->classes[i].sp = v;
+  return true;
 }
 
 u32 Player::BaseStat(u32 i) const {
@@ -630,6 +684,17 @@ u32 Player::PermanentBonus(engine::PermanentBonus which) const {
   const auto *self = Self<PlayerChara_t>();
   return self ? static_cast<u32>(self->permanentBonus[static_cast<u32>(which)])
               : 0;
+}
+
+bool Player::SetPermanentBonus(engine::PermanentBonus which, u32 v) {
+  const u32 i = static_cast<u32>(which);
+  if (i >= kPermanentBonusCount)
+    return false;
+  auto *self = Self<PlayerChara_t>();
+  if (!self)
+    return false;
+  self->permanentBonus[i] = v;
+  return true;
 }
 
 bool Player::CanLead() const { return !HasStatus(CharaStatus::kPetrify); }

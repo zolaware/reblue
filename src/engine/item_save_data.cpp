@@ -22,6 +22,9 @@ namespace {
 constexpr size_t kSlotCount = 512;
 constexpr u32 kCountMax = 99;
 constexpr u32 kGoldMax = 99999999u;
+// Ancient medals, the ruins-only second currency. bdScriptOpMedalChange is
+// the script opcode that writes it and clamps there.
+constexpr u32 kMedalsMax = 9999u;
 
 struct ItemSlot_t {
   /* 0x00 */ be_u32 itemId;
@@ -34,9 +37,11 @@ static_assert(sizeof(ItemSlot_t) == 8);
 struct ItemSaveData_t {
   /* 0x0000 */ ItemSlot_t slots[kSlotCount];
   /* 0x1000 */ be_u32 gold;
+  /* 0x1004 */ be_u32 medals; // clamp 0..9999
 };
 static_assert(offsetof(ItemSaveData_t, slots) == 0x0000);
 static_assert(offsetof(ItemSaveData_t, gold) == 0x1000);
+static_assert(offsetof(ItemSaveData_t, medals) == 0x1004);
 
 using SlotTable = std::array<ItemSaveData::Item, kSlotCount>;
 
@@ -74,6 +79,19 @@ bool ItemSaveData::SetGold(u32 v) {
   if (!self)
     return false;
   self->gold = std::min(v, kGoldMax);
+  return true;
+}
+
+u32 ItemSaveData::Medals() const {
+  const auto *self = Self<ItemSaveData_t>();
+  return self ? static_cast<u32>(self->medals) : 0;
+}
+
+bool ItemSaveData::SetMedals(u32 v) {
+  auto *self = Self<ItemSaveData_t>();
+  if (!self)
+    return false;
+  self->medals = std::min(v, kMedalsMax);
   return true;
 }
 

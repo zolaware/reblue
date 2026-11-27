@@ -1,0 +1,224 @@
+name: Cheats build
+
+# Builds the cheats branch for Windows and Linux and puts both on one rolling
+# release that is also the repository's latest, so the build people are pointed
+# at in the PR thread has a Windows artifact behind it, does not rot when the
+# branch moves, and is what the releases page leads with.
+#
+# Neither upstream path reaches this repository. release.yml only fires on a v*
+# tag matching the project version and its publish job needs the CDN secrets.
+# dev-nightly-ci.yml needs a `development` branch, which this fork has never
+# had, so every scheduled run here resolves to "no development branch", skips
+# windows/linux/publish, and still reports success.
+#
+# Needs the ASSETS_TOKEN secret: a read-only token for the asset repo the Xenos
+# shader blobs are cloned into assets/ from. Say it out loud up front, because
+# the failure mode used to be silent: an empty assets/ compiles clean and ships
+# an executable that draws nothing but menus. cmake/shader_cache.cmake stops
+# that at configure now. If you cannot read upstream's asset repo, set the
+# ASSETS_REPO variable to one of your own and stage the blobs there by copying
+# the FX folders out of BD_SYSTEM and HC_SYSTEM on your own disc into a private
+# repository with those same paths; they are loose files on the disc, not
+# entries inside an IPK pack.
+
+on:
+  workflow_dispatch:
+    inputs:
+      sdk_ref:
+        description: "rexglue-sdk release: latest-nightly, latest-stable, or an explicit tag"
+        required: false
+        type: string
+        # Pinned to a stable tag, not a nightly: this is what shipped artifacts
+        # are built against, and a nightly can be superseded under a rebuild.
+        # v0.10.1 is the newest release that still exports the targets this tree
+        # links - rex::runtime (CMakeLists.txt:133, thirdparty/CMakeLists.txt:41,
+        # cmake/generated.cmake:61) and rex::o1heap (CMakeLists.txt:155). It
+        # carries the same 1305 files as nightly-20261002-bd833a2a, same five
+        # platform slices, and a header tree identical except rex/version.h; the
+        # libraries themselves are 0.10.1's, which is the point of taking it.
+        # The 0.11 line re-architected the exported names: rex::runtime,
+        # rex::o1heap and rex::gpu-xenos became rex::base, rex::kernel,
+        # rex::xenos and the rex::sdk aggregate, so every 0.11 or 0.12 tag -
+        # stable or nightly - resolves targets this tree does not have. The
+        # version gate does not catch it: generated/rexglue.cmake asks for
+        # find_package(rexglue 0.10.0 CONFIG) without EXACT, so a 0.12.0-dev SDK
+        # satisfies it and the build dies at link time minutes later instead;
+        # fetch-deps.sh and .ps1 check the exported names before configure.
+        # Moving past v0.10.1 is a port across the 281 files here that include a
+        # rex/ header - 279 under src/, plus the two under generated/ that the
+        # SDK's own codegen rewrites - mapped row by row in docs/sdk-remap-0.11.md.
+        default: v0.10.1
+  schedule:
+    - cron: "30 6 * * *"
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: cheats-build
+  cancel-in-progress: false
+
+env:
+  ROLLING_TAG: cheats-latest
+
+jobs:
+  # Cheap guard ahead of two full builds: fetch-deps would fail at the clone
+  # anyway, but an hour into the Windows job rather than in one line. Checking
+  # only that the secret is non-empty is not enough, either - the common state is
+  # a token that exists and a 404, because a fine-grained PAT that was never
+  # granted the asset repository and an account that is not a collaborator on it
+  # are indistinguishable from the repo not existing.
+  preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prove the asset repo is readable and actually holds blobs
+        env:
+          ASSETS_TOKEN: ${{ secrets.ASSETS_TOKEN }}
+          ASSETS_REPO: ${{ vars.ASSETS_REPO || 'zolaware/reblue-assets' }}
+        run: |
+          if [ -z "${ASSETS_TOKEN}" ]; then
+            echo "::error::No ASSETS_TOKEN secret here, so ${ASSETS_REPO} cannot be cloned into assets/ and there are no shader blobs to compile a cache from. Add a read-only fine-grained PAT (Contents: read, one repository) as the ASSETS_TOKEN secret, and set the ASSETS_REPO variable if the blobs live somewhere other than zolaware/reblue-assets."
+            exit 1
+          fi
+
+          # The token goes in a header, never in the URL: a credential inside a
+          # URL that curl or git echoes back on failure is a credential in the
+          # build log, which on this repository is public.
+          status=$(curl -sS -o repo.json -w '%{http_code}' \
+            -H "Authorization: Bearer ${ASSETS_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/${ASSETS_REPO}")
+          case "${status}" in
+            200) ;;
+            401)
+              echo "::error::ASSETS_TOKEN was rejected (401): expired, revoked, or never valid."
+              exit 1 ;;
+            404)
+              echo "::error::ASSETS_TOKEN cannot see ${ASSETS_REPO} (404). Either that repository does not exist, or the token was not granted it, or your account is not a collaborator on it - and for a private repository GitHub answers 404 for all three. Mint a token scoped to the repository that holds the blobs, or point the ASSETS_REPO variable at one of your own."
+              exit 1 ;;
+            *)
+              echo "::error::looking up ${ASSETS_REPO} returned HTTP ${status}."
+              exit 1 ;;
+          esac
+
+          branch=$(jq -r '.default_branch // empty' repo.json)
+          if [ -z "${branch}" ]; then
+            echo "::error::${ASSETS_REPO} answered with no default_branch, so the blob tree cannot be located."
+            exit 1
+          fi
+
+          code=$(curl -sS -o tree.json -w '%{http_code}' \
+            -H "Authorization: Bearer ${ASSETS_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/${ASSETS_REPO}/git/trees/${branch}?recursive=1")
+          if [ "${code}" != "200" ]; then
+            echo "::error::listing ${ASSETS_REPO}@${branch} returned HTTP ${code}."
+            exit 1
+          fi
+
+          fx=$(jq '[.tree[]?.path | select(test("\\.(vso|pso)$"))] | length' tree.json)
+          xex=$(jq '[.tree[]?.path | select(endswith(".xex"))] | length' tree.json)
+
+          # Fail closed on a count we cannot read. An empty substitution here used
+          # to make the -eq tests error out while the step still exited 0, which
+          # is how a repo with no blobs at all walked past this guard.
+          for count in "${fx}" "${xex}"; do
+            case "${count}" in
+              ''|*[!0-9]*)
+                echo "::error::could not count the blob tree (read '${count}'), so refusing to build rather than ship another cache with nothing in it."
+                exit 1 ;;
+            esac
+          done
+
+          echo "${ASSETS_REPO}@${branch}: ${fx} shader blobs, ${xex} xex"
+
+          if [ "${fx}" -eq 0 ]; then
+            echo "::error::${ASSETS_REPO} is readable but carries no .vso/.pso blobs. An assets/ with no shader blobs is exactly the state that shipped a build drawing menus and text and nothing else."
+            exit 1
+          fi
+          if [ "${xex}" -eq 0 ]; then
+            echo "::warning::${ASSETS_REPO} has no .xex, so shader_cache.cmake will index the cache against nothing."
+          fi
+
+  resolve:
+    needs: preflight
+    uses: ./.github/workflows/_resolve.yml
+    with:
+      ref: ${{ github.sha }}
+      sdk_ref: ${{ inputs.sdk_ref || 'v0.10.1' }}
+      asset_tag: -cheats
+    secrets: inherit
+
+  windows:
+    needs: [preflight, resolve]
+    uses: ./.github/workflows/_build-windows.yml
+    with:
+      ref: ${{ github.sha }}
+      sdk_tag: ${{ needs.resolve.outputs.sdk_tag }}
+      asset_base: ${{ needs.resolve.outputs.asset_base }}
+      update_channel: stable
+    secrets: inherit
+
+  linux:
+    needs: [preflight, resolve]
+    uses: ./.github/workflows/_build-linux.yml
+    with:
+      ref: ${{ github.sha }}
+      sdk_tag: ${{ needs.resolve.outputs.sdk_tag }}
+      asset_base: ${{ needs.resolve.outputs.asset_base }}
+      update_channel: stable
+    secrets: inherit
+
+  publish:
+    needs: [resolve, windows, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: reblue-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Compose notes
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+          SDK_TAG: ${{ needs.resolve.outputs.sdk_tag }}
+          SDK_SHORT: ${{ needs.resolve.outputs.sdk_short }}
+          COMMIT: ${{ github.sha }}
+          TAG: ${{ env.ROLLING_TAG }}
+        run: bash .github/scripts/compose-cheats-notes.sh
+
+      # One moving release rather than a release per run: nobody has to find the
+      # current one, and the PR comment can link the tag once and stay true. It is
+      # published as a full release with make_latest so the releases page leads
+      # with the build a player should actually download - the hand-made v1.0.0
+      # cheats release predates the Windows artifact and is the wrong thing to
+      # land on. "latest" is GitHub's pointer at the newest published release, not
+      # a stability promise: the notes still say the build is rolling and does not
+      # self-update. Nothing here touches upstream's own v* releases, which
+      # release.yml publishes with the CDN secrets.
+      # Symbols are left out on purpose; they are for symbolizing crash logs and
+      # would triple what a player downloads.
+      - name: Publish rolling release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ env.ROLLING_TAG }}
+          name: reblue ${{ needs.resolve.outputs.version }} with cheats
+          prerelease: false
+          overwrite: true
+          make_latest: true
+          target_commitish: ${{ github.sha }}
+          body_path: notes.md
+          files: |
+            artifacts/*
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

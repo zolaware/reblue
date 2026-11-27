@@ -9,6 +9,8 @@
  */
 #pragma once
 
+#include <rex/types.h>
+
 namespace bd::engine {
 
 class Achievements {
@@ -21,6 +23,17 @@ public:
   // catalog at kernel boot, so readers assert the catalog rather than trust an
   // earlier registration.
   static void Register();
+
+  // Awards every achievement through the same path a condition would, so the
+  // store, the internal done flag and the viewer all stay in step. Returns how
+  // many were still locked. For the cheat menu; nothing in the game calls it.
+  static u32 UnlockAll();
+
+  // Re-locks everything. The manager exposes no clear, so this rewrites the
+  // per-profile unlock store and asks it to reload. Returns how many were
+  // still unlocked afterwards: non-zero means the reload merged rather than
+  // replaced and the reset needs a restart to show.
+  static u32 LockAll();
 };
 
 } // namespace bd::engine

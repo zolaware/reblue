@@ -11,6 +11,7 @@
 #include "core/i18n.h"
 #include "core/logging.h"
 #include "core/settings_model.h"
+#include "engine/cheats.h"
 #include "engine/d2anime/anime_hittest.h"
 #include "engine/d2anime/anime_mouse.h"
 #include "engine/d2anime/d2anime.h"
@@ -306,6 +307,8 @@ void ConfigMenu::HandleSettings() {
       }
       if (SettingsRowAction(page, row) == SettingAction::Keybinds)
         Transition(State::KEYBINDS);
+      else if (SettingsRowAction(page, row) == SettingAction::ResetCheats)
+        Transition(State::CONFIRM_RESET_CHEATS);
       return;
     }
 
@@ -787,6 +790,26 @@ void ConfigMenu::HandleConfirmResetBinds() {
   }
 
   Transition(State::KEYBINDS);
+}
+
+void ConfigMenu::HandleConfirmResetCheats() {
+  if (!confirm_popup_.Poll())
+    return;
+
+  const bool confirmed = confirm_popup_.Confirmed();
+  confirm_popup_.Kill();
+
+  if (confirmed) {
+    Cheats::Get().ResetAll();
+    // Persist like any other row change, so a restart does not reload the
+    // pre-reset values from reblue.toml.
+    settings_dirty_ = true;
+    BD_DEBUG("[config] cheats reset to defaults");
+  } else {
+    BD_DEBUG("[config] cheat reset declined");
+  }
+
+  Transition(State::SETTINGS);
 }
 
 } // namespace bd::engine

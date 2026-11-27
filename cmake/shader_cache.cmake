@@ -15,6 +15,30 @@ function(reblue_shader_cache)
     file(GLOB_RECURSE shader_inputs CONFIGURE_DEPENDS
         "${ARG_INPUT_DIR}/*.vso" "${ARG_INPUT_DIR}/*.pso" "${ARG_INPUT_DIR}/*.xex")
 
+    # The glob above is allowed to come back empty, and the build then succeeds:
+    # it just produces an executable with no recompiled guest shaders in it,
+    # which draws the menus and the text and nothing else. That is a two-day
+    # hunt for whoever builds from a fresh clone, because assets/ is gitignored
+    # and the tree still configures and compiles clean. Name the reason instead.
+    if(NOT REBLUE_ALLOW_EMPTY_SHADER_CACHE)
+        set(shader_blobs "")
+        foreach(entry IN LISTS shader_inputs)
+            if(entry MATCHES "\.(vso|pso)$")
+                list(APPEND shader_blobs "${entry}")
+            endif()
+        endforeach()
+        if(NOT shader_blobs)
+            message(FATAL_ERROR
+                "No Xenos shader blobs (*.vso / *.pso) under ${ARG_INPUT_DIR}.\n"
+                "assets/ is gitignored: CI stages it by cloning the asset repo "
+                "(see .github/scripts/fetch-deps.sh), and from your own discs "
+                "the BD_SYSTEM/FX and HC_SYSTEM/FX blobs go there by hand, "
+                "alongside the default.xex from your own copy of the game. "
+                "A build without them runs and draws nothing but menus. "
+                "Pass -DREBLUE_ALLOW_EMPTY_SHADER_CACHE=ON to build anyway.")
+        endif()
+    endif()
+
     add_custom_command(
         OUTPUT "${ARG_OUTPUT_CPP}"
         COMMAND $<TARGET_FILE:${ARG_RECOMP_TARGET}>

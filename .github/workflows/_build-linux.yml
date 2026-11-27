@@ -38,7 +38,7 @@ permissions:
 env:
   SDK_REPO: rexglue/rexglue-sdk
   SDK_TAG: ${{ inputs.sdk_tag }}
-  ASSETS_REPO: zolaware/reblue-assets
+  ASSETS_REPO: ${{ vars.ASSETS_REPO || 'zolaware/reblue-assets' }}
 
 jobs:
   build:

@@ -11,6 +11,7 @@
 #include <rex/hook.h>
 
 #include "engine/battle_task.h"
+#include "engine/cheats.h"
 #include "engine/cutscene_pause.h"
 #include "engine/frame_interp.h"
 #include "engine/hud_fade.h"
@@ -24,4 +25,5 @@ REX_HOOK_RAW(bdMainGameStep) {
   bd::engine::CutscenePause::Get().Poll();
   __imp__bdMainGameStep(ctx, base);
   bd::engine::RunDispatch();
+  bd::engine::Cheats::Get().Apply();
 }

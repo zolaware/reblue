@@ -16,6 +16,9 @@ option(REBLUE_BUILD_INSTALLER "Build the built-in first-run disc installer" ON)
 option(REBLUE_PSO_CAP "Compile in the PSO predictor-miss capture instrument" OFF)
 option(REBLUE_PROFILING "Compile in Tracy zones (never in Release)" ON)
 option(REBLUE_PCH "Precompile the hot shared headers" ON)
+option(REBLUE_ALLOW_EMPTY_SHADER_CACHE
+       "Configure with no .vso/.pso blobs in assets/, accepting an executable that draws nothing but menus"
+       OFF)
 
 set(REBLUE_TARGETS reblue)
 set(REBLUE_D3D12_TARGETS "")

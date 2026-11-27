@@ -36,9 +36,9 @@ inline constexpr const char* kSlideConfigTex =
 
 // Sidebar row pitch. AnimeMenu_CalcItemPosition derives the stride from this
 // height and the row count, so it has to track kSectionCount or every row
-// re-spaces. 40 on a 6px gap ends nine rows at 548, clear of the
+// re-spaces. 36 on a 6px gap ends ten rows at 554, clear of the
 // row description line at 568.
-inline constexpr int kSectionRowH = 40;
+inline constexpr int kSectionRowH = 36;
 inline constexpr int kSectionRowGap = 6;
 
 // Sidebar button template (l_modmgr_section.csv). The cell fills the sidebar
@@ -314,13 +314,15 @@ public:
   StringV kbHint{"KbHint", ""};
   FloatV kbChromeVis{"KbChromeVis", -1.0};
 
-  // Sections shown in the sidebar, in cursor order: the five settings pages
-  // (SettingsPage 0..4), then Mods, Official DLC, Languages and Achievements.
+  // Sections shown in the sidebar, in cursor order: the settings pages
+  // (SettingsPage 0..kSettingsSectionCount-1), then Mods, Official DLC,
+  // Languages and Achievements.
   static constexpr const char *kSectionKeys[] = {
       "settings.page.gameplay",  "settings.page.display",
       "settings.page.graphics",  "settings.page.audio",
-      "settings.page.controls",  "menu.header.mods",
-      "menu.header.dlc",         "menu.header.languages",
+      "settings.page.controls",  "settings.page.cheats",
+      "menu.header.mods",        "menu.header.dlc",
+      "menu.header.languages",
       "menu.header.achievements"};
   // Every section the title screen offers. A surface that shows fewer takes a
   // prefix of this, so the settings pages come first.
@@ -330,7 +332,7 @@ public:
   // Engine names of the per-page settings menus, indexed by SettingsPage.
   static constexpr const char *kSettingsListNames[kSettingsSectionCount] = {
       "GameplayList", "DisplayList", "GraphicsList", "AudioList",
-      "ControlsList"};
+      "ControlsList", "CheatsList"};
 
   static constexpr int kSectionMenuH =
       kSectionCount * kSectionRowH + (kSectionCount - 1) * kSectionRowGap;

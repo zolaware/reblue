@@ -206,7 +206,14 @@ void ConfigMenu::UpdateFooter() {
     const bool action =
         cursor >= 0 && SettingsRowUi(settings_page_, cursor) == RowUi::Action &&
         !SettingsDisabled(settings_page_, cursor);
-    SetFooter({.a = action ? "footer.configure" : nullptr, .b = "footer.back"});
+    // The prompt names the row's action, the same way its button does.
+    const char *aKey = !action
+                           ? nullptr
+                           : (SettingsRowAction(settings_page_, cursor) ==
+                                  SettingAction::ResetCheats
+                                 ? "footer.reset"
+                                 : "footer.configure");
+    SetFooter({.a = aKey, .b = "footer.back"});
     break;
   }
   case State::ACHVLIST:
@@ -227,6 +234,7 @@ void ConfigMenu::UpdateFooter() {
   case State::CONFIRM_DELETE:
   case State::CONFIRM_REBOOT:
   case State::CONFIRM_RESET_BINDS:
+  case State::CONFIRM_RESET_CHEATS:
     SetFooter({});
     break;
   default:
@@ -370,7 +378,12 @@ void ConfigMenu::RefreshSettingsVisuals() {
       hideButtons(vb);
       const auto &opt = kSettingOptVars[0];
       vb.SetFloat(opt.vis, 1.0);
-      vb.SetText(opt.name, i18n::Text("footer.configure"));
+      // Each action row names what A does; the keybind screen is "Configure",
+      // the cheat reset asks to be pressed.
+      const char *label = SettingsRowAction(page, i) == SettingAction::ResetCheats
+                              ? "footer.reset"
+                              : "footer.configure";
+      vb.SetText(opt.name, i18n::Text(label));
       vb.SetString(opt.wnd, "BTN01_OF");
       vb.SetFloat(opt.dim, DimFor(disabled));
       return;
