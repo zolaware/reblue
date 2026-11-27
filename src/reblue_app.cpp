@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 
@@ -44,6 +45,7 @@
 #include "generated/reblue_init.h"
 #include "gpu/gpu.h"
 #include "installer/installer.h"
+#include "launcher/recomplauncher.h"
 #include "platform/platform.h"
 #include "vfs/vfs.h"
 
@@ -389,6 +391,8 @@ void ReblueApp::OnConfigurePaths(rex::PathConfig &paths) {
   bd::platform::InstallTerminateHandler();
 
   if (!bd::platform::AcquireInstanceLock()) {
+    if (bd::launcher::ExternalLaunch())
+      throw std::runtime_error("re:Blue is already running. Close it before starting another copy.");
     bd::platform::ShowFatalError("re:Blue is already running",
                                  "Close the running copy before starting "
                                  "another.");
@@ -452,7 +456,8 @@ void ReblueApp::OnConfigurePaths(rex::PathConfig &paths) {
 #endif
   {
     bd::platform::ClearReplacedFiles(install_root_);
-    if (bd::platform::InstallStagedUpdate(install_root_)) {
+    if (!bd::platform::UnderRecompLauncher() &&
+        bd::platform::InstallStagedUpdate(install_root_)) {
       if (!bd::platform::RelaunchSelf(false)) {
         bd::platform::ShowFatalError(
             "Update installed, could not restart",
@@ -489,7 +494,9 @@ ReblueApp::PathsForInstall(const rex::PathConfig &defaults,
 bool ReblueApp::NeedsUpgradePrompt(
     const bd::installer::InstallConfig &cfg) const {
 #if defined(_WIN32) && defined(REBLUE_BUILD_INSTALLER)
-  return !cfg.Portable() && ProgramDir() != cfg.install_root;
+  // Copying this program over another install is an update the launcher owns.
+  return !bd::platform::UnderRecompLauncher() && !cfg.Portable() &&
+         ProgramDir() != cfg.install_root;
 #else
   (void)cfg;
   return false;
@@ -554,6 +561,8 @@ ReblueApp::OnFinalizePaths(const rex::PathConfig &defaults,
 
   if (user_supplied_path) {
     if (!std::filesystem::exists(defaults.game_data_root / "default.xex")) {
+      if (bd::launcher::ExternalLaunch())
+        throw std::runtime_error("The prepared game folder no longer contains default.xex. Run setup again.");
       bd::platform::ShowFatalError(
           "reblue - invalid game directory",
           "Path '" + defaults.game_data_root.string() +

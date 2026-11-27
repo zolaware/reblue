@@ -6,7 +6,7 @@ set -eux
 
 apt-get update
 apt-get install -y --no-install-recommends \
-  ca-certificates curl wget gnupg jq unzip git git-lfs file \
+  ca-certificates curl wget gnupg jq unzip zip git git-lfs file \
   software-properties-common lsb-release \
   binutils ccache cmake ninja-build python3 \
   g++-13 libvulkan-dev pkg-config desktop-file-utils \

@@ -65,6 +65,11 @@ std::filesystem::path RunningAppImage() {
 
 } // namespace
 
+bool UnderRecompLauncher() {
+  const auto value = rex::platform::env::get("RECOMPLAUNCHER");
+  return value && *value == "1";
+}
+
 Updates &Updates::Get() {
   static Updates s;
   return s;
@@ -82,8 +87,11 @@ void Updates::Init(std::filesystem::path install_root) {
   const std::filesystem::path target =
       appimage.empty() ? std::filesystem::path{} : appimage.parent_path();
 #endif
-  can_apply_ = !target.empty() && bd::DirectoryWritable(target);
-  if (!can_apply_)
+  can_apply_ = !UnderRecompLauncher() && !target.empty() &&
+               bd::DirectoryWritable(target);
+  if (UnderRecompLauncher())
+    BD_INFO("Started by RecompLauncher, which installs updates itself");
+  else if (!can_apply_)
     BD_INFO("Updates cannot be applied here, none will be offered");
 
   // Settings registered its own callback at OnPostInitLogging and callbacks
@@ -97,7 +105,7 @@ bool Updates::CanApply() const { return can_apply_; }
 
 void Updates::BeginCheck() {
   const auto &settings = bd::Settings::Get();
-  if (!settings.UpdateCheck())
+  if (!settings.UpdateCheck() || UnderRecompLauncher())
     return;
   const std::string url = settings.UpdateUrl();
   if (url.empty()) {
