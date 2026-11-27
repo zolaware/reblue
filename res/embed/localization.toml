@@ -1435,6 +1435,7 @@ manifest_missing.us = "This build is missing its install manifest, so reinstall 
 manifest_bad.us = "This build has a damaged install manifest at {}, so reinstall re:Blue."
 copy_failed.us = "Could not copy {}, check the free space and permissions on the install drive."
 finish_failed.us = "Could not finish writing to {}, check the free space and permissions on the install drive."
+discs_incomplete.us = "The selected discs are incomplete: {} required files are missing. The previous installation was kept."
 spawn.us = "Could not start a worker thread, {}."
 spawn.de = "Installation konnte nicht gestartet werden: {}"
 spawn.es = "Error al iniciar la instalación: {}"
