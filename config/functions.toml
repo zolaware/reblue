@@ -1278,8 +1278,11 @@
 0x82468B88 = { name = "rex_RtlpDeCommitFreeBlock", size = 0x360 }
 0x82468EF0 = { name = "rex_RtlCreateHeap", size = 0x5A4 }
 0x824694A0 = { name = "rex_RtlAllocateHeap", size = 0x894 }
+0x82469D34 = { name = "rex_RtlAllocateHeap__finally", size = 0x48, share_registers = true }
 0x82469D88 = { name = "rex_RtlFreeHeap", size = 0x294 }
+0x8246A01C = { name = "rex_RtlFreeHeap__finally", size = 0x48, share_registers = true }
 0x8246A070 = { name = "rex_RtlReAllocateHeap", size = 0x83C }
+0x8246A8AC = { name = "rex_RtlReAllocateHeap__finally", size = 0x44, share_registers = true }
 0x8246A928 = { name = "rex__get_heap_handle", size = 0xC }
 0x8246A938 = { name = "rex_j_RtlSetLastError", size = 0x4 }
 0x8246AAB0 = { name = "D3DDevice_SynchronizeToPresentationInterval", size = 0x188 }
@@ -1588,6 +1591,7 @@
 0x82685A38 = {}
 0x8268B1B8 = { name = "XMAPlaybackConsumeDecodedData", size = 0x1B4 }
 0x826D8AF8 = { name = "crt_write", size = 0x15C }
+0x826D8C54 = { name = "crt_write__finally", size = 0x38, share_registers = true }
 0x826E19C8 = { name = "rex_GetFileAttributesA", size = 0x64 }
 0x826E1A30 = { name = "rex_MultiByteToWideChar", size = 0xD8 }
 0x826E1B08 = { name = "rex_GetFileTime", size = 0x7C }
